@@ -1,17 +1,13 @@
 # 只负责发布，不跑验证（验证以本地 `pnpm check` 为准，见 docs/adr/0001-engineering-standards.md 第 5 节）。
-# 推送到 main 时：有未发布的 changeset 就开或更新「版本更新」PR；合并该 PR 后发布到 npm。
-# 发布用 npm Trusted Publishing（OIDC），仓库里不存任何 npm token。
+# 推送 v* 标签时构建并发布到 npm。发布用 npm Trusted Publishing（OIDC），仓库里不存任何 npm token。
 name: release
 
 on:
   push:
-    branches: [main]
-
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+    tags: ['v*']
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   id-token: write
 
 jobs:
@@ -27,10 +23,4 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - uses: changesets/action@v1
-        with:
-          publish: pnpm changeset publish
-          title: 'chore(release): 发布新版本'
-          commit: 'chore(release): 发布新版本'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm publish --no-git-checks

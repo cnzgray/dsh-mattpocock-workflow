@@ -10,8 +10,3 @@ pre-commit:
       glob: '*.{ts,tsx}'
       run: pnpm eslint --max-warnings=0 --fix {staged_files}
       stage_fixed: true
-
-commit-msg:
-  jobs:
-    - name: commitlint
-      run: pnpm commitlint --edit {1}

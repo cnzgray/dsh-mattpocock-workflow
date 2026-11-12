@@ -17,7 +17,6 @@ pnpm install   # 装依赖，同时装好 git 钩子
 | `pnpm build`      | 构建到 `lib/`（产物不进仓库）                                                        |
 | `pnpm test:watch` | 开发时监听运行测试                                                                   |
 | `pnpm format`     | 格式化全部文件                                                                       |
-| `pnpm changeset`  | 为本次改动写一条更新日志                                                             |
 
 ## 目录分层
 
@@ -46,11 +45,11 @@ feat(tracker): GitLab 后端支持同步标签颜色
 fix(client): 面板刷新时不再丢失滚动位置
 ```
 
-类型用 `feat`、`fix`、`refactor`、`test`、`docs`、`chore`、`build` 等。提交时钩子会自动格式化、lint 暂存的文件，并检查提交标题。
+类型用 `feat`、`fix`、`refactor`、`test`、`docs`、`chore`、`build` 等。提交时钩子会自动格式化、lint 暂存的文件。
 
 ## 发布
 
-1. 改动合并时附带 `pnpm changeset` 生成的说明文件；
-2. 推送到 main 后，GitHub Actions 会开一个「版本更新」PR，合并它即通过 npm Trusted Publishing 发布。
+1. 在 main 上用 `pnpm version <patch|minor|major>` 更新版本号，它会提交并打上 `v<版本号>` 标签；
+2. `git push --follow-tags` 推送标签后，GitHub Actions 通过 npm Trusted Publishing 发布。
 
 完整的规范和理由见 [docs/adr/0001-engineering-standards.md](docs/adr/0001-engineering-standards.md)。

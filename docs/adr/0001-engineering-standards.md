@@ -97,8 +97,8 @@ pnpm e2e     =  先构建，再跑 Playwright（耗时较长，单独执行）
 ## 6. Git 流程与发布
 
 - **分支**：主干开发。功能分支要短，通过 PR 合并，合并方式用 squash，main 保持线性历史。
-- **提交信息**：Conventional Commits 的类型前缀，后面接中文描述，例如 `feat(tracker): GitLab 后端支持同步标签颜色`、`fix(client): 面板刷新时不再丢失滚动位置`。有类型前缀才能自动生成更新日志；由 commit-msg 钩子里的 commitlint 检查。
-- **版本与更新日志**：用 Changesets。每个 PR 附一个说明文件，发版时自动合并成 CHANGELOG 并更新版本号。
+- **提交信息**：Conventional Commits 的类型前缀，后面接中文描述，例如 `feat(tracker): GitLab 后端支持同步标签颜色`、`fix(client): 面板刷新时不再丢失滚动位置`。不做工具检查，靠评审把关。
+- **版本**：用 `pnpm version` 手动更新版本号并打 `v*` 标签，推送标签即触发发布。不维护 CHANGELOG 文件。
 - **npm 发布**：包名 `dsh-mattpocock-workflow`。
 - **发布凭证**：只给发布这一件事开一条 GitHub Actions 工作流，用 npm 的 Trusted Publishing（OIDC），不存放任何长期 token。这条工作流只负责发布，不跑验证，和上面「只信本地」的决定不冲突。
 - **依赖更新**：Renovate，每周自动开一个合并好的 PR；开发依赖锁定精确版本。

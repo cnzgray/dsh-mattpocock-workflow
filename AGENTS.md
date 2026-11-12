@@ -21,3 +21,17 @@ DSH 插件，用 TypeScript 写，pnpm 管理，Node 24。规范全文见 `docs/
 - 不改写 git 历史，不 force push。
 
 能用工具检查的规则不写在这里：改 lint、依赖规则或测试配置，而不是往本文件加条目。
+
+## Issue tracker, triage labels and domain docs
+
+### Issue tracker
+
+issue 和 spec 放在 GitHub Issues（`cnzgray/dsh-mattpocock-workflow`），用 `gh` 操作。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认标签：状态标签 `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`，分类标签 `bug` / `enhancement`。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根目录 `GLOSSARY.md`（按需创建）加 `docs/adr/`。见 `docs/agents/domain.md`。
