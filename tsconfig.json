@@ -1,0 +1,9 @@
+{
+  // Node 侧：core、adapters、host、protocol，以及脚本和配置文件。界面代码见 tsconfig.client.json。
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src/core", "src/adapters", "src/host", "src/protocol", "scripts", "*.config.ts"]
+}

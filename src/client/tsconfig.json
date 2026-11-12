@@ -1,0 +1,12 @@
+{
+  // 界面侧：运行在 DSH 的浏览器页面里，React 由宿主提供。
+  // 放在 src/client 下而不是根目录，ESLint 和编辑器才会按「离文件最近的 tsconfig.json」自动找到它。
+  // jsx 用 classic 模式（React.createElement），因为宿主只保证提供 react，不保证提供 react/jsx-runtime。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react"
+  },
+  "include": [".", "../protocol"]
+}

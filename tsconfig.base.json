@@ -1,0 +1,28 @@
+{
+  // 所有 tsconfig 共用的严格选项。只做类型检查，不产出文件：构建由 esbuild 完成，脚本由 Node 直接运行 .ts。
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // 导入一律写 .ts 后缀：Node 直接运行脚本、esbuild 打包、Vitest 加载，三边看到的是同一个路径。
+    "allowImportingTsExtensions": true,
+    // 只允许能被直接剥离的写法（不许 enum、构造函数参数属性等），Node 的类型剥离才能直接运行源码。
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  }
+}

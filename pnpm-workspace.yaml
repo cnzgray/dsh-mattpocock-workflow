@@ -1,0 +1,6 @@
+# pnpm 只认这里的 engineStrict（不认 .npmrc 的 engine-strict），Node 版本不符时直接拒绝安装。
+engineStrict: true
+# 只允许这两个包在安装时运行脚本：esbuild 要下载平台二进制，lefthook 要装 git 钩子。
+allowBuilds:
+  esbuild: true
+  lefthook: true

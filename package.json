@@ -1,0 +1,88 @@
+{
+  "name": "dsh-mattpocock-workflow",
+  "version": "0.0.0",
+  "description": "在 DSH 里运行 mattpocock/skills 工作流的任务面板插件。",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnzgray/dsh-mattpocock-workflow.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mattpocock",
+    "skills",
+    "workflow"
+  ],
+  "engines": {
+    "node": ">=24.15.0",
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run deps && pnpm run files && pnpm run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings=0 .",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/client/tsconfig.json",
+    "deps": "depcruise src --config .dependency-cruiser.json",
+    "files": "node scripts/check-file-size.ts",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "changeset": "changeset",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "@eslint/js": "10.0.1",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "19.3.0",
+    "@vitest/coverage-v8": "5.1.0",
+    "dependency-cruiser": "18.7.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "eslint-config-prettier": "10.1.8",
+    "jiti": "2.7.0",
+    "jsdom": "31.0.0",
+    "lefthook": "2.2.2",
+    "prettier": "3.9.10",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  }
+}

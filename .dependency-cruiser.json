@@ -1,0 +1,96 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sverweij/dependency-cruiser/main/src/schema/configuration.schema.json",
+  "forbidden": [
+    {
+      "name": "no-circular",
+      "comment": "模块之间不允许循环依赖。",
+      "severity": "error",
+      "from": {},
+      "to": {
+        "circular": true
+      }
+    },
+    {
+      "name": "core-is-pure",
+      "comment": "core 只放纯业务逻辑：正式代码不依赖其他目录，也不依赖任何第三方包或 Node 内置模块（测试文件可以导入测试工具）。",
+      "severity": "error",
+      "from": {
+        "path": "^src/core/",
+        "pathNot": "\\.test\\.tsx?$"
+      },
+      "to": {
+        "pathNot": ["^src/core/"],
+        "dependencyTypesNot": ["type-only"]
+      }
+    },
+    {
+      "name": "adapters-only-core",
+      "comment": "adapters 对接外部系统，只能依赖 core；各个后端之间互不依赖。",
+      "severity": "error",
+      "from": {
+        "path": "^src/adapters/([^/]+)/"
+      },
+      "to": {
+        "path": "^src/",
+        "pathNot": ["^src/core/", "^src/adapters/$1/"]
+      }
+    },
+    {
+      "name": "host-layers",
+      "comment": "host 负责组装，只能依赖 core、adapters、protocol，不能依赖 client。",
+      "severity": "error",
+      "from": {
+        "path": "^src/host/"
+      },
+      "to": {
+        "path": "^src/client/"
+      }
+    },
+    {
+      "name": "client-only-protocol",
+      "comment": "client 运行在浏览器里，只能通过 protocol 里的消息类型和 host 通信，不能直接导入 core、adapters、host。",
+      "severity": "error",
+      "from": {
+        "path": "^src/client/"
+      },
+      "to": {
+        "path": "^src/(core|adapters|host)/"
+      }
+    },
+    {
+      "name": "protocol-is-leaf",
+      "comment": "protocol 只放消息类型和常量，不依赖任何其他目录。",
+      "severity": "error",
+      "from": {
+        "path": "^src/protocol/"
+      },
+      "to": {
+        "path": "^src/",
+        "pathNot": "^src/protocol/"
+      }
+    },
+    {
+      "name": "no-test-imports-in-source",
+      "comment": "正式代码不能导入测试文件。",
+      "severity": "error",
+      "from": {
+        "pathNot": "\\.test\\.tsx?$"
+      },
+      "to": {
+        "path": "\\.test\\.tsx?$"
+      }
+    }
+  ],
+  "options": {
+    "doNotFollow": {
+      "path": "node_modules"
+    },
+    "tsPreCompilationDeps": true,
+    "tsConfig": {
+      "fileName": "tsconfig.json"
+    },
+    "enhancedResolveOptions": {
+      "extensions": [".ts", ".tsx", ".js"]
+    }
+  }
+}
