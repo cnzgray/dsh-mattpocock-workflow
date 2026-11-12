@@ -6,8 +6,10 @@ import { countTickets, filterTickets, sortTickets } from './ticket-view.ts'
 function ticket(
   overrides: Partial<TicketSnapshot> & Pick<TicketSnapshot, 'number'>,
 ): TicketSnapshot {
+  const number = overrides.number
   return {
-    title: `票 ${String(overrides.number)}`,
+    ref: number === null ? '.scratch/feature/issues/01-ticket.md' : `#${String(number)}`,
+    title: `票 ${String(number)}`,
     state: 'open',
     category: null,
     status: 'open',
@@ -100,6 +102,28 @@ describe('工单排序', () => {
   it('按编号排序', () => {
     expect(sortTickets(TICKETS, 'number', 'asc').map((item) => item.number)).toEqual([
       1, 2, 3, 4, 5,
+    ])
+  })
+
+  it('按编号排序时数字编号在前，本地路径按 ref 字典序排在后', () => {
+    const list = [
+      ticket({ number: null, ref: '.scratch/b/issues/01-b.md', title: 'B' }),
+      ticket({ number: 3, title: 'C' }),
+      ticket({ number: 1, title: 'A' }),
+      ticket({ number: null, ref: '.scratch/a/issues/02-a.md', title: 'D' }),
+    ]
+
+    expect(sortTickets(list, 'number', 'asc').map((item) => item.ref)).toEqual([
+      '#1',
+      '#3',
+      '.scratch/a/issues/02-a.md',
+      '.scratch/b/issues/01-b.md',
+    ])
+    expect(sortTickets(list, 'number', 'desc').map((item) => item.ref)).toEqual([
+      '#3',
+      '#1',
+      '.scratch/b/issues/01-b.md',
+      '.scratch/a/issues/02-a.md',
     ])
   })
 

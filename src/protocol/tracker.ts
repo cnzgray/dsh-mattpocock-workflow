@@ -17,6 +17,14 @@ export const RPC_METHODS = {
   snapshotRefresh: 'snapshot.refresh',
 } as const
 
+/**
+ * 工单后端类型。宿主按工作区的 `origin` 远端自动选择，界面只据此显示徽标：
+ * - `github`：`github.com` 仓库，通过 `gh` 读取；
+ * - `gitlab`：`gitlab.com` 或 `glab` 已登录的自建实例，通过 `glab` 读取；
+ * - `markdown`：其余情况，读取工作区里的 `.scratch/<feature>/issues/*.md`。
+ */
+export type BackendKind = 'github' | 'gitlab' | 'markdown'
+
 /** 工单的开闭状态。 */
 export type TicketState = 'open' | 'closed'
 
@@ -34,7 +42,13 @@ export type TicketStatus = 'ready' | 'blocked' | 'closed' | 'open'
 
 /** 快照里的一张票。 */
 export interface TicketSnapshot {
-  readonly number: number
+  /**
+   * 唯一、可直接展示并写进提示词的引用：GitHub / GitLab 是 `#15`，
+   * 本地 Markdown 是相对工作区的文件路径。列表 key、选中态与注入文本都用它。
+   */
+  readonly ref: string
+  /** 数字编号；本地 Markdown 没有编号，为 null。 */
+  readonly number: number | null
   readonly title: string
   readonly state: TicketState
   readonly category: TicketCategory
@@ -47,7 +61,12 @@ export interface TicketSnapshot {
 
 /** 一个工作区的工单快照。 */
 export interface WorkspaceSnapshot {
-  /** GitHub 仓库标识，`owner/name`。 */
+  /** 本快照来自哪个后端。 */
+  readonly backend: BackendKind
+  /**
+   * 后端相关的仓库显示名：GitHub 是 `owner/name`，GitLab 是含嵌套 group 的完整项目路径，
+   * 本地 Markdown 是工作区目录名。
+   */
   readonly repository: string
   /** 快照生成时间（毫秒时间戳），界面用它显示“多久之前”。 */
   readonly fetchedAt: number
@@ -81,13 +100,14 @@ export interface RpcRequest<M extends RpcMethod = RpcMethod> {
 
 /**
  * 错误码。前五个是工单读取的业务错误，其余是协议层错误。
- * 客户端按错误码给出可操作的提示（装 gh、登录、换工作区）。
+ * 客户端按错误码给出可操作的提示（装 gh / glab、登录、检查 `.scratch` 权限）。
  */
 export const ERROR_CODES = {
   ghMissing: 'gh-missing',
   ghUnauthenticated: 'gh-unauthenticated',
-  notARepo: 'not-a-repo',
-  noGithubRemote: 'no-github-remote',
+  glabMissing: 'glab-missing',
+  glabUnauthenticated: 'glab-unauthenticated',
+  markdownReadFailed: 'markdown-read-failed',
   fetchFailed: 'fetch-failed',
   invalidParams: 'invalid-params',
   unknownMethod: 'unknown-method',

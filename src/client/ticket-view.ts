@@ -77,13 +77,36 @@ export function sortTickets(
 ): readonly TicketSnapshot[] {
   const factor = direction === 'asc' ? 1 : -1
 
-  return [...tickets].sort((left, right) => factor * compareTickets(left, right, key))
+  return [...tickets].sort((left, right) => {
+    if (key === 'number') return compareByNumber(left, right, factor)
+    return factor * compareTickets(left, right, key)
+  })
 }
 
-function compareTickets(left: TicketSnapshot, right: TicketSnapshot, key: TicketSortKey): number {
+/**
+ * “按编号”在混合数据下先分组：有数字编号的票永远在前，本地 Markdown 按 `ref`
+ * 排在后；方向只作用于组内，避免降序时把本地票翻到最前面。
+ */
+function compareByNumber(left: TicketSnapshot, right: TicketSnapshot, factor: number): number {
+  const group = numberGroup(left) - numberGroup(right)
+  if (group !== 0) return group
+
+  if (left.number !== null && right.number !== null) {
+    return factor * (left.number - right.number)
+  }
+  return factor * left.ref.localeCompare(right.ref, 'en')
+}
+
+function numberGroup(ticket: TicketSnapshot): number {
+  return ticket.number === null ? 1 : 0
+}
+
+function compareTickets(
+  left: TicketSnapshot,
+  right: TicketSnapshot,
+  key: Exclude<TicketSortKey, 'number'>,
+): number {
   switch (key) {
-    case 'number':
-      return left.number - right.number
     case 'title':
       return left.title.localeCompare(right.title, 'zh-Hans')
     case 'created':

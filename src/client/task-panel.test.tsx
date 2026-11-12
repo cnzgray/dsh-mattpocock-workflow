@@ -13,6 +13,7 @@ const NOW = Date.parse('2026-11-12T15:00:00Z')
 
 const TICKETS: readonly TicketSnapshot[] = [
   {
+    ref: '#1',
     number: 1,
     title: 'Bravo',
     state: 'open',
@@ -23,6 +24,7 @@ const TICKETS: readonly TicketSnapshot[] = [
     openBlockers: 0,
   },
   {
+    ref: '#2',
     number: 2,
     title: 'Alpha',
     state: 'open',
@@ -33,6 +35,7 @@ const TICKETS: readonly TicketSnapshot[] = [
     openBlockers: 1,
   },
   {
+    ref: '#3',
     number: 3,
     title: 'Charlie',
     state: 'closed',
@@ -43,6 +46,7 @@ const TICKETS: readonly TicketSnapshot[] = [
     openBlockers: 0,
   },
   {
+    ref: '#4',
     number: 4,
     title: 'Delta',
     state: 'open',
@@ -53,6 +57,7 @@ const TICKETS: readonly TicketSnapshot[] = [
     openBlockers: 0,
   },
   {
+    ref: '#5',
     number: 5,
     title: 'Echo',
     state: 'open',
@@ -65,6 +70,7 @@ const TICKETS: readonly TicketSnapshot[] = [
 ]
 
 const SNAPSHOT: WorkspaceSnapshot = {
+  backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
@@ -114,8 +120,8 @@ function panelProps(overrides: Partial<TaskPanelProps> = {}): TaskPanelProps {
   }
 }
 
-function rowNumbers(): readonly (string | null)[] {
-  return screen.getAllByTestId('ticket-row').map((row) => row.getAttribute('data-number'))
+function rowRefs(): readonly (string | null)[] {
+  return screen.getAllByTestId('ticket-row').map((row) => row.getAttribute('data-ref'))
 }
 
 function firstRow(): HTMLElement {
@@ -130,6 +136,7 @@ describe('任务面板', () => {
 
     await screen.findAllByTestId('ticket-row')
     expect(screen.getByTestId('repo-name').textContent).toBe('cnzgray/dsh-mattpocock-workflow')
+    expect(screen.getByTestId('backend-badge').textContent).toBe('GitHub')
     expect(screen.getByTestId('snapshot-age').textContent).toContain('刚刚')
     expect(screen.getByTestId('stat-ready').textContent).toContain('2')
     expect(screen.getByTestId('stat-blocked').textContent).toContain('1')
@@ -158,35 +165,85 @@ describe('任务面板', () => {
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('filter-ready'))
-    expect(rowNumbers()).toEqual(['1', '5'])
+    expect(rowRefs()).toEqual(['#1', '#5'])
 
     fireEvent.click(screen.getByTestId('filter-blocked'))
-    expect(rowNumbers()).toEqual(['2'])
+    expect(rowRefs()).toEqual(['#2'])
 
     fireEvent.click(screen.getByTestId('filter-closed'))
-    expect(rowNumbers()).toEqual(['3'])
+    expect(rowRefs()).toEqual(['#3'])
 
     fireEvent.click(screen.getByTestId('filter-open'))
-    expect(rowNumbers()).toEqual(['1', '2', '4', '5'])
+    expect(rowRefs()).toEqual(['#1', '#2', '#4', '#5'])
   })
 
   it('按标题和编号排序，再次点击当前排序切换升降序', async () => {
     render(<TaskPanel {...panelProps()} />)
     await screen.findAllByTestId('ticket-row')
 
-    expect(rowNumbers()).toEqual(['1', '3', '2', '4', '5'])
+    expect(rowRefs()).toEqual(['#1', '#3', '#2', '#4', '#5'])
 
     fireEvent.click(screen.getByTestId('sort-title'))
-    expect(rowNumbers()).toEqual(['2', '1', '3', '4', '5'])
+    expect(rowRefs()).toEqual(['#2', '#1', '#3', '#4', '#5'])
 
     fireEvent.click(screen.getByTestId('sort-title'))
-    expect(rowNumbers()).toEqual(['5', '4', '3', '1', '2'])
+    expect(rowRefs()).toEqual(['#5', '#4', '#3', '#1', '#2'])
 
     fireEvent.click(screen.getByTestId('sort-number'))
-    expect(rowNumbers()).toEqual(['5', '4', '3', '2', '1'])
+    expect(rowRefs()).toEqual(['#5', '#4', '#3', '#2', '#1'])
 
     fireEvent.click(screen.getByTestId('sort-number'))
-    expect(rowNumbers()).toEqual(['1', '2', '3', '4', '5'])
+    expect(rowRefs()).toEqual(['#1', '#2', '#3', '#4', '#5'])
+  })
+
+  it.each([
+    ['github', 'GitHub'],
+    ['gitlab', 'GitLab'],
+    ['markdown', '本地'],
+  ] as const)('后端徽标显示 %s', async (backend, label) => {
+    const client = fakeClient({ ok: true, result: { ...SNAPSHOT, backend } }).client
+    render(<TaskPanel {...panelProps({ client })} />)
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('backend-badge').textContent).toBe(label)
+  })
+
+  it('本地 Markdown 路径过长时中间截断，完整值放在 title 里', async () => {
+    const ref = '.scratch/very-long-feature-name/issues/03-session.md'
+    const snapshot: WorkspaceSnapshot = {
+      backend: 'markdown',
+      repository: 'my-workspace',
+      fetchedAt: NOW - 5_000,
+      loaded: 1,
+      total: 1,
+      tickets: [
+        {
+          ref,
+          number: null,
+          title: '会话过期处理',
+          state: 'open',
+          category: null,
+          status: 'ready',
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-10T00:00:00Z',
+          openBlockers: 0,
+        },
+      ],
+    }
+    const injectDraft = vi.fn(() => true)
+    render(
+      <TaskPanel
+        {...panelProps({ client: fakeClient({ ok: true, result: snapshot }).client, injectDraft })}
+      />,
+    )
+
+    await screen.findAllByTestId('ticket-row')
+    const badge = screen.getByTestId('ticket-ref')
+    expect(badge.textContent).toContain('…')
+    expect(badge.getAttribute('title')).toBe(ref)
+
+    fireEvent.click(firstRow())
+    expect(injectDraft).toHaveBeenLastCalledWith(processTicketPrompt(ref))
   })
 
   it('刷新会重新拉取并更新快照', async () => {
@@ -245,15 +302,19 @@ describe('任务面板', () => {
     expect(screen.getAllByTestId('ticket-row')).toHaveLength(5)
   })
 
-  it('首次读取失败时显示可操作提示且没有列表', async () => {
+  it.each([
+    ['glab-missing', '未找到 glab 命令'],
+    ['glab-unauthenticated', 'glab 未登录或令牌已失效'],
+    ['markdown-read-failed', '读取 .scratch'],
+  ] as const)('错误码 %s 显示可操作提示且没有列表', async (code, text) => {
     const fake = fakeClient({
       ok: false,
-      error: { code: 'not-a-repo', message: '不是仓库' },
+      error: { code, message: '业务失败' },
     })
     render(<TaskPanel {...panelProps({ client: fake.client })} />)
 
     await screen.findByTestId('error')
-    expect(screen.getByTestId('error').textContent).toContain('不是 git 仓库')
+    expect(screen.getByTestId('error').textContent).toContain(text)
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
@@ -269,7 +330,7 @@ describe('任务面板', () => {
     expect(injectDraft).toHaveBeenLastCalledWith(NEW_BUG_PROMPT)
 
     fireEvent.click(firstRow())
-    expect(injectDraft).toHaveBeenLastCalledWith(processTicketPrompt(1))
+    expect(injectDraft).toHaveBeenLastCalledWith(processTicketPrompt('#1'))
   })
 
   it('没有可用会话时禁用注入按钮并给出提示', async () => {

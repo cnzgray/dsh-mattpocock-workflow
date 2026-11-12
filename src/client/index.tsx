@@ -123,7 +123,7 @@ export function apply(ctx: ClientContextLike): void {
               id: 'task-panel',
               order: 20,
               title: () => 'MattWorkflow',
-              description: () => '查看、筛选并开始处理 GitHub 工单',
+              description: () => '查看、筛选并开始处理工单',
             },
           ],
         }),

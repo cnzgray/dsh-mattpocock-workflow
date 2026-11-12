@@ -11,6 +11,7 @@ describe('GraphQL 工单解析', () => {
     expect(parsed.total).toBe(30)
     expect(parsed.tickets).toHaveLength(5)
     expect(parsed.tickets[0]).toEqual({
+      ref: '#15',
       number: 15,
       title: '右侧栏任务面板 MVP',
       state: 'open',

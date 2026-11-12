@@ -5,7 +5,12 @@
 
 /** 工单读取的业务错误码。 */
 export type TrackerErrorCode =
-  'gh-missing' | 'gh-unauthenticated' | 'not-a-repo' | 'no-github-remote' | 'fetch-failed'
+  | 'gh-missing'
+  | 'gh-unauthenticated'
+  | 'glab-missing'
+  | 'glab-unauthenticated'
+  | 'markdown-read-failed'
+  | 'fetch-failed'
 
 /** 带稳定错误码的工单读取失败。 */
 export class TrackerError extends Error {
@@ -50,4 +55,16 @@ export class CommandError extends Error {
     this.stderr = stderr
     this.exitCode = exitCode
   }
+}
+
+/**
+ * 取命令失败的一行诊断：优先标准错误，最多 200 字符。
+ * 两个后端都要把子进程错误翻译成用户能看懂的提示，格式保持一致。
+ * @param error - 命令执行失败。
+ * @returns 第一行诊断。
+ */
+export function commandFailureDetail(error: CommandError): string {
+  const text = error.stderr.trim() || error.message
+  const firstLine = text.split('\n')[0] ?? text
+  return firstLine.length > 200 ? `${firstLine.slice(0, 200)}…` : firstLine
 }

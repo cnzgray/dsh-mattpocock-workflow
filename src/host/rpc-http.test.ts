@@ -26,6 +26,7 @@ function fakeService(result: RpcResult<WorkspaceSnapshot>): {
 const OK: RpcResult<WorkspaceSnapshot> = {
   ok: true,
   result: {
+    backend: 'github',
     repository: 'cnzgray/dsh-mattpocock-workflow',
     fetchedAt: 1,
     loaded: 0,

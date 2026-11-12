@@ -16,6 +16,8 @@ import { TicketList } from './ticket-list.tsx'
 import {
   ACTION_BAR_STYLE,
   AGE_STYLE,
+  BACKEND_BADGE_STYLE,
+  BACKEND_LABELS,
   BUG_ACTION_STYLE,
   BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
@@ -72,8 +74,9 @@ const AGE_TICK_MS = 30_000
 const ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
   'gh-missing': '未找到 gh 命令，请先安装 GitHub CLI（https://cli.github.com）。',
   'gh-unauthenticated': 'gh 未登录，请运行 gh auth login 后重试。',
-  'not-a-repo': '当前工作区不是 git 仓库。',
-  'no-github-remote': '当前仓库没有 GitHub 远端。',
+  'glab-missing': '未找到 glab 命令，请先安装 GitLab CLI（https://gitlab.com/gitlab-org/cli）。',
+  'glab-unauthenticated': 'glab 未登录或令牌已失效，请运行 glab auth login 后重试。',
+  'markdown-read-failed': '读取 .scratch 里的工单失败，请检查文件读取权限。',
 }
 
 /** MattWorkflow 面板的根组件。 */
@@ -83,7 +86,7 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   const [filter, setFilter] = React.useState<TicketFilter>('all')
   const [sortKey, setSortKey] = React.useState<TicketSortKey>('updated')
   const [direction, setDirection] = React.useState<SortDirection>('desc')
-  const [selected, setSelected] = React.useState<number | null>(null)
+  const [selected, setSelected] = React.useState<string | null>(null)
   const nowValue = useNow(clock)
   const [notice, setNotice] = React.useState<string | null>(null)
 
@@ -114,8 +117,8 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   }
 
   const onPick = (ticket: TicketSnapshot): void => {
-    setSelected(ticket.number)
-    inject(processTicketPrompt(ticket.number))
+    setSelected(ticket.ref)
+    inject(processTicketPrompt(ticket.ref))
   }
 
   return (
@@ -239,11 +242,18 @@ function Header(props: {
 }): React.ReactElement {
   return (
     <header style={HEADER_STYLE}>
-      <div style={REPO_CHIP_STYLE}>
-        <FolderIcon />
-        <span data-testid="repo-name" style={REPO_NAME_STYLE}>
-          {props.snapshot?.repository ?? (props.loading ? '正在识别仓库…' : '未识别到仓库')}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+        <div style={REPO_CHIP_STYLE}>
+          <FolderIcon />
+          <span data-testid="repo-name" style={REPO_NAME_STYLE}>
+            {props.snapshot?.repository ?? (props.loading ? '正在识别仓库…' : '未识别到仓库')}
+          </span>
+        </div>
+        {props.snapshot === null ? null : (
+          <span data-testid="backend-badge" style={BACKEND_BADGE_STYLE}>
+            {BACKEND_LABELS[props.snapshot.backend]}
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button

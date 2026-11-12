@@ -1,13 +1,13 @@
 /**
  * 服务端插件入口。DSH 按默认导出加载：inject 里列出的服务就绪后才调用 apply。
- * 这里只做组装：工单规则在 core，GitHub 读取在 adapters，RPC 契约在 protocol。
+ * 这里只做组装：工单规则在 core，各后端读取在 adapters，RPC 契约在 protocol。
  *
  * 每个 `ctx.get` 都做存在性检查：DSH 版本不同或某个服务缺失时，
  * 插件降级并记日志，而不是抛错让整个客户端加载失败。
  */
-import { createGithubTracker } from '../adapters/github/tracker.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import { RPC_PATH } from '../protocol/tracker.ts'
+import { createBackendResolver } from './backend-resolver.ts'
 import { readConnection, readSubprocess, readTimer, type DshContext } from './dsh-types.ts'
 import { createRpcFetchHandler } from './rpc-http.ts'
 import { createSnapshotService } from './snapshot-service.ts'
@@ -37,9 +37,9 @@ const plugin = {
       }
 
       const run = createCommandRunner(subprocess, timer)
-      const tracker = createGithubTracker({ run, now: () => Date.now() })
+      const resolve = createBackendResolver({ run, now: () => Date.now() })
       const service = createSnapshotService({
-        tracker,
+        resolve,
         now: () => Date.now(),
         labels: TRACKER_LABELS,
         log: (level, event, fields) => {

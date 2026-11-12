@@ -11,6 +11,7 @@ const NAMES: TicketLabelNames = {
 
 function ticket(overrides: Partial<Ticket> = {}): Ticket {
   return {
+    ref: '#1',
     number: 1,
     title: '一张票',
     state: 'open',

@@ -47,6 +47,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
   const state = readState(value.state, number)
 
   return {
+    ref: `#${String(number)}`,
     number,
     title,
     state,

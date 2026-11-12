@@ -22,13 +22,17 @@ import {
 /** 工单列表依赖。 */
 export interface TicketListProps {
   readonly tickets: readonly TicketSnapshot[]
-  readonly selected: number | null
+  /** 当前选中的工单 `ref`。 */
+  readonly selected: string | null
   readonly onPick: (ticket: TicketSnapshot) => void
 }
 
+/** 本地 Markdown 路径在卡片里的显示上限；再长就从中间截断。 */
+const REF_DISPLAY_LIMIT = 40
+
 /**
  * 渲染过滤、排序后的工单。
- * @param props - 工单、当前选中编号与点击回调。
+ * @param props - 工单、当前选中引用与点击回调。
  * @returns 卡片列表或空状态。
  */
 export function TicketList(props: TicketListProps): React.ReactElement {
@@ -44,9 +48,9 @@ export function TicketList(props: TicketListProps): React.ReactElement {
     <div role="list" data-testid="ticket-list" style={LIST_STYLE}>
       {props.tickets.map((ticket) => (
         <TicketRow
-          key={ticket.number}
+          key={ticket.ref}
           ticket={ticket}
-          selected={ticket.number === props.selected}
+          selected={ticket.ref === props.selected}
           onPick={props.onPick}
         />
       ))}
@@ -60,19 +64,26 @@ function TicketRow(props: {
   readonly onPick: (ticket: TicketSnapshot) => void
 }): React.ReactElement {
   const { ticket } = props
+  const display = refDisplay(ticket)
 
   return (
     <div role="listitem">
       <button
         type="button"
         data-testid="ticket-row"
-        data-number={ticket.number}
+        data-ref={ticket.ref}
         onClick={() => {
           props.onPick(ticket)
         }}
         style={{ ...CARD_STYLE, ...(props.selected ? CARD_SELECTED_STYLE : undefined) }}
       >
-        <span style={NUMBER_BADGE_STYLE}>#{ticket.number}</span>
+        <span
+          data-testid="ticket-ref"
+          style={NUMBER_BADGE_STYLE}
+          {...(display.full === undefined ? {} : { title: display.full })}
+        >
+          {display.text}
+        </span>
         <span style={CARD_TITLE_STYLE}>{ticket.title}</span>
         <span style={{ ...STATUS_BADGES[ticket.status], ...CARD_STATUS_STYLE }}>
           <span style={STATUS_DOT_STYLE} />
@@ -86,4 +97,16 @@ function TicketRow(props: {
       </button>
     </div>
   )
+}
+
+function refDisplay(ticket: TicketSnapshot): { readonly text: string; readonly full?: string } {
+  if (ticket.number !== null) return { text: `#${String(ticket.number)}` }
+  if (ticket.ref.length <= REF_DISPLAY_LIMIT) return { text: ticket.ref }
+
+  const head = Math.ceil((REF_DISPLAY_LIMIT - 1) / 2)
+  const tail = REF_DISPLAY_LIMIT - 1 - head
+  return {
+    text: `${ticket.ref.slice(0, head)}…${ticket.ref.slice(ticket.ref.length - tail)}`,
+    full: ticket.ref,
+  }
 }

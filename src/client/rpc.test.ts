@@ -4,6 +4,7 @@ import { RPC_PATH, type RpcResult, type WorkspaceSnapshot } from '../protocol/tr
 import { createSnapshotClient, type FetchLike, type HttpResponseLike } from './rpc.ts'
 
 const SNAPSHOT: WorkspaceSnapshot = {
+  backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
   fetchedAt: 1,
   loaded: 0,
@@ -78,6 +79,24 @@ describe('快照 RPC 客户端', () => {
   it('响应体不是快照结果时返回 fetch-failed', async () => {
     const client = createSnapshotClient(
       recordingFetch(response({ ok: true, result: {} })).fetchImpl,
+    )
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('快照缺少 backend 时返回 fetch-failed', async () => {
+    const legacy = {
+      repository: SNAPSHOT.repository,
+      fetchedAt: SNAPSHOT.fetchedAt,
+      loaded: SNAPSHOT.loaded,
+      total: SNAPSHOT.total,
+      tickets: SNAPSHOT.tickets,
+    }
+    const client = createSnapshotClient(
+      recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
     await expect(client.get('/repo')).resolves.toMatchObject({

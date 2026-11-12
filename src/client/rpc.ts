@@ -106,6 +106,7 @@ function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot>
 
 function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (typeof value !== 'object' || value === null) return false
+  if (!('backend' in value) || typeof value.backend !== 'string') return false
   if (!('repository' in value) || typeof value.repository !== 'string') return false
   if (!('fetchedAt' in value) || typeof value.fetchedAt !== 'number') return false
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false

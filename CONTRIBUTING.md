@@ -20,13 +20,13 @@ pnpm install   # 装依赖，同时装好 git 钩子
 
 ## 目录分层
 
-| 目录           | 放什么                           | 能依赖谁                       |
-| -------------- | -------------------------------- | ------------------------------ |
-| `src/core`     | 纯业务逻辑，不做 IO              | 只能依赖自己                   |
-| `src/adapters` | 对接外部系统，每个后端一个子目录 | `core`                         |
-| `src/host`     | DSH 服务端入口，负责组装         | `core`、`adapters`、`protocol` |
-| `src/client`   | 界面（React，由宿主提供）        | `protocol`                     |
-| `src/protocol` | 服务端与界面之间的消息类型和常量 | 不依赖其他目录                 |
+| 目录           | 放什么                           | 能依赖谁                                                  |
+| -------------- | -------------------------------- | --------------------------------------------------------- |
+| `src/core`     | 纯业务逻辑，不做 IO              | 只能依赖自己；可用 `import type` 引用 `protocol` 的纯类型 |
+| `src/adapters` | 对接外部系统，每个后端一个子目录 | `core`                                                    |
+| `src/host`     | DSH 服务端入口，负责组装         | `core`、`adapters`、`protocol`                            |
+| `src/client`   | 界面（React，由宿主提供）        | `protocol`                                                |
+| `src/protocol` | 服务端与界面之间的消息类型和常量 | 不依赖其他目录                                            |
 
 依赖方向由 `pnpm check` 里的 dependency-cruiser 检查，规则见 `.dependency-cruiser.json`。
 
@@ -52,4 +52,4 @@ fix(client): 面板刷新时不再丢失滚动位置
 1. 在 main 上用 `pnpm version <patch|minor|major>` 更新版本号，它会提交并打上 `v<版本号>` 标签；
 2. `git push --follow-tags` 推送标签后，GitHub Actions 通过 npm Trusted Publishing 发布。
 
-完整的规范和理由见 [docs/adr/0001-engineering-standards.md](docs/adr/0001-engineering-standards.md)。
+完整的规范见各层 `README.md` 与 `.dependency-cruiser.json`。

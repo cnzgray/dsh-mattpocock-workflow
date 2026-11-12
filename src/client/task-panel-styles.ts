@@ -4,7 +4,7 @@
  */
 import type { CSSProperties } from 'react'
 
-import type { TicketStatus } from '../protocol/tracker.ts'
+import type { BackendKind, TicketStatus } from '../protocol/tracker.ts'
 import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 
 export const COLORS = {
@@ -56,6 +56,24 @@ export const REPO_NAME_STYLE: CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+}
+
+/** 后端徽标：GitHub / GitLab / 本地。 */
+export const BACKEND_LABELS: Record<BackendKind, string> = {
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  markdown: '本地',
+}
+
+export const BACKEND_BADGE_STYLE: CSSProperties = {
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 999,
+  padding: '0 7px',
+  color: COLORS.secondary,
+  fontSize: 11,
+  lineHeight: '19px',
+  whiteSpace: 'nowrap',
+  flex: 'none',
 }
 
 export const AGE_STYLE: CSSProperties = {

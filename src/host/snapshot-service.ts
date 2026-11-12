@@ -1,18 +1,20 @@
 /**
  * 快照服务：缓存、刷新与错误映射。主接缝是 `handle(method, params)`，
- * 测试注入假的 Tracker 就能覆盖缓存、错误码和刷新失败保留旧快照。
+ * 测试注入假的「按工作区解析后端」函数就能覆盖缓存、错误码和刷新失败保留旧快照。
  */
 import { classifyTickets } from '../core/classify.ts'
-import type { Tracker, TicketLabelNames } from '../core/ticket.ts'
+import type { TicketLabelNames } from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import { LOG_EVENTS, type LogEvent } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
   type ErrorCode,
+  type BackendKind,
   type RpcResult,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import type { BackendResolver } from './backend-resolver.ts'
 
 /** 快照服务写日志的形状。 */
 export type SnapshotLog = (
@@ -23,7 +25,8 @@ export type SnapshotLog = (
 
 /** 快照服务依赖。 */
 export interface SnapshotServiceDeps {
-  readonly tracker: Tracker
+  /** 按工作区解析后端；解析结果由宿主自己缓存。 */
+  readonly resolve: BackendResolver
   readonly now: () => number
   readonly labels: TicketLabelNames
   readonly log: SnapshotLog
@@ -75,16 +78,21 @@ async function fetchAndCache(
   workspaceRoot: string,
 ): Promise<RpcResult<WorkspaceSnapshot>> {
   const startedAt = deps.now()
+  let kind: BackendKind | undefined
 
   try {
-    const raw = await deps.tracker.fetchSnapshot(workspaceRoot)
+    const resolved = await deps.resolve(workspaceRoot)
+    kind = resolved.kind
+    const raw = await resolved.tracker.fetchSnapshot(workspaceRoot)
     const tickets = classifyTickets(raw.tickets, deps.labels)
     const snapshot: WorkspaceSnapshot = {
+      backend: resolved.kind,
       repository: raw.repository,
       fetchedAt: raw.fetchedAt,
       loaded: tickets.length,
       total: raw.total,
       tickets: tickets.map((ticket) => ({
+        ref: ticket.ref,
         number: ticket.number,
         title: ticket.title,
         state: ticket.state,
@@ -99,6 +107,7 @@ async function fetchAndCache(
     cache.set(workspaceRoot, snapshot)
     deps.log('info', LOG_EVENTS.snapshot, {
       result: 'ok',
+      backend: resolved.kind,
       durationMs: Math.max(0, deps.now() - startedAt),
       repository: snapshot.repository,
       loaded: snapshot.loaded,
@@ -109,6 +118,7 @@ async function fetchAndCache(
     const mapped = mapError(error)
     deps.log('warn', LOG_EVENTS.snapshot, {
       result: 'error',
+      ...(kind === undefined ? {} : { backend: kind }),
       code: mapped.code,
       durationMs: Math.max(0, deps.now() - startedAt),
     })

@@ -70,11 +70,30 @@ describe('命令执行器', () => {
     const { timer, delays } = fakeTimer()
     const run = createCommandRunner(subprocess, timer)
 
-    await expect(run('gh', ['api', 'graphql'], { cwd: '/repo' })).resolves.toBe('ok')
+    await expect(run('gh', ['api', 'graphql'], { cwd: '/repo' })).resolves.toEqual({
+      stdout: 'ok',
+      stderr: '',
+    })
     expect(lookups).toEqual(['gh', '/opt/homebrew/bin/gh'])
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/gh', 'api', 'graphql'])
     expect(specs[0]?.cwd).toBe('/repo')
     expect(delays).toEqual([30_000])
+  })
+
+  it('PATH 找不到 glab 时回退到 Homebrew 的绝对路径', async () => {
+    const { subprocess, lookups, specs } = fakeSubprocess({
+      resolve: (command) => (command === '/opt/homebrew/bin/glab' ? command : undefined),
+      stdout: 'ok',
+    })
+    const { timer } = fakeTimer()
+    const run = createCommandRunner(subprocess, timer)
+
+    await expect(run('glab', ['auth', 'status'], { cwd: '/repo' })).resolves.toEqual({
+      stdout: 'ok',
+      stderr: '',
+    })
+    expect(lookups).toEqual(['glab', '/opt/homebrew/bin/glab'])
+    expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/glab', 'auth', 'status'])
   })
 
   it('命令非零退出时抛带标准错误的 CommandError', async () => {
@@ -100,6 +119,21 @@ describe('命令执行器', () => {
 
     await expect(run('gh', [], { cwd: '/repo' })).rejects.toBeInstanceOf(CommandError)
     expect(lookups).toEqual(['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh'])
+  })
+
+  it('成功时同时返回标准输出与标准错误', async () => {
+    const { subprocess } = fakeSubprocess({
+      resolve: () => '/usr/bin/glab',
+      stdout: '',
+      stderr: '✓ Logged in to gitlab.example.com',
+    })
+    const { timer } = fakeTimer()
+    const run = createCommandRunner(subprocess, timer)
+
+    await expect(run('glab', ['auth', 'status'], { cwd: '/repo' })).resolves.toEqual({
+      stdout: '',
+      stderr: '✓ Logged in to gitlab.example.com',
+    })
   })
 
   it('命令结束后释放超时计时器', async () => {
