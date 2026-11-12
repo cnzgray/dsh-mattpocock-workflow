@@ -1,0 +1,109 @@
+/**
+ * 任务面板的 RPC 契约与快照类型。只放类型和常量，不放逻辑。
+ *
+ * 请求统一为 `{ method, params }`，响应统一为 `{ ok: true, result }` 或
+ * `{ ok: false, error: { code, message } }`。宿主在每张票上附带判定结果，
+ * 界面只做展示层的统计、过滤和排序。
+ */
+
+/** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
+export const RPC_PATH = '/api/dsh-mattpocock-workflow'
+
+/** 当前版本只提供两个方法：读缓存与强制刷新。 */
+export const RPC_METHODS = {
+  /** 读缓存；没有缓存时拉取一次。 */
+  snapshotGet: 'snapshot.get',
+  /** 忽略缓存，强制拉取。 */
+  snapshotRefresh: 'snapshot.refresh',
+} as const
+
+/** 工单的开闭状态。 */
+export type TicketState = 'open' | 'closed'
+
+/** 分类标签，没有分类时为 null。 */
+export type TicketCategory = 'bug' | 'enhancement' | null
+
+/**
+ * 一张票的判定结果：
+ * - `ready`：开放、无未关闭阻塞、带 `ready-for-agent`；
+ * - `blocked`：开放且至少有一张未关闭的阻塞票；
+ * - `closed`：已关闭；
+ * - `open`：其余开放票。
+ */
+export type TicketStatus = 'ready' | 'blocked' | 'closed' | 'open'
+
+/** 快照里的一张票。 */
+export interface TicketSnapshot {
+  readonly number: number
+  readonly title: string
+  readonly state: TicketState
+  readonly category: TicketCategory
+  readonly status: TicketStatus
+  readonly createdAt: string
+  readonly updatedAt: string
+  /** 未关闭的阻塞票数量；0 表示可以开工。 */
+  readonly openBlockers: number
+}
+
+/** 一个工作区的工单快照。 */
+export interface WorkspaceSnapshot {
+  /** GitHub 仓库标识，`owner/name`。 */
+  readonly repository: string
+  /** 快照生成时间（毫秒时间戳），界面用它显示“多久之前”。 */
+  readonly fetchedAt: number
+  /** 本次实际加载到的票数。 */
+  readonly loaded: number
+  /** 仓库里的票总数；大于 `loaded` 时列表不完整。 */
+  readonly total: number
+  readonly tickets: readonly TicketSnapshot[]
+}
+
+/** 两个方法共用的参数。 */
+export interface SnapshotParams {
+  /** 当前工作区根目录，宿主用它解析 git 远端并缓存快照。 */
+  readonly workspaceRoot: string
+}
+
+/** 方法名到参数类型的映射。 */
+export interface RpcParamsMap {
+  'snapshot.get': SnapshotParams
+  'snapshot.refresh': SnapshotParams
+}
+
+/** 已支持的方法名。 */
+export type RpcMethod = keyof RpcParamsMap
+
+/** 一个 RPC 请求。 */
+export interface RpcRequest<M extends RpcMethod = RpcMethod> {
+  readonly method: M
+  readonly params: RpcParamsMap[M]
+}
+
+/**
+ * 错误码。前五个是工单读取的业务错误，其余是协议层错误。
+ * 客户端按错误码给出可操作的提示（装 gh、登录、换工作区）。
+ */
+export const ERROR_CODES = {
+  ghMissing: 'gh-missing',
+  ghUnauthenticated: 'gh-unauthenticated',
+  notARepo: 'not-a-repo',
+  noGithubRemote: 'no-github-remote',
+  fetchFailed: 'fetch-failed',
+  invalidParams: 'invalid-params',
+  unknownMethod: 'unknown-method',
+  invalidRequest: 'invalid-request',
+  internal: 'internal',
+} as const
+
+/** 错误码的联合类型。 */
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+
+/** 失败的响应体。 */
+export interface RpcErrorBody {
+  readonly code: ErrorCode
+  readonly message: string
+}
+
+/** RPC 响应：成功带 `result`，失败带 `error`。 */
+export type RpcResult<T> =
+  { readonly ok: true; readonly result: T } | { readonly ok: false; readonly error: RpcErrorBody }

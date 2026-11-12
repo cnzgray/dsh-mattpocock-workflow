@@ -29,7 +29,7 @@ await build({
 })
 
 const client = await build({
-  entryPoints: ['src/client/index.ts'],
+  entryPoints: ['src/client/index.tsx'],
   bundle: true,
   write: false,
   platform: 'browser',

@@ -25,14 +25,14 @@
     },
     {
       "name": "adapters-only-core",
-      "comment": "adapters 对接外部系统，只能依赖 core；各个后端之间互不依赖。",
+      "comment": "adapters 对接外部系统，只能依赖 core；各个后端之间互不依赖。唯一的例外是后端共用的契约测试套件 src/adapters/contract.test-suite.ts——它不依赖任何具体后端。",
       "severity": "error",
       "from": {
         "path": "^src/adapters/([^/]+)/"
       },
       "to": {
         "path": "^src/",
-        "pathNot": ["^src/core/", "^src/adapters/$1/"]
+        "pathNot": ["^src/core/", "^src/adapters/$1/", "^src/adapters/contract\\.test-suite\\.ts$"]
       }
     },
     {

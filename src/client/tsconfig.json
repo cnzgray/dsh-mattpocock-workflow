@@ -4,7 +4,7 @@
   // jsx 用 classic 模式（React.createElement），因为宿主只保证提供 react，不保证提供 react/jsx-runtime。
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": [],
     "jsx": "react"
   },

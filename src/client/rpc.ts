@@ -1,0 +1,115 @@
+/**
+ * 浏览器侧的 RPC 客户端。只通过 protocol 定义的路径、方法名和响应形状
+ * 与宿主通信；不导入 core 或 adapters。
+ */
+import {
+  ERROR_CODES,
+  RPC_METHODS,
+  RPC_PATH,
+  type ErrorCode,
+  type RpcResult,
+  type WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
+
+/** 浏览器 fetch 的最小形状，测试可以注入假实现。 */
+export interface HttpResponseLike {
+  readonly ok: boolean
+  readonly status: number
+  json(): Promise<unknown>
+}
+
+/** 发送一次 POST 请求。 */
+export type FetchLike = (
+  input: string,
+  init: {
+    readonly method: 'POST'
+    readonly headers: Record<string, string>
+    readonly body: string
+  },
+) => Promise<HttpResponseLike>
+
+/** 快照客户端：面板只依赖这两个方法。 */
+export interface SnapshotClient {
+  get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+  refresh(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+}
+
+/**
+ * 创建走插件私有 HTTP 路由的客户端。
+ * @param fetchImpl - fetch 实现，默认用全局 fetch。
+ * @returns 快照客户端。
+ */
+export function createSnapshotClient(fetchImpl: FetchLike = defaultFetch): SnapshotClient {
+  return {
+    get: (workspaceRoot) => call(fetchImpl, RPC_METHODS.snapshotGet, workspaceRoot),
+    refresh: (workspaceRoot) => call(fetchImpl, RPC_METHODS.snapshotRefresh, workspaceRoot),
+  }
+}
+
+async function call(
+  fetchImpl: FetchLike,
+  method: string,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  try {
+    const response = await fetchImpl(RPC_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method, params: { workspaceRoot } }),
+    })
+
+    if (!response.ok) {
+      return failure(ERROR_CODES.fetchFailed, `请求失败（HTTP ${String(response.status)}）。`)
+    }
+
+    const body = await response.json()
+    if (!isSnapshotResult(body)) {
+      return failure(ERROR_CODES.fetchFailed, '宿主返回的响应格式不正确。')
+    }
+    return body
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : '未知错误'
+    return failure(ERROR_CODES.fetchFailed, `网络请求失败：${detail}`)
+  }
+}
+
+function defaultFetch(
+  input: string,
+  init: {
+    readonly method: 'POST'
+    readonly headers: Record<string, string>
+    readonly body: string
+  },
+): Promise<HttpResponseLike> {
+  return fetch(input, init)
+}
+
+function failure(code: ErrorCode, message: string): RpcResult<WorkspaceSnapshot> {
+  return { ok: false, error: { code, message } }
+}
+
+function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot> {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('ok' in value)) return false
+
+  if (value.ok === false) {
+    if (!('error' in value)) return false
+    const error = value.error
+    if (typeof error !== 'object' || error === null) return false
+    return 'code' in error && typeof error.code === 'string' && 'message' in error
+  }
+
+  if (value.ok !== true) return false
+  if (!('result' in value)) return false
+  return isWorkspaceSnapshot(value.result)
+}
+
+function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('repository' in value) || typeof value.repository !== 'string') return false
+  if (!('fetchedAt' in value) || typeof value.fetchedAt !== 'number') return false
+  if (!('loaded' in value) || typeof value.loaded !== 'number') return false
+  if (!('total' in value) || typeof value.total !== 'number') return false
+  if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
+  return true
+}

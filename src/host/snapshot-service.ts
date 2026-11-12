@@ -1,0 +1,135 @@
+/**
+ * 快照服务：缓存、刷新与错误映射。主接缝是 `handle(method, params)`，
+ * 测试注入假的 Tracker 就能覆盖缓存、错误码和刷新失败保留旧快照。
+ */
+import { classifyTickets } from '../core/classify.ts'
+import type { Tracker, TicketLabelNames } from '../core/ticket.ts'
+import { TrackerError } from '../core/tracker-error.ts'
+import { LOG_EVENTS, type LogEvent } from '../protocol/log-events.ts'
+import {
+  ERROR_CODES,
+  RPC_METHODS,
+  type ErrorCode,
+  type RpcResult,
+  type WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
+
+/** 快照服务写日志的形状。 */
+export type SnapshotLog = (
+  level: 'info' | 'warn' | 'error',
+  event: LogEvent,
+  fields: Readonly<Record<string, unknown>>,
+) => void
+
+/** 快照服务依赖。 */
+export interface SnapshotServiceDeps {
+  readonly tracker: Tracker
+  readonly now: () => number
+  readonly labels: TicketLabelNames
+  readonly log: SnapshotLog
+}
+
+/** 宿主对界面的唯一 RPC 入口。 */
+export interface SnapshotService {
+  /**
+   * 处理一个 RPC 方法。
+   * @param method - `snapshot.get` 或 `snapshot.refresh`。
+   * @param params - `{ workspaceRoot }`。
+   * @returns 成功快照或带错误码的失败。
+   */
+  handle(method: string, params: unknown): Promise<RpcResult<WorkspaceSnapshot>>
+}
+
+/**
+ * 创建按工作区根目录缓存的快照服务。
+ * @param deps - 工单后端、时钟、标签名与日志出口。
+ * @returns 快照服务。
+ */
+export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotService {
+  const cache = new Map<string, WorkspaceSnapshot>()
+
+  return {
+    async handle(method, params) {
+      if (method !== RPC_METHODS.snapshotGet && method !== RPC_METHODS.snapshotRefresh) {
+        return failure(ERROR_CODES.unknownMethod, `未知方法：${method}`)
+      }
+
+      const workspaceRoot = readWorkspaceRoot(params)
+      if (workspaceRoot === undefined) {
+        return failure(ERROR_CODES.invalidParams, '缺少非空的 workspaceRoot 参数。')
+      }
+
+      if (method === RPC_METHODS.snapshotGet) {
+        const cached = cache.get(workspaceRoot)
+        if (cached !== undefined) return { ok: true, result: cached }
+      }
+
+      return fetchAndCache(deps, cache, workspaceRoot)
+    },
+  }
+}
+
+async function fetchAndCache(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, WorkspaceSnapshot>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const startedAt = deps.now()
+
+  try {
+    const raw = await deps.tracker.fetchSnapshot(workspaceRoot)
+    const tickets = classifyTickets(raw.tickets, deps.labels)
+    const snapshot: WorkspaceSnapshot = {
+      repository: raw.repository,
+      fetchedAt: raw.fetchedAt,
+      loaded: tickets.length,
+      total: raw.total,
+      tickets: tickets.map((ticket) => ({
+        number: ticket.number,
+        title: ticket.title,
+        state: ticket.state,
+        category: ticket.category,
+        status: ticket.status,
+        createdAt: ticket.createdAt,
+        updatedAt: ticket.updatedAt,
+        openBlockers: ticket.openBlockers,
+      })),
+    }
+
+    cache.set(workspaceRoot, snapshot)
+    deps.log('info', LOG_EVENTS.snapshot, {
+      result: 'ok',
+      durationMs: Math.max(0, deps.now() - startedAt),
+      repository: snapshot.repository,
+      loaded: snapshot.loaded,
+      total: snapshot.total,
+    })
+    return { ok: true, result: snapshot }
+  } catch (error) {
+    const mapped = mapError(error)
+    deps.log('warn', LOG_EVENTS.snapshot, {
+      result: 'error',
+      code: mapped.code,
+      durationMs: Math.max(0, deps.now() - startedAt),
+    })
+    return failure(mapped.code, mapped.message)
+  }
+}
+
+function readWorkspaceRoot(params: unknown): string | undefined {
+  if (typeof params !== 'object' || params === null) return undefined
+  if (!('workspaceRoot' in params)) return undefined
+  const root = params.workspaceRoot
+  return typeof root === 'string' && root.length > 0 ? root : undefined
+}
+
+function mapError(error: unknown): { readonly code: ErrorCode; readonly message: string } {
+  if (error instanceof TrackerError) {
+    return { code: error.code, message: error.message }
+  }
+  return { code: ERROR_CODES.internal, message: '读取工单时发生未预期的错误。' }
+}
+
+function failure(code: ErrorCode, message: string): RpcResult<WorkspaceSnapshot> {
+  return { ok: false, error: { code, message } }
+}
