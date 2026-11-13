@@ -81,7 +81,10 @@ export interface EnvCheckFacts {
   readonly home: ProbeOutcome
   readonly backend: BackendProbeOutcome
   readonly workspace: ProbeOutcome
-  /** 本地工单目录的探测事实；只在本地 Markdown 或后端未判定时探测，其余为 undefined。 */
+  /**
+   * 本地工单目录的探测事实。本地工单只服务本地 Markdown 后端：判定为托管后端
+   * 时宿主不探测，这里为 undefined；后端尚未判定时仍要探测，避免误藏。
+   */
   readonly localIssues: LocalIssuesFact | undefined
   /** 以下三项在前置项未通过时不会探测，为 undefined。 */
   readonly cli: ProbeOutcome | undefined

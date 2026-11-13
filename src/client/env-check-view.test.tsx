@@ -11,6 +11,7 @@ import {
   CLIENT_CAPABILITIES,
   FIXED_REPORT,
   GITEA_REPORT,
+  MARKDOWN_REPORT,
   REPORT,
   RETRY_REPORT,
   WORKSPACE_FAIL,
@@ -164,6 +165,15 @@ describe('环境检查视图', () => {
     expect(
       screen.getAllByTestId('env-item').some((entry) => entry.dataset.id === 'local-issues'),
     ).toBe(false)
+  })
+
+  it('本地 Markdown 后端显示本地工单目录与放置解决', async () => {
+    renderView(() => okResponse(MARKDOWN_REPORT))
+    await screen.findByTestId('env-items')
+
+    expect(screen.getByTestId('env-backend').textContent).toBe('本地 Markdown')
+    expect(itemCard('local-issues', '').textContent).toContain('本地工单目录可用')
+    expect(remedyCard('local-issues', '').textContent).toContain('.scratch/<feature>/issues/')
   })
 
   it('判定项带候选 Gitea 时标题点名后端，解决给 tea 的登录命令', async () => {

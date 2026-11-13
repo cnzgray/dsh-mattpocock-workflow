@@ -99,6 +99,25 @@ export const RETRY_REPORT: EnvCheckReport = {
   ),
 }
 
+/** 本地 Markdown 后端：没有命令行三项，本地工单目录按约定判定。 */
+export const MARKDOWN_REPORT: EnvCheckReport = {
+  checkedAt: 4,
+  backend: 'markdown',
+  repository: null,
+  items: [
+    row({ id: 'home', detail: '/home/dev' }),
+    row({ id: 'backend', detail: 'no-remote:markdown' }),
+    row({ id: 'workspace', detail: 'docs/agents/issue-tracker.md 存在' }),
+    row({
+      id: 'local-issues',
+      status: 'fail',
+      detail: '工作区里没有 .scratch 目录',
+      remedy: { code: 'place-local-issues', subject: null },
+    }),
+  ],
+  capabilities: [],
+}
+
 /** Gitea 后端：CLI 缺失，登录与仓库可达跳过；托管后端不检查本地工单目录。 */
 export const GITEA_REPORT: EnvCheckReport = {
   checkedAt: 2,
