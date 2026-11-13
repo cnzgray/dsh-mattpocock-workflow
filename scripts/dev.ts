@@ -90,15 +90,20 @@ interface BannerOptions {
   readonly meta: PluginMeta
   readonly paths: BuildPaths
   readonly profileDir: string
+  readonly rootDir: string
 }
 
 function printBanner(options: BannerOptions): void {
-  const { meta, paths, profileDir } = options
+  const { meta, paths, profileDir, rootDir } = options
   console.log(`开发模式：${meta.name}@${meta.version}`)
   console.log('监听宿主与客户端构建，原地覆盖 lib/（不删除产物目录）。')
   console.log('')
   console.log(`产物：${paths.hostOut}`)
   console.log(`      ${paths.clientOut}（含 client.js.map）`)
+  console.log('')
+  console.log('安装路径（Desktop「插件」→「添加插件」→ 本地目录，贴这一行）：')
+  console.log(`  ${rootDir}`)
+  console.log(`等价命令：在 ${profileDir} 执行 pnpm add link:${rootDir}`)
   console.log('')
   console.log('HMR 配置（仅开发期使用，贴进 desktop profile 的 cordis.patch.yml）：')
   console.log(renderHmrConfig({ libDir: paths.libDir }))
@@ -133,7 +138,7 @@ async function main(): Promise<void> {
   const profileDir = process.env.DSH_PROFILE_DIR ?? join(homedir(), '.dsh', 'profiles', 'desktop')
 
   await mkdir(paths.libDir, { recursive: true })
-  printBanner({ meta, paths, profileDir })
+  printBanner({ meta, paths, profileDir, rootDir })
 
   const hostContext = await context({
     ...createHostBuildOptions(meta, paths),
