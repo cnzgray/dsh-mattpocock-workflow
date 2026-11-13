@@ -23,6 +23,7 @@ import {
   FLOW_STATS_STYLE,
   IDENTITY_META_STYLE,
   IDENTITY_ROW_STYLE,
+  IDENTITY_SEPARATOR_STYLE,
   IDENTITY_STYLE,
   METRIC_LABEL_STYLE,
   METRIC_NOTE_STYLE,
@@ -139,8 +140,11 @@ function Identity(props: {
         )}
       </div>
       <div style={IDENTITY_META_STYLE}>
-        <span data-testid="overview-age" style={AGE_STYLE}>
+        <span data-testid="overview-age" style={{ ...AGE_STYLE, fontSize: 'inherit' }}>
           {snapshot === null ? '尚无快照' : formatAge(snapshot.fetchedAt, props.now)}
+        </span>
+        <span aria-hidden="true" style={IDENTITY_SEPARATOR_STYLE}>
+          ·
         </span>
         <span data-testid="overview-loaded">
           {snapshot === null
@@ -155,7 +159,12 @@ function Identity(props: {
           data-hover="soft"
           disabled={props.busy}
           onClick={props.onRefresh}
-          style={{ ...REFRESH_BUTTON_STYLE, marginLeft: 'auto', opacity: props.busy ? 0.6 : 1 }}
+          style={{
+            ...REFRESH_BUTTON_STYLE,
+            // 按钮自带 6px 内边距，负外边距让文字落回右侧留白线，与上方徽章右缘对齐。
+            margin: '-3px -6px -3px auto',
+            opacity: props.busy ? 0.6 : 1,
+          }}
         >
           <RefreshIcon />
           {props.busy ? '刷新中…' : '刷新'}

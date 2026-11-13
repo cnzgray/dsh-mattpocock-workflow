@@ -211,11 +211,15 @@ export const VIEW_BAR_STYLE: CSSProperties = {
 export const VIEW_TABS_STYLE: CSSProperties = {
   display: 'flex',
   gap: 16,
-  padding: '0 12px',
-  borderBottom: `1px solid ${COLORS.border}`,
-  // 三个页签在窄侧栏里放不下时横向滚动，不挤压标题。
+  // 左右留白与分隔线由外层视图条提供；这里压住那条线，让选中下划线落在线上。
+  alignSelf: 'flex-end',
+  marginBottom: -1,
+  // 三个页签在窄侧栏里放不下时横向滚动，不挤压右侧入口；只许横向，滚动条隐藏。
   overflowX: 'auto',
-  flex: 'none',
+  overflowY: 'hidden',
+  scrollbarWidth: 'none',
+  minWidth: 0,
+  flex: '0 1 auto',
 }
 
 export const VIEW_TAB_STYLE: CSSProperties = {
@@ -223,7 +227,6 @@ export const VIEW_TAB_STYLE: CSSProperties = {
   borderWidth: '0 0 2px',
   borderStyle: 'solid',
   borderColor: 'transparent',
-  marginBottom: -1,
   padding: '9px 0 7px',
   color: COLORS.secondary,
   cursor: 'pointer',

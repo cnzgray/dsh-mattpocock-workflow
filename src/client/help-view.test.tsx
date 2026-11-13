@@ -53,11 +53,13 @@ describe('流程帮助视图', () => {
     await screen.findAllByTestId('ticket-row')
     await openHelp()
 
-    const drawn = new Set(
-      [...screen.getByTestId('help-view').querySelectorAll('[data-command]')].map((node) =>
-        node.getAttribute('data-command'),
-      ),
-    )
+    const drawn = new Set<string | null>()
+    for (const diagram of FLOW_DIAGRAMS) {
+      fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
+      for (const node of screen.getByTestId('flow-diagrams').querySelectorAll('[data-command]')) {
+        drawn.add(node.getAttribute('data-command'))
+      }
+    }
     const defined = Object.values(FLOW_COMMANDS).map((command) => command.name)
     expect([...drawn].sort()).toEqual([...defined].sort())
 
@@ -66,15 +68,37 @@ describe('流程帮助视图', () => {
     expect(screen.getByTestId('legend-stop').textContent).toContain('等你发下一条命令')
   })
 
-  it('图不可点击，每张图都渲染出来', async () => {
+  it('按场景分页签，一次只显示一张图，默认是第一个场景', async () => {
     render(<TaskPanel {...panelProps()} />)
     await screen.findAllByTestId('ticket-row')
     await openHelp()
 
-    const diagrams = screen.getByTestId('flow-diagrams')
-    expect(diagrams.querySelectorAll('svg[role="img"]')).toHaveLength(FLOW_DIAGRAMS.length)
+    const first = FLOW_DIAGRAMS[0]
+    const last = FLOW_DIAGRAMS.at(-1)
+    if (first === undefined || last === undefined) throw new Error('缺少流程图')
+
+    expect(screen.getAllByRole('tab')).toHaveLength(FLOW_DIAGRAMS.length)
+    expect(screen.getByTestId(`flow-tab-${first.id}`).getAttribute('aria-selected')).toBe('true')
+    const svgs = (): NodeListOf<Element> =>
+      screen.getByTestId('flow-diagrams').querySelectorAll('svg[role="img"]')
+    expect(svgs()).toHaveLength(1)
+    expect(svgs()[0]?.getAttribute('aria-label')).toBe(first.title)
+
+    fireEvent.click(screen.getByTestId(`flow-tab-${last.id}`))
+    expect(svgs()).toHaveLength(1)
+    expect(svgs()[0]?.getAttribute('aria-label')).toBe(last.title)
+    expect(screen.getByTestId(`flow-tab-${first.id}`).getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('图不可点击', async () => {
+    render(<TaskPanel {...panelProps()} />)
+    await screen.findAllByTestId('ticket-row')
+    await openHelp()
+
     expect(
-      diagrams.querySelectorAll('button, a, [tabindex], [role="button"], [onclick]'),
+      screen
+        .getByTestId('flow-diagrams')
+        .querySelectorAll('button, a, [tabindex], [role="button"], [onclick]'),
     ).toHaveLength(0)
   })
 })

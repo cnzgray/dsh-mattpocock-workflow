@@ -1,6 +1,6 @@
 /**
- * 流程帮助视图：几张竖向排版的 SVG 流程图，讲清入池、triage 状态机、
- * 需求链、缺陷链，以及访谈与画图的取舍。
+ * 流程帮助视图：按场景分页签，每次只看一张竖向排版的 SVG 流程图，
+ * 讲清入池、triage 状态机、需求链、缺陷链，以及访谈与画图的取舍。
  *
  * 图里的命令、归属与交接关系全部来自 protocol 的流程定义；图本身不可点击。
  * 颜色走面板的主题变量，深色/浅色主题都能读。
@@ -8,7 +8,14 @@
 import * as React from 'react'
 
 import { FLOW_COMMANDS, FLOW_DIAGRAMS, type FlowDiagram, type FlowNode } from '../protocol/flow.ts'
-import { BUTTON_STYLE, COLORS, MONO_FONT } from './task-panel-styles.ts'
+import {
+  BUTTON_STYLE,
+  CHIP_ACTIVE_STYLE,
+  CHIP_STYLE,
+  COLORS,
+  MONO_FONT,
+  SEGMENTED_STYLE,
+} from './task-panel-styles.ts'
 
 /** 帮助视图依赖。 */
 export interface HelpViewProps {
@@ -69,12 +76,18 @@ interface DiagramLayout {
   readonly height: number
 }
 
+/** 流程图在宽面板里的最大显示宽度：约为设计尺寸的 1.2 倍，字号不再跟着面板放大。 */
+const DIAGRAM_MAX_WIDTH = 360
+
 /**
  * 流程帮助视图根组件。
  * @param props - 返回入口。
- * @returns 返回按钮、图例与四张流程图。
+ * @returns 返回按钮、场景页签、当前场景的流程图与图例。
  */
 export function HelpView(props: HelpViewProps): React.ReactElement {
+  const [activeId, setActiveId] = React.useState(FLOW_DIAGRAMS[0]?.id ?? '')
+  const active = FLOW_DIAGRAMS.find((diagram) => diagram.id === activeId) ?? FLOW_DIAGRAMS[0]
+
   return (
     <div
       data-testid="help-view"
@@ -85,7 +98,9 @@ export function HelpView(props: HelpViewProps): React.ReactElement {
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '10px 12px 8px',
+          flex: 'none',
+          padding: '10px 12px',
+          borderBottom: `1px solid ${COLORS.border}`,
         }}
       >
         <button type="button" data-testid="help-back" onClick={props.onBack} style={BUTTON_STYLE}>
@@ -97,26 +112,74 @@ export function HelpView(props: HelpViewProps): React.ReactElement {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 12,
           flex: 1,
           minHeight: 0,
           overflow: 'auto',
-          padding: '0 12px 12px',
+          padding: '12px 12px 16px',
         }}
       >
         <p style={{ margin: 0, color: COLORS.secondary, fontSize: 12, lineHeight: 1.6 }}>
           入池只建票、不处理；处理从票出发，每一步都在命令之间停下，等你发下一条命令。
         </p>
-        <Legend />
-        <div
-          data-testid="flow-diagrams"
-          style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-        >
-          {FLOW_DIAGRAMS.map((diagram) => (
-            <Diagram key={diagram.id} diagram={diagram} />
-          ))}
-        </div>
+        <ScenarioTabs
+          activeId={active?.id}
+          onSelect={(id) => {
+            setActiveId(id)
+          }}
+        />
+        {active === undefined ? null : (
+          <div
+            id="flow-diagrams"
+            data-testid="flow-diagrams"
+            role="tabpanel"
+            aria-labelledby={`flow-tab-${active.id}`}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px 14px',
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 10,
+            }}
+          >
+            <Diagram key={active.id} diagram={active} />
+            <Legend />
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+/** 场景页签：每个场景一张图，一次只看一张。 */
+function ScenarioTabs(props: {
+  readonly activeId: string | undefined
+  readonly onSelect: (id: string) => void
+}): React.ReactElement {
+  return (
+    <div role="tablist" aria-label="场景" style={{ ...SEGMENTED_STYLE, alignSelf: 'flex-start' }}>
+      {FLOW_DIAGRAMS.map((diagram) => {
+        const selected = diagram.id === props.activeId
+        return (
+          <button
+            key={diagram.id}
+            type="button"
+            role="tab"
+            id={`flow-tab-${diagram.id}`}
+            data-testid={`flow-tab-${diagram.id}`}
+            aria-selected={selected}
+            aria-controls="flow-diagrams"
+            data-hover="soft"
+            onClick={() => {
+              props.onSelect(diagram.id)
+            }}
+            style={{ ...CHIP_STYLE, ...(selected ? CHIP_ACTIVE_STYLE : undefined) }}
+          >
+            {diagram.title}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -128,8 +191,11 @@ function Legend(): React.ReactElement {
       style={{
         display: 'flex',
         flexWrap: 'wrap',
-        gap: 10,
-        color: COLORS.secondary,
+        justifyContent: 'center',
+        gap: '4px 14px',
+        paddingTop: 10,
+        borderTop: `1px solid ${COLORS.border}`,
+        color: COLORS.tertiary,
         fontSize: 11,
       }}
     >
@@ -169,17 +235,26 @@ function Diagram(props: { readonly diagram: FlowDiagram }): React.ReactElement {
   const markerId = `flow-arrow-${props.diagram.id}`
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: COLORS.text }}>
-        {props.diagram.title}
-      </h3>
-      <p style={{ margin: 0, color: COLORS.tertiary, fontSize: 11 }}>{props.diagram.summary}</p>
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: COLORS.text }}>
+          {props.diagram.title}
+        </h3>
+        <p style={{ margin: 0, color: COLORS.secondary, fontSize: 12, lineHeight: 1.6 }}>
+          {props.diagram.summary}
+        </p>
+      </div>
       <svg
         role="img"
         aria-label={props.diagram.title}
         viewBox={`0 0 ${String(SVG_WIDTH)} ${String(layout.height)}`}
         width="100%"
-        style={{ display: 'block', overflow: 'visible' }}
+        style={{
+          display: 'block',
+          overflow: 'visible',
+          maxWidth: DIAGRAM_MAX_WIDTH,
+          margin: '0 auto',
+        }}
       >
         <defs>
           <marker

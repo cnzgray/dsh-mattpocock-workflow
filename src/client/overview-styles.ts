@@ -23,29 +23,40 @@ export const OVERVIEW_STYLE: CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflow: 'auto',
-  padding: '10px 12px 16px',
+  padding: '12px 12px 16px',
 }
 
+/** 头部与列表视图同一套左右留白，底部发丝线把它和可滚动的指标区分开。 */
 export const IDENTITY_STYLE: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 4,
+  flex: 'none',
+  padding: '10px 12px 8px',
+  borderBottom: `1px solid ${COLORS.border}`,
 }
 
 export const IDENTITY_ROW_STYLE: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 8,
   minWidth: 0,
 }
 
+/** 文件夹图标宽 13、与仓库名间隔 6：元信息行缩进到仓库名的起点对齐。 */
 export const IDENTITY_META_STYLE: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 6,
   flexWrap: 'wrap',
+  paddingLeft: 19,
   color: COLORS.tertiary,
   fontSize: 11,
+}
+
+export const IDENTITY_SEPARATOR_STYLE: CSSProperties = {
+  color: COLORS.tertiary,
+  opacity: 0.6,
 }
 
 export const SECTION_STYLE: CSSProperties = {
