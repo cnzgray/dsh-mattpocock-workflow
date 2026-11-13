@@ -49,6 +49,7 @@
   },
   "scripts": {
     "build": "node scripts/build.ts",
+    "dev": "node scripts/dev.ts",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run deps && pnpm run files && pnpm run test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

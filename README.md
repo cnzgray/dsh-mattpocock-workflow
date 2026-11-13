@@ -29,7 +29,8 @@
 
 ## 开发
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。各层的约定写在 `src/<层>/README.md`，依赖方向由
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。开发时用 `pnpm dev` 同时 watch 宿主与客户端构建，配合 DSH HMR
+做到保存即刷新。各层的约定写在 `src/<层>/README.md`，依赖方向由
 `.dependency-cruiser.json` 检查；业务术语见 [GLOSSARY.md](GLOSSARY.md)。
 
 ## 许可证
