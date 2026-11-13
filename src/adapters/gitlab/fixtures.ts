@@ -18,6 +18,7 @@ export function gitlabIssue(overrides: {
   readonly createdAt?: string
   readonly updatedAt?: string
   readonly closedAt?: string
+  readonly author?: Record<string, unknown> | null
 }): Record<string, unknown> {
   return {
     iid: overrides.iid,
@@ -25,6 +26,14 @@ export function gitlabIssue(overrides: {
     state: overrides.state ?? 'opened',
     labels: overrides.labels ?? [],
     description: overrides.description ?? '',
+    author:
+      overrides.author === undefined
+        ? {
+            username: 'cnzgray',
+            name: 'Cnzgray',
+            avatar_url: 'https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png',
+          }
+        : overrides.author,
     created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
     updated_at: overrides.updatedAt ?? '2026-11-12T14:11:38Z',
     closed_at: overrides.closedAt ?? null,

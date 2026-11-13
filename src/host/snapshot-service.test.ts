@@ -7,6 +7,7 @@ import { LOG_EVENTS } from '../protocol/log-events.ts'
 import { ERROR_CODES } from '../protocol/tracker.ts'
 import { createSnapshotService } from './snapshot-service.ts'
 import {
+  AUTHOR,
   ROOT,
   expectOk,
   resolution,
@@ -41,6 +42,9 @@ describe('快照服务', () => {
       ['#3', 3, 'bug', 'closed', 'none', 'closed'],
       ['#4', 4, null, 'open', 'triage', 'needs-triage'],
     ])
+    // 全部标签与创建人逐字段透传，宿主不再判定。
+    expect(result.tickets[0]?.labels).toEqual(['enhancement', 'ready-for-agent'])
+    expect(result.tickets[0]?.author).toEqual(AUTHOR)
   })
 
   it('本地 Markdown 快照保留 backend、ref 与空编号', async () => {

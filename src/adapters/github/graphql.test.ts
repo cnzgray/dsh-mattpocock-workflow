@@ -16,6 +16,11 @@ describe('GraphQL 工单解析', () => {
       title: '右侧栏任务面板 MVP',
       state: 'open',
       labels: ['enhancement', 'ready-for-agent'],
+      author: {
+        login: 'cnzgray',
+        displayName: 'Cnzgray',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/1234?v=4',
+      },
       createdAt: '2026-11-12T14:11:22Z',
       updatedAt: '2026-11-12T14:11:38Z',
       openBlockers: 0,
@@ -51,6 +56,31 @@ describe('GraphQL 工单解析', () => {
     })
 
     expect(parseIssueGraphql(output).tickets[0]?.openBlockers).toBe(0)
+  })
+
+  it('缺少创建人时整张票仍然可用，创建人为 null', () => {
+    const output = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            totalCount: 1,
+            nodes: [
+              {
+                number: 1,
+                title: '没有创建人',
+                state: 'OPEN',
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                labels: { nodes: [] },
+                author: null,
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(parseIssueGraphql(output).tickets[0]?.author).toBeNull()
   })
 
   it('输出不是 JSON 时返回抓取失败', () => {

@@ -20,6 +20,18 @@ import { createSnapshotService, type SnapshotService } from './snapshot-service.
 
 export const ROOT = '/workspace'
 
+/** 远端后端的创建人夹具。 */
+export const AUTHOR = {
+  login: 'cnzgray',
+  displayName: 'Cnzgray',
+  avatarUrl: 'https://avatars.githubusercontent.com/u/1234?v=4',
+} as const
+
+/**
+ * 构造一张判定前的票。
+ * @param overrides - 需要覆盖的字段。
+ * @returns 一张票。
+ */
 export function ticket(overrides: Partial<Ticket>): Ticket {
   const number = overrides.number === undefined ? 1 : overrides.number
   return {
@@ -28,6 +40,7 @@ export function ticket(overrides: Partial<Ticket>): Ticket {
     title: '一张票',
     state: 'open',
     labels: [],
+    author: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     openBlockers: 0,
@@ -35,8 +48,14 @@ export function ticket(overrides: Partial<Ticket>): Ticket {
   }
 }
 
+/** 覆盖四种判定结果的工单：可接、阻塞、已关闭与其他开放。 */
 export const TICKETS: readonly Ticket[] = [
-  ticket({ number: 1, title: '可接的票', labels: ['enhancement', 'ready-for-agent'] }),
+  ticket({
+    number: 1,
+    title: '可接的票',
+    labels: ['enhancement', 'ready-for-agent'],
+    author: AUTHOR,
+  }),
   ticket({
     number: 2,
     title: '被阻塞的票',
@@ -98,6 +117,11 @@ export function fakeResolver(
   return { resolve, calls, blockerCalls }
 }
 
+/**
+ * 构造一份后端返回的快照。
+ * @param overrides - 需要覆盖的字段。
+ * @returns 快照。
+ */
 export function snapshot(overrides: Partial<TrackerSnapshot> = {}): TrackerSnapshot {
   return {
     repository: 'cnzgray/dsh-mattpocock-workflow',

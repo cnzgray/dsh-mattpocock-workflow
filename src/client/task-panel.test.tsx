@@ -155,6 +155,8 @@ describe('任务面板', () => {
           status: 'ready',
           skillAction: 'implement',
           skillActionReason: 'ready-for-agent',
+          labels: ['ready-for-agent'],
+          author: null,
           createdAt: '2026-11-01T00:00:00Z',
           updatedAt: '2026-11-10T00:00:00Z',
           openBlockers: 0,

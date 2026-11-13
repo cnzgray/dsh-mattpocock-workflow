@@ -168,6 +168,13 @@ function describeListContract(fixture: TrackerContractFixture): void {
       for (const ticket of snapshot.tickets) {
         expect(ticket.closedAt).toBe(fields.closedAt[ticket.ref])
         expect(ticket.blockedBy).toEqual(fields.blockedBy[ticket.ref])
+        // 创建人整体可以为 null（本地 Markdown）；有创建人时登录名必填，头像只能是 http(s)。
+        if (ticket.author !== null) {
+          expect(ticket.author.login.length).toBeGreaterThan(0)
+          expect(
+            ticket.author.avatarUrl === null || /^https?:\/\//.test(ticket.author.avatarUrl),
+          ).toBe(true)
+        }
       }
     })
   }

@@ -115,6 +115,7 @@ describe('本地 Markdown 工单后端', () => {
       title: '令牌刷新',
       state: 'closed',
       labels: ['resolved'],
+      author: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
       openBlockers: 0,

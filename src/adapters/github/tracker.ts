@@ -32,6 +32,7 @@ const ISSUE_QUERY = `query ($owner: String!, $name: String!, $limit: Int!) {
         updatedAt
         closedAt
         labels(first: 50) { nodes { name } }
+        author { login avatarUrl ... on User { name } }
         issueDependenciesSummary { blockedBy }
       }
     }

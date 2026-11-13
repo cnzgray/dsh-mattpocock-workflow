@@ -98,6 +98,20 @@ describe('Gitea 工单后端', () => {
     ])
   })
 
+  it('自建实例的头像按远端协议与端口补成绝对地址', async () => {
+    const { tracker } = trackerWith({
+      git: () =>
+        [
+          'origin\thttp://gitea.example.com:3000/cnzgray/dsh-workflow.git (fetch)',
+          'origin\thttp://gitea.example.com:3000/cnzgray/dsh-workflow.git (push)',
+        ].join('\n'),
+    })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.tickets[0]?.author?.avatarUrl).toBe('http://gitea.example.com:3000/avatars/1')
+  })
+
   it('超过一页时按页循环到拿全', async () => {
     const recorded = recordedRunner({
       issues: (page) =>

@@ -62,6 +62,8 @@ export const TICKET: TicketSnapshot = {
   state: 'open',
   category: 'enhancement',
   status: 'ready',
+  labels: [],
+  author: null,
   skillAction: 'implement',
   skillActionReason: 'ready-for-agent',
   createdAt: DETAIL.createdAt,

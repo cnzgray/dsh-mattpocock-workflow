@@ -19,6 +19,7 @@ const READY_TICKET: Ticket = {
   title: '一张可接的需求',
   state: 'open',
   labels: [TRACKER_LABELS.readyForAgent, TRACKER_LABELS.enhancement],
+  author: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   openBlockers: 0,

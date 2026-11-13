@@ -6,6 +6,19 @@
 /** 工单的开闭状态。 */
 export type TicketState = 'open' | 'closed'
 
+/**
+ * 工单创建人。core 与 protocol 各自声明同形状的类型：core 保持纯逻辑，
+ * protocol 保持叶子，两者都不跨目录引用。
+ */
+export interface TicketAuthor {
+  /** 登录名：GitHub 是 login，GitLab 是 username，Gitea 是 login。 */
+  readonly login: string
+  /** 展示名；后端没给时为 null，界面退回 login。 */
+  readonly displayName: string | null
+  /** 远端头像地址；没有头像、或不是 http(s) 绝对地址时为 null。 */
+  readonly avatarUrl: string | null
+}
+
 /** 一张工单的原始数据（判定之前）。 */
 export interface Ticket {
   /** 唯一引用：远端后端是 `#15`，本地 Markdown 是相对工作区的文件路径。 */
@@ -15,6 +28,8 @@ export interface Ticket {
   readonly title: string
   readonly state: TicketState
   readonly labels: readonly string[]
+  /** 创建人；本地 Markdown 没有创建人，为 null。 */
+  readonly author: TicketAuthor | null
   readonly createdAt: string
   readonly updatedAt: string
   /**

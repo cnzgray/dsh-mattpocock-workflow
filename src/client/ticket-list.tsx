@@ -4,12 +4,13 @@
  */
 import * as React from 'react'
 
-import type { TicketSnapshot } from '../protocol/tracker.ts'
+import type { TicketAuthor, TicketSnapshot } from '../protocol/tracker.ts'
+import { authorName, authorTitle } from './author-text.ts'
+import { formatRelativeTime } from './relative-time.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
 import {
   CARD_ACTION_BADGE_STYLE,
   CARD_FOCUSED_STYLE,
-  CARD_META_STYLE,
   CARD_ROW_STYLE,
   CARD_STYLE,
   CARD_TITLE_STYLE,
@@ -21,6 +22,13 @@ import {
   STATUS_DOT_STYLE,
   STATUS_LABELS,
 } from './task-panel-styles.ts'
+import { TicketAvatar } from './ticket-avatar.tsx'
+import {
+  AUTHOR_NAME_STYLE,
+  CARD_META_STYLE,
+  LABEL_BADGE_STYLE,
+  ROW_AGE_STYLE,
+} from './ticket-row-styles.ts'
 
 /** 工单列表依赖。 */
 export interface TicketListProps {
@@ -32,12 +40,17 @@ export interface TicketListProps {
   readonly canInject: boolean
   /** 从概览跳过来要定位的工单 `ref`；只高亮，不改其他状态。 */
   readonly focused?: string | null | undefined
+  /** 当前时间（毫秒），用于行内的相对创建时间。 */
+  readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot) => void
 }
 
 /** 本地 Markdown 路径在卡片里的显示上限；再长就从中间截断。 */
 const REF_DISPLAY_LIMIT = 40
+
+/** 分类之外最多显示几个标签；超出的折成 `+N`，窄面板不被撑破。 */
+const MAX_EXTRA_LABELS = 3
 
 /**
  * 渲染过滤、排序后的工单。
@@ -62,6 +75,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
           injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
           canInject={props.canInject}
           focused={ticket.ref === props.focused}
+          now={props.now}
           onPick={props.onPick}
           onSkillAction={props.onSkillAction}
         />
@@ -75,6 +89,7 @@ function TicketRow(props: {
   readonly injected: boolean
   readonly canInject: boolean
   readonly focused: boolean
+  readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot) => void
 }): React.ReactElement {
@@ -107,15 +122,7 @@ function TicketRow(props: {
           {display.text}
         </span>
         <span style={CARD_TITLE_STYLE}>{ticket.title}</span>
-        <span style={CARD_META_STYLE}>
-          <span style={STATUS_BADGES[ticket.status]}>
-            <span style={STATUS_DOT_STYLE} />
-            {STATUS_LABELS[ticket.status]}
-          </span>
-          {ticket.category === null ? null : (
-            <span style={CATEGORY_BADGES[ticket.category]}>{ticket.category}</span>
-          )}
-        </span>
+        <MetaRow ticket={ticket} now={props.now} />
       </button>
       <SkillActionBadge
         ticket={ticket}
@@ -128,6 +135,75 @@ function TicketRow(props: {
   )
 }
 
+function MetaRow(props: {
+  readonly ticket: TicketSnapshot
+  readonly now: number
+}): React.ReactElement {
+  const { ticket } = props
+  const extra = ticket.labels.filter((label) => label !== ticket.category)
+  const shown = extra.slice(0, MAX_EXTRA_LABELS)
+
+  return (
+    <span style={CARD_META_STYLE}>
+      <span style={STATUS_BADGES[ticket.status]}>
+        <span style={STATUS_DOT_STYLE} />
+        {STATUS_LABELS[ticket.status]}
+      </span>
+      {ticket.category === null ? null : (
+        <span style={CATEGORY_BADGES[ticket.category]}>{ticket.category}</span>
+      )}
+      {shown.map((label) => (
+        <span key={label} data-testid="ticket-label" style={LABEL_BADGE_STYLE}>
+          {label}
+        </span>
+      ))}
+      {extra.length > shown.length ? (
+        <span data-testid="ticket-label-more" style={LABEL_BADGE_STYLE}>
+          +{String(extra.length - shown.length)}
+        </span>
+      ) : null}
+      {ticket.author === null ? null : (
+        <AuthorMeta
+          author={ticket.author}
+          createdAt={ticket.createdAt}
+          updatedAt={ticket.updatedAt}
+          now={props.now}
+        />
+      )}
+    </span>
+  )
+}
+
+/** 创建人区：头像、用户名与相对创建时间；时间沿用面板头部的说法。 */
+function AuthorMeta(props: {
+  readonly author: TicketAuthor
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly now: number
+}): React.ReactElement {
+  const { author } = props
+  const name = authorName(author)
+  const full = authorTitle(author)
+  const age = formatRelativeTime(props.createdAt, props.now)
+
+  return (
+    <>
+      <TicketAvatar author={author} />
+      <span data-testid="ticket-author" title={full} style={AUTHOR_NAME_STYLE}>
+        {name}
+      </span>
+      {age.length === 0 ? null : (
+        <span
+          data-testid="ticket-age"
+          title={`创建：${props.createdAt}；更新：${props.updatedAt}`}
+          style={ROW_AGE_STYLE}
+        >
+          {age}
+        </span>
+      )}
+    </>
+  )
+}
 function refDisplay(ticket: TicketSnapshot): { readonly text: string; readonly full?: string } {
   if (ticket.number !== null) return { text: `#${String(ticket.number)}` }
   if (ticket.ref.length <= REF_DISPLAY_LIMIT) return { text: ticket.ref }

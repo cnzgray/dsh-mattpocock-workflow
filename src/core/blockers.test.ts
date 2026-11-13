@@ -10,6 +10,7 @@ function ticket(overrides: Partial<Ticket>): Ticket {
     title: '一张票',
     state: 'open',
     labels: ['ready-for-agent'],
+    author: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     openBlockers: 0,

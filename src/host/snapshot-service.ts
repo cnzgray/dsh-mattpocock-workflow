@@ -302,6 +302,8 @@ function buildSnapshot(
       state: ticket.state,
       category: ticket.category,
       status: ticket.status,
+      labels: ticket.labels,
+      author: ticket.author,
       skillAction: ticket.skillAction,
       skillActionReason: ticket.skillActionReason,
       createdAt: ticket.createdAt,

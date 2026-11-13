@@ -8,6 +8,12 @@ export const GIT_REMOTES_OUTPUT = [
   'origin\tgit@github.com:cnzgray/dsh-mattpocock-workflow.git (push)',
 ].join('\n')
 
+const AUTHOR = {
+  login: 'cnzgray',
+  name: 'Cnzgray',
+  avatarUrl: 'https://avatars.githubusercontent.com/u/1234?v=4',
+}
+
 const RECORDED_ISSUES = {
   data: {
     repository: {
@@ -21,6 +27,7 @@ const RECORDED_ISSUES = {
             createdAt: '2026-11-12T14:11:22Z',
             updatedAt: '2026-11-12T14:11:38Z',
             labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
+            author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 0 },
           },
           {
@@ -30,6 +37,7 @@ const RECORDED_ISSUES = {
             createdAt: '2026-11-12T14:14:07Z',
             updatedAt: '2026-11-12T14:14:19Z',
             labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
+            author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 1 },
           },
           {
@@ -39,6 +47,7 @@ const RECORDED_ISSUES = {
             createdAt: '2026-11-11T09:00:00Z',
             updatedAt: '2026-11-12T08:00:00Z',
             labels: { nodes: [{ name: 'bug' }] },
+            author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 0 },
           },
           {
@@ -48,6 +57,7 @@ const RECORDED_ISSUES = {
             createdAt: '2026-11-10T09:00:00Z',
             updatedAt: '2026-11-10T09:30:00Z',
             labels: { nodes: [{ name: 'needs-triage' }] },
+            author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 0 },
           },
           {
@@ -58,6 +68,7 @@ const RECORDED_ISSUES = {
             updatedAt: '2026-11-02T09:00:00Z',
             closedAt: '2026-11-02T09:30:00Z',
             labels: { nodes: [{ name: 'bug' }, { name: 'ready-for-agent' }] },
+            author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 2 },
           },
         ],

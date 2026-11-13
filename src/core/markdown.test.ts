@@ -40,6 +40,7 @@ describe('本地 Markdown 工单解析', () => {
         title: '会话过期处理',
         state: 'open',
         labels: ['ready-for-agent'],
+        author: null,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
         openBlockers: 0,

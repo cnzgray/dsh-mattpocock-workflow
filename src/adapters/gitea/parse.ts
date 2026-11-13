@@ -4,9 +4,17 @@
  *
  * 这里不发起任何请求，也不执行任何命令。
  */
+import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
+
+/** Gitea issue 的 user 字段名。 */
+const AUTHOR_FIELDS: AuthorFields = {
+  login: 'login',
+  displayName: 'full_name',
+  avatarUrl: 'avatar_url',
+}
 
 /** 一次 API 调用的结构化结果。 */
 export interface ApiResponse {
@@ -39,10 +47,11 @@ export function parseApiResponse(stdout: string, stderr: string): ApiResponse {
 /**
  * 解析一页 `/repos/:owner/:repo/issues` 的响应。
  * @param body - 响应体，Gitea 返回 JSON 数组。
+ * @param avatarBaseUrl - 头像地址是实例内相对路径时用来补全的基准地址。
  * @returns 解析到的一页工单，带 `pull_request` 的条目会被跳过。
  * @throws {TrackerError} 输出不是 JSON 数组或字段不合法。
  */
-export function parseIssuesPage(body: string): ParsedIssue[] {
+export function parseIssuesPage(body: string, avatarBaseUrl?: string): ParsedIssue[] {
   const payload = parseJson(body)
   if (!Array.isArray(payload)) throw invalid('工单列表不是数组')
 
@@ -50,7 +59,7 @@ export function parseIssuesPage(body: string): ParsedIssue[] {
   for (const [index, value] of payload.entries()) {
     // 请求已经带了 `type=issues`；这里再挡一次，任何版本把 PR 混进来都不影响统计。
     if (isRecord(value) && isRecord(value.pull_request)) continue
-    issues.push(parseIssue(value, index))
+    issues.push(parseIssue(value, index, avatarBaseUrl))
   }
   return issues
 }
@@ -102,7 +111,7 @@ function readTotal(stderr: string): number | undefined {
   return Number.isInteger(total) ? total : undefined
 }
 
-function parseIssue(value: unknown, index: number): ParsedIssue {
+function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): ParsedIssue {
   if (!isRecord(value)) throw invalid(`第 ${String(index + 1)} 张票不是对象`)
 
   const number = value.number
@@ -121,6 +130,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       title,
       state,
       labels: readLabels(value.labels),
+      author: readAuthor(value.user, AUTHOR_FIELDS, avatarBaseUrl),
       createdAt: readString(value.created_at, `第 ${String(number)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(number)} 张票的更新时间`),
       openBlockers: 0,

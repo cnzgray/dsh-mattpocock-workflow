@@ -74,6 +74,7 @@ export function giteaIssue(overrides: {
   readonly updatedAt?: string
   readonly closedAt?: string
   readonly pullRequest?: boolean
+  readonly user?: Record<string, unknown> | null
 }): Record<string, unknown> {
   const issue: Record<string, unknown> = {
     id: overrides.number,
@@ -85,6 +86,10 @@ export function giteaIssue(overrides: {
       name,
       color: 'ededed',
     })),
+    user:
+      overrides.user === undefined
+        ? { login: 'cnzgray', full_name: 'Cnzgray', avatar_url: '/avatars/1' }
+        : overrides.user,
     body: overrides.body ?? '',
     created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
     updated_at: overrides.updatedAt ?? '2026-11-12T14:11:38Z',

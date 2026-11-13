@@ -10,6 +10,7 @@
  */
 import { resolveOpenBlockers, type NativeBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
+
 import type {
   CommandRunner,
   Ticket,
@@ -117,7 +118,7 @@ async function readIssues(
     )
     ensureSuccess(response, '读取 Gitea 工单')
 
-    const parsed = parseIssuesPage(response.body)
+    const parsed = parseIssuesPage(response.body, repository.avatarBaseUrl)
     items.push(...parsed)
     total ??= response.total
 

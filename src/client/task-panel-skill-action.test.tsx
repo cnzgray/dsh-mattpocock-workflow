@@ -29,6 +29,8 @@ function ticket(overrides: Partial<TicketSnapshot> & Pick<TicketSnapshot, 'ref'>
     status: 'open',
     skillAction: 'triage',
     skillActionReason: 'untriaged',
+    labels: [],
+    author: null,
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-01T00:00:00Z',
     openBlockers: 0,

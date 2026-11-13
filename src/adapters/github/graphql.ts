@@ -2,9 +2,17 @@
  * 解析 `gh api graphql` 的工单输出。输入是录制或真实的 JSON 文本，
  * 不在这里发起任何请求。
  */
+import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
+
+/** GitHub GraphQL 用户对象里的字段名。 */
+const AUTHOR_FIELDS: AuthorFields = {
+  login: 'login',
+  displayName: 'name',
+  avatarUrl: 'avatarUrl',
+}
 
 /** 一次 GraphQL 解析的结果。 */
 export interface ParsedIssues {
@@ -53,6 +61,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
     title,
     state,
     labels: readLabels(value.labels),
+    author: readAuthor(value.author, AUTHOR_FIELDS),
     createdAt: readString(value.createdAt, `第 ${String(number)} 张票的创建时间`),
     updatedAt: readString(value.updatedAt, `第 ${String(number)} 张票的更新时间`),
     openBlockers: readOpenBlockers(value.issueDependenciesSummary),

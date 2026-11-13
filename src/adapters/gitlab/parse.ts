@@ -2,12 +2,20 @@
  * 解析 `glab api` 的工单、链接探测与批量阻塞计数输出。输入是录制或真实的
  * JSON 文本，这里不发起任何请求，也不执行任何命令。
  */
+import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { NativeBlockers } from '../../core/blocked-by.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
 
-/** 一张 GitLab 工单及其描述；描述用于原生 blocking link 不可用时回退。 */
+/** GitLab issue 的 author 字段名。 */
+const AUTHOR_FIELDS: AuthorFields = {
+  login: 'username',
+  displayName: 'name',
+  avatarUrl: 'avatar_url',
+}
+
+/** 一张 GitLab 工单及其描述；描述用于 blocking link 不可用时回退。 */
 export interface ParsedIssue {
   readonly ticket: Ticket
   readonly description: string
@@ -151,6 +159,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       title,
       state,
       labels: readLabels(value.labels),
+      author: readAuthor(value.author, AUTHOR_FIELDS),
       createdAt: readString(value.created_at, `第 ${String(iid)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(iid)} 张票的更新时间`),
       openBlockers: 0,

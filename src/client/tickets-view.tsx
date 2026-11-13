@@ -11,8 +11,9 @@ import { BACKEND_LABELS } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
+import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
-import { formatAge, useNow } from './snapshot-age.ts'
+import { useNow } from './snapshot-age.ts'
 import { useSnapshotRequest } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import { TicketList } from './ticket-list.tsx'
@@ -130,6 +131,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             injected={injected}
             canInject={props.canInject}
             focused={focused}
+            now={nowValue}
             onPick={props.onOpenTicket}
             onSkillAction={onSkillAction}
           />
@@ -182,6 +184,7 @@ function TicketRows(props: {
   readonly injected: string | null
   readonly canInject: boolean
   readonly focused: string | null
+  readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot) => void
 }): React.ReactElement {
@@ -196,6 +199,7 @@ function TicketRows(props: {
         injected={props.injected}
         canInject={props.canInject}
         focused={props.focused}
+        now={props.now}
         onPick={props.onPick}
         onSkillAction={props.onSkillAction}
       />
@@ -241,7 +245,9 @@ function Header(props: {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none' }}>
         <span data-testid="snapshot-age" style={AGE_STYLE}>
-          {props.snapshot === null ? '尚无快照' : formatAge(props.snapshot.fetchedAt, props.now)}
+          {props.snapshot === null
+            ? '尚无快照'
+            : formatRelativeTime(props.snapshot.fetchedAt, props.now)}
         </span>
         <button
           type="button"

@@ -39,6 +39,18 @@ export type TicketState = 'open' | 'closed'
 export type TicketCategory = 'bug' | 'enhancement' | null
 
 /**
+ * 工单创建人。与 core 的同名类型形状一致：protocol 是叶子，不引用 core。
+ */
+export interface TicketAuthor {
+  /** 登录名：GitHub 是 login，GitLab 是 username，Gitea 是 login。 */
+  readonly login: string
+  /** 展示名；后端没给时为 null，界面退回 login。 */
+  readonly displayName: string | null
+  /** 远端头像地址；没有头像、或不是 http(s) 绝对地址时为 null。 */
+  readonly avatarUrl: string | null
+}
+
+/**
  * 一张票的判定结果：
  * - `ready`：开放、无未关闭阻塞、带 `ready-for-agent`；
  * - `blocked`：开放且至少有一张未关闭的阻塞票；
@@ -170,6 +182,10 @@ export interface TicketSnapshot {
   readonly state: TicketState
   readonly category: TicketCategory
   readonly status: TicketStatus
+  /** 工单上的全部标签；界面用它显示分类之外的标签。 */
+  readonly labels: readonly string[]
+  /** 创建人；本地 Markdown 没有创建人，为 null。 */
+  readonly author: TicketAuthor | null
   /** 该票对应的技能动作；`none` 表示不提供注入入口。判定在 core，界面只展示。 */
   readonly skillAction: TicketSkillAction
   /** 判定依据；界面用它渲染原因徽标和悬停说明。 */

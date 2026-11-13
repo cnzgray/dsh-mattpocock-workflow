@@ -13,6 +13,8 @@ function ticket(overrides: Partial<TicketSnapshot>): TicketSnapshot {
     state: 'open',
     category: null,
     status: 'open',
+    labels: [],
+    author: null,
     skillAction: 'none',
     skillActionReason: 'untriaged',
     createdAt: '2026-11-12T00:00:00Z',

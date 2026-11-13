@@ -17,6 +17,11 @@ describe('GitLab 工单解析', () => {
           title: '右侧栏任务面板 MVP',
           state: 'opened',
           labels: ['enhancement', 'ready-for-agent'],
+          author: {
+            username: 'cnzgray',
+            name: 'Cnzgray',
+            avatar_url: 'https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png',
+          },
           description: '# 目标\n',
           created_at: '2026-11-12T14:11:22Z',
           updated_at: '2026-11-21T14:11:38Z',
@@ -31,6 +36,11 @@ describe('GitLab 工单解析', () => {
         title: '右侧栏任务面板 MVP',
         state: 'open',
         labels: ['enhancement', 'ready-for-agent'],
+        author: {
+          login: 'cnzgray',
+          displayName: 'Cnzgray',
+          avatarUrl: 'https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png',
+        },
         createdAt: '2026-11-12T14:11:22Z',
         updatedAt: '2026-11-21T14:11:38Z',
         openBlockers: 0,
@@ -54,6 +64,25 @@ describe('GitLab 工单解析', () => {
     ])
 
     expect(parseIssuesPage(output)[0]?.hasBlockingIssuesCount).toBe(true)
+  })
+
+  it('没有头像地址时创建人的头像为 null，用户名仍在', () => {
+    const output = JSON.stringify([
+      {
+        iid: 1,
+        title: '没设头像',
+        state: 'opened',
+        author: { username: 'cnzgray', name: 'Cnzgray', avatar_url: null },
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    expect(parseIssuesPage(output)[0]?.ticket.author).toEqual({
+      login: 'cnzgray',
+      displayName: 'Cnzgray',
+      avatarUrl: null,
+    })
   })
 
   it('状态不是 opened/closed 时返回数据格式错误', () => {

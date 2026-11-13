@@ -19,6 +19,7 @@ function ticket(overrides: Partial<ClassifiedTicket> = {}): ClassifiedTicket {
     title: '一张票',
     state: 'open',
     labels: [],
+    author: null,
     category: null,
     status: 'open',
     createdAt: daysAgo(1),

@@ -2,15 +2,17 @@
  * Gitea 后端共用的小工具：识别 owner/name、执行 `tea`、把命令失败翻译成带错误码的
  * `TrackerError`。列表、依赖、详情与变更共用一份。
  */
-import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
+import { parseRemotes, pickRemote, pickRemoteAddress } from '../../core/remote.ts'
 import type { CommandRunner } from '../../core/ticket.ts'
 import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
 import { parseApiResponse, type ApiResponse } from './parse.ts'
 
-/** Gitea 仓库的 owner 与 name。 */
+/** Gitea 仓库的 owner、name 与头像基准地址。 */
 export interface GiteaRepository {
   readonly owner: string
   readonly name: string
+  /** 头像地址是实例内相对路径时用来补成绝对地址的基准。 */
+  readonly avatarBaseUrl: string
 }
 
 const SEGMENT = /^[A-Za-z0-9_.-]+$/
@@ -37,7 +39,8 @@ export async function readRepository(
     })
   }
 
-  const address = pickRemoteAddress(parseRemotes(output))
+  const remotes = parseRemotes(output)
+  const address = pickRemoteAddress(remotes)
   if (address === undefined) {
     throw new TrackerError('fetch-failed', '当前仓库的 origin 不是可识别的 Gitea 远端。')
   }
@@ -53,7 +56,28 @@ export async function readRepository(
     throw new TrackerError('fetch-failed', 'Gitea 远端地址无法识别 owner/name。')
   }
 
-  return { owner, name }
+  return {
+    owner,
+    name,
+    avatarBaseUrl: avatarBaseUrl(pickRemote(remotes)?.url, address.host),
+  }
+}
+
+/**
+ * 头像地址的基准：远端本身是 http(s) 时保留它的协议与端口（自建实例常跑在 :3000 或 http 上）；
+ * SSH 远端看不出协议与端口，退回 `https://主机`。Gitea 的 `avatar_url` 通常是绝对地址，
+ * 相对路径只在实例没配绝对地址时出现，这一步只是补全兜底。
+ */
+function avatarBaseUrl(remoteUrl: string | undefined, host: string): string {
+  if (remoteUrl !== undefined) {
+    try {
+      const url = new URL(remoteUrl.trim())
+      if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin
+    } catch {
+      // SSH 简写（`git@host:path`）不是合法 URL，走下面的兜底。
+    }
+  }
+  return `https://${host}`
 }
 
 /**

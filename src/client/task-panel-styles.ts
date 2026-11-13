@@ -354,18 +354,6 @@ export const CARD_TITLE_STYLE: CSSProperties = {
   overflowWrap: 'anywhere',
 }
 
-/** 标题下的一行小字：状态在前、分类在后，都是次要信息。 */
-export const CARD_META_STYLE: CSSProperties = {
-  gridColumn: '2',
-  gridRow: '2',
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  columnGap: 8,
-  rowGap: 2,
-  minWidth: 0,
-}
-
 /** 行内状态：圆点 + 文字，不加描边，避免和右侧按钮抢视线。 */
 const STATUS_INLINE_STYLE: CSSProperties = {
   display: 'inline-flex',

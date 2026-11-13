@@ -17,6 +17,9 @@ import type { TaskPanelProps } from './task-panel.tsx'
 
 export const NOW = Date.parse('2026-11-12T15:00:00Z')
 
+/** 面板夹具里的创建人：没有头像，行内显示首字母色块。 */
+const AUTHOR = { login: 'cnzgray', displayName: 'Cnzgray', avatarUrl: null }
+
 export const TICKETS: readonly TicketSnapshot[] = [
   {
     ref: '#1',
@@ -27,6 +30,8 @@ export const TICKETS: readonly TicketSnapshot[] = [
     status: 'ready',
     skillAction: 'implement',
     skillActionReason: 'ready-for-agent',
+    labels: ['enhancement', 'ready-for-agent'],
+    author: AUTHOR,
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-05T00:00:00Z',
     openBlockers: 0,
@@ -40,6 +45,8 @@ export const TICKETS: readonly TicketSnapshot[] = [
     status: 'blocked',
     skillAction: 'none',
     skillActionReason: 'blocked',
+    labels: [],
+    author: AUTHOR,
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-03T00:00:00Z',
     openBlockers: 1,
@@ -53,6 +60,8 @@ export const TICKETS: readonly TicketSnapshot[] = [
     status: 'closed',
     skillAction: 'none',
     skillActionReason: 'closed',
+    labels: [],
+    author: AUTHOR,
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-11-04T00:00:00Z',
     openBlockers: 0,
@@ -66,6 +75,8 @@ export const TICKETS: readonly TicketSnapshot[] = [
     status: 'open',
     skillAction: 'triage',
     skillActionReason: 'untriaged',
+    labels: [],
+    author: AUTHOR,
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-11-02T00:00:00Z',
     openBlockers: 0,
@@ -79,6 +90,8 @@ export const TICKETS: readonly TicketSnapshot[] = [
     status: 'ready',
     skillAction: 'implement',
     skillActionReason: 'ready-for-agent',
+    labels: [],
+    author: AUTHOR,
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-11-01T00:00:00Z',
     openBlockers: 0,

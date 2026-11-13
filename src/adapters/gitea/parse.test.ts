@@ -27,7 +27,7 @@ describe('Gitea API 响应解析', () => {
 })
 
 describe('Gitea 工单解析', () => {
-  it('把一页 issue 映射成 ref、状态与标签', () => {
+  it('把一页 issue 映射成 ref、状态、标签与创建人', () => {
     const parsed = parseIssuesPage(
       JSON.stringify([
         giteaIssue({
@@ -39,6 +39,7 @@ describe('Gitea 工单解析', () => {
           updatedAt: '2026-11-21T14:11:38Z',
         }),
       ]),
+      'https://gitea.example.com',
     )
 
     expect(parsed).toEqual([
@@ -49,6 +50,11 @@ describe('Gitea 工单解析', () => {
           title: '右侧栏任务面板 MVP',
           state: 'open',
           labels: ['enhancement', 'ready-for-agent'],
+          author: {
+            login: 'cnzgray',
+            displayName: 'Cnzgray',
+            avatarUrl: 'https://gitea.example.com/avatars/1',
+          },
           createdAt: '2026-11-12T14:11:22Z',
           updatedAt: '2026-11-21T14:11:38Z',
           openBlockers: 0,
@@ -56,6 +62,35 @@ describe('Gitea 工单解析', () => {
         },
         body: '# 目标\n',
       },
+    ])
+  })
+
+  it('实例内的相对头像补成绝对地址，绝对地址原样保留', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        giteaIssue({
+          number: 15,
+          title: '相对头像',
+          user: { login: 'alice', avatar_url: '/avatars/alice' },
+        }),
+        giteaIssue({
+          number: 16,
+          title: '绝对头像',
+          user: { login: 'bob', avatar_url: 'https://cdn.example.com/bob.png' },
+        }),
+        giteaIssue({
+          number: 17,
+          title: '非法头像',
+          user: { login: 'carol', avatar_url: 'javascript:alert(1)' },
+        }),
+      ]),
+      'https://gitea.example.com',
+    )
+
+    expect(parsed.map((issue) => issue.ticket.author?.avatarUrl)).toEqual([
+      'https://gitea.example.com/avatars/alice',
+      'https://cdn.example.com/bob.png',
+      null,
     ])
   })
 
