@@ -29,10 +29,12 @@ export type FetchLike = (
   },
 ) => Promise<HttpResponseLike>
 
-/** 面板客户端：界面只依赖这三个方法。 */
+/** 面板客户端：界面只依赖这四个方法。 */
 export interface PanelClient {
   get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   refresh(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+  /** 补齐原生阻塞信息；快照已定稿时宿主直接返回缓存。 */
+  resolveBlockers(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /** 重新跑一次环境检查；宿主不缓存结果。 */
   envCheck(workspaceRoot: string): Promise<RpcResult<EnvCheckReport>>
 }
@@ -48,6 +50,8 @@ export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelCli
       call(fetchImpl, RPC_METHODS.snapshotGet, workspaceRoot, isSnapshotResult),
     refresh: (workspaceRoot) =>
       call(fetchImpl, RPC_METHODS.snapshotRefresh, workspaceRoot, isSnapshotResult),
+    resolveBlockers: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.snapshotResolveBlockers, workspaceRoot, isSnapshotResult),
     envCheck: (workspaceRoot) =>
       call(fetchImpl, RPC_METHODS.envCheck, workspaceRoot, isEnvCheckResult),
   }
@@ -129,6 +133,7 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
+  if (!('blockersFinalized' in value) || typeof value.blockersFinalized !== 'boolean') return false
   return true
 }
 

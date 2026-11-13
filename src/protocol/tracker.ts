@@ -11,12 +11,14 @@ import type { EnvCheckParams } from './env-check.ts'
 /** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
 
-/** 当前版本提供的方法：读缓存、强制刷新与环境检查。 */
+/** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息与环境检查。 */
 export const RPC_METHODS = {
-  /** 读缓存；没有缓存时拉取一次。 */
+  /** 读缓存；没有缓存时拉取一次。阻塞信息可能尚未定稿。 */
   snapshotGet: 'snapshot.get',
   /** 忽略缓存，强制拉取。 */
   snapshotRefresh: 'snapshot.refresh',
+  /** 补齐原生阻塞信息；快照已定稿时直接返回缓存。同一工作区的进行中请求会复用。 */
+  snapshotResolveBlockers: 'snapshot.resolveBlockers',
   /** 重新跑一次环境检查；同一工作区的进行中请求会复用。 */
   envCheck: 'env.check',
 } as const
@@ -76,9 +78,15 @@ export interface WorkspaceSnapshot {
   /** 仓库里的票总数；大于 `loaded` 时列表不完整。 */
   readonly total: number
   readonly tickets: readonly TicketSnapshot[]
+  /**
+   * 阻塞信息是否已定稿。为 false 时部分票的 `openBlockers` 来自描述回退，
+   * 界面应在首屏之后请求一次 {@link RPC_METHODS.snapshotResolveBlockers}。
+   * 后端不支持原生阻塞、补齐完成或补齐失败后都为 true。
+   */
+  readonly blockersFinalized: boolean
 }
 
-/** 两个方法共用的参数。 */
+/** 三个快照方法共用的参数。 */
 export interface SnapshotParams {
   /** 当前工作区根目录，宿主用它解析 git 远端并缓存快照。 */
   readonly workspaceRoot: string
@@ -88,6 +96,7 @@ export interface SnapshotParams {
 export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
   'snapshot.refresh': SnapshotParams
+  'snapshot.resolveBlockers': SnapshotParams
   'env.check': EnvCheckParams
 }
 

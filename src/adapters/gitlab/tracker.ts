@@ -4,13 +4,14 @@
  * - 仓库标识来自 core 的远端解析，API 里用完整路径的 URL 编码形式寻址，
  *   不依赖当前目录的默认项目推断；
  * - 只读 issue 接口，merge request 不会混进来；
- * - 阻塞优先用原生 blocking link，接口报告功能不可用或无权限时
- *   退回描述顶部的 `Blocked by:` 行。
+ * - 列表阶段只读描述顶部的 `Blocked by:` 行；原生 blocking link 逐票请求昂贵，
+ *   放到可选的 {@link Tracker.resolveBlockers} 里，在首屏之后补齐。
  */
-import { resolveOpenBlockers } from '../../core/blocked-by.ts'
+import { countDescriptionBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type {
+  BlockerTarget,
   CommandRunner,
   Ticket,
   TicketState,
@@ -31,12 +32,12 @@ export interface GitlabTrackerDeps {
   readonly now: () => number
   /** 单页大小；默认 100，测试可以调小以便构造分页。 */
   readonly pageSize?: number
-  /** 并发查询 blocking link 的上限。 */
+  /** 补齐阶段逐票查询 blocking link 的并发上限。 */
   readonly concurrency?: number
 }
 
 const DEFAULT_PAGE_SIZE = 100
-const DEFAULT_CONCURRENCY = 4
+const DEFAULT_CONCURRENCY = 8
 
 /**
  * 创建 GitLab 工单后端。
@@ -59,16 +60,7 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
         if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
       }
 
-      const native = await readNativeBlockers(deps, workspaceRoot, project, issues, concurrency)
-      const tickets = issues.map((issue) => ({
-        ...issue.ticket,
-        openBlockers: resolveOpenBlockers({
-          ticket: issue.ticket,
-          nativeBlockers: native?.get(issue.ticket.number ?? -1),
-          text: issue.description,
-          states,
-        }),
-      }))
+      const tickets = issues.map((issue) => withDescriptionBlockers(issue, states))
 
       return {
         repository: project,
@@ -76,6 +68,32 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
         loaded: tickets.length,
         total: tickets.length,
         tickets,
+      }
+    },
+
+    resolveBlockers: async (
+      workspaceRoot: string,
+      targets: readonly BlockerTarget[],
+    ): Promise<ReadonlyMap<string, number>> => {
+      const resolvable = targets.filter(
+        (target): target is BlockerTarget & { readonly number: number } => target.number !== null,
+      )
+      if (resolvable.length === 0) return new Map()
+
+      const project = await readProjectPath(deps, workspaceRoot)
+
+      try {
+        const counts = await mapWithConcurrency(resolvable, concurrency, async (target) => {
+          const endpoint = `${projectEndpoint(project)}/issues/${String(target.number)}/links`
+          const output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
+          return [target.ref, countNativeBlockers(output)] as const
+        })
+
+        return new Map(counts)
+      } catch (error) {
+        // 免费套餐、无权限或实例不支持原生链接：退回描述回退结果，不再重试。
+        if (isBlockingUnavailable(error)) return new Map()
+        throw mapGlabError(error)
       }
     },
   }
@@ -121,30 +139,15 @@ async function readIssues(
   }
 }
 
-async function readNativeBlockers(
-  deps: GitlabTrackerDeps,
-  workspaceRoot: string,
-  project: string,
-  issues: readonly ParsedIssue[],
-  concurrency: number,
-): Promise<ReadonlyMap<number, number> | undefined> {
-  const open = issues.filter(
-    (issue): issue is ParsedIssue & { readonly ticket: Ticket & { readonly number: number } } =>
-      issue.ticket.state === 'open' && issue.ticket.number !== null,
-  )
-  if (open.length === 0) return new Map()
+function withDescriptionBlockers(
+  issue: ParsedIssue,
+  states: ReadonlyMap<number, TicketState>,
+): Ticket {
+  if (issue.ticket.state !== 'open') return { ...issue.ticket, openBlockers: 0 }
 
-  try {
-    const counts = await mapWithConcurrency(open, concurrency, async (issue) => {
-      const endpoint = `${projectEndpoint(project)}/issues/${String(issue.ticket.number)}/links`
-      const output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
-      return { iid: issue.ticket.number, openBlockers: countNativeBlockers(output) }
-    })
-
-    return new Map(counts.map((entry) => [entry.iid, entry.openBlockers]))
-  } catch (error) {
-    if (isBlockingUnavailable(error)) return undefined
-    throw mapGlabError(error)
+  return {
+    ...issue.ticket,
+    openBlockers: countDescriptionBlockers(issue.description, states),
   }
 }
 

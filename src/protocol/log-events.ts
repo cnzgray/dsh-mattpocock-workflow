@@ -5,7 +5,7 @@
  * 可能带凭据或私密内容。
  */
 export const LOG_EVENTS = {
-  /** 一次工单拉取（缓存未命中或强制刷新）。 */
+  /** 一次工单拉取或阻塞补齐；`stage` 区分列表与补齐两段耗时。 */
   snapshot: 'tracker.snapshot',
   /** 一次环境检查。 */
   envCheck: 'env.check',
@@ -13,3 +13,9 @@ export const LOG_EVENTS = {
 
 /** 日志事件名的联合类型。 */
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
+
+/** 快照日志的阶段。列表与补齐分别计时，字段名沿用同一个事件。 */
+export const SNAPSHOT_STAGES = {
+  list: 'list',
+  blockers: 'blockers',
+} as const

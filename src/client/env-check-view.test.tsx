@@ -91,6 +91,7 @@ function fakeClient(envCheck: (root: string) => Promise<RpcResult<EnvCheckReport
   const client: PanelClient = {
     get: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
+    resolveBlockers: () => Promise.reject(new Error('未使用')),
     envCheck(root) {
       calls.push(root)
       return envCheck(root)

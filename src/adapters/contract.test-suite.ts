@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import type { Tracker } from '../core/ticket.ts'
+import type { BlockerTarget, Tracker } from '../core/ticket.ts'
 
 /** 一个后端跑契约所需的工厂与期望值。 */
 export interface TrackerContractFixture {
@@ -23,6 +23,14 @@ export interface TrackerContractFixture {
     readonly createTracker: () => Tracker
     readonly repository: string
     readonly fetchedAt: number
+  }
+  /**
+   * 后端实现可选的原生阻塞补齐能力时给出请求与期望；省略表示不实现。
+   * 契约套件只约束这个可选能力的存在性与返回形状，不规定它怎么拿到数据。
+   */
+  readonly blockers?: {
+    readonly request: readonly BlockerTarget[]
+    readonly expected: ReadonlyMap<string, number>
   }
 }
 
@@ -58,6 +66,22 @@ export function describeTrackerContract(backend: string, fixture: TrackerContrac
       expect(snapshot.fetchedAt).toBe(fixture.empty.fetchedAt)
     })
 
+    const blockers = fixture.blockers
+    it(blockers === undefined ? '不声明原生阻塞补齐能力' : '声明原生阻塞补齐能力', () => {
+      const tracker = fixture.createTracker()
+
+      expect(typeof tracker.resolveBlockers).toBe(blockers === undefined ? 'undefined' : 'function')
+    })
+
+    if (blockers !== undefined) {
+      it('补齐能力返回每张票的未关闭原生阻塞数', async () => {
+        const tracker = fixture.createTracker()
+
+        const native = await tracker.resolveBlockers?.(fixture.workspaceRoot, blockers.request)
+
+        expect(native).toEqual(blockers.expected)
+      })
+    }
     it('每张票都带 ref 与判定所需的字段', async () => {
       const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 

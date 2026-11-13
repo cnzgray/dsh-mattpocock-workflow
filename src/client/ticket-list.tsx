@@ -72,6 +72,7 @@ function TicketRow(props: {
         type="button"
         data-testid="ticket-row"
         data-ref={ticket.ref}
+        aria-pressed={props.selected}
         onClick={() => {
           props.onPick(ticket)
         }}

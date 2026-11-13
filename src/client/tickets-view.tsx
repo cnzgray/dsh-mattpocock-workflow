@@ -223,14 +223,23 @@ function useSnapshotRequest(
         mode === 'refresh' ? await client.refresh(workspaceRoot) : await client.get(workspaceRoot)
       if (current !== sequence.current) return
 
-      if (result.ok) {
-        setSnapshot(result.result)
-        setError(null)
-        setPhase('ready')
-      } else {
+      if (!result.ok) {
         setError(result.error)
         setPhase('error')
+        return
       }
+
+      // 首屏只等列表：阻塞数先按描述回退显示，补齐结果到了再原子替换。
+      setSnapshot(result.result)
+      setError(null)
+      setPhase('ready')
+      if (result.result.blockersFinalized) return
+
+      const finalized = await client.resolveBlockers(workspaceRoot)
+      // 刷新会推进序号；旧补齐结果不能覆盖新列表。
+      if (current !== sequence.current) return
+      // 补齐失败保留首屏结果：列表已经可用，不弹错误横幅。
+      if (finalized.ok) setSnapshot(finalized.result)
     },
     [client, workspaceRoot],
   )

@@ -94,7 +94,11 @@ const SNAPSHOT: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: 30,
   tickets: TICKETS,
+  blockersFinalized: true,
 }
+
+const UNUSED_RESOLVE = (): Promise<RpcResult<WorkspaceSnapshot>> =>
+  Promise.resolve({ ok: true, result: SNAPSHOT })
 
 interface FakeClient {
   readonly client: PanelClient
@@ -105,6 +109,7 @@ interface FakeClient {
 function fakeClient(
   getResult: RpcResult<WorkspaceSnapshot> | ((root: string) => RpcResult<WorkspaceSnapshot>),
   refreshResult?: RpcResult<WorkspaceSnapshot>,
+  resolveResult: () => Promise<RpcResult<WorkspaceSnapshot>> = UNUSED_RESOLVE,
 ): FakeClient {
   const getCalls: string[] = []
   const refreshCalls: string[] = []
@@ -119,6 +124,7 @@ function fakeClient(
       refreshCalls.push(root)
       return Promise.resolve(refreshResult ?? get(root))
     },
+    resolveBlockers: () => resolveResult(),
     envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
   return { client, getCalls, refreshCalls }
@@ -169,6 +175,7 @@ describe('任务面板', () => {
     const client: PanelClient = {
       get: () => pending.promise,
       refresh: () => pending.promise,
+      resolveBlockers: UNUSED_RESOLVE,
       envCheck: () =>
         Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
     }
@@ -259,6 +266,7 @@ describe('任务面板', () => {
       fetchedAt: NOW - 5_000,
       loaded: 1,
       total: 1,
+      blockersFinalized: true,
       tickets: [
         {
           ref,
@@ -312,6 +320,7 @@ describe('任务面板', () => {
     const client: PanelClient = {
       get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       refresh: () => pending.promise,
+      resolveBlockers: UNUSED_RESOLVE,
       envCheck: () =>
         Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
     }
@@ -418,6 +427,7 @@ describe('任务面板', () => {
     const client: PanelClient = {
       get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+      resolveBlockers: UNUSED_RESOLVE,
       envCheck(root) {
         envCheckCalls.push(root)
         return Promise.resolve({ ok: true, result: ENV_REPORT })
@@ -440,6 +450,7 @@ describe('任务面板', () => {
         Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
       refresh: () =>
         Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
+      resolveBlockers: UNUSED_RESOLVE,
       envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
     }
     render(<TaskPanel {...panelProps({ client })} />)
@@ -463,6 +474,7 @@ describe('任务面板', () => {
           ok: false,
           error: { code: 'markdown-read-failed', message: '读取失败' },
         }),
+      resolveBlockers: UNUSED_RESOLVE,
       envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
     }
     render(<TaskPanel {...panelProps({ client })} />)

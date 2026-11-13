@@ -33,6 +33,7 @@ const OK: RpcResult<WorkspaceSnapshot> = {
     loaded: 0,
     total: 0,
     tickets: [],
+    blockersFinalized: true,
   },
 }
 

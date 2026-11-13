@@ -1,12 +1,18 @@
 /**
- * 快照服务：缓存、刷新与错误映射。主接缝是 `handle(method, params)`，
+ * 快照服务：缓存、刷新、阻塞补齐与错误映射。主接缝是 `handle(method, params)`，
  * 测试注入假的「按工作区解析后端」函数就能覆盖缓存、错误码和刷新失败保留旧快照。
+ *
+ * 读取分两个阶段：
+ * 1. 列表：后端返回列表即生成快照，阻塞数先按描述回退；
+ * 2. 补齐：`snapshot.resolveBlockers` 读取原生阻塞数，合并后写回缓存。
+ * 补齐按工作区去重；刷新替换缓存条目，旧的补齐结果不会覆盖新快照。
  */
-import { classifyTickets } from '../core/classify.ts'
-import type { TicketLabelNames } from '../core/ticket.ts'
+import { mergeNativeBlockers } from '../core/blockers.ts'
+import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
+import type { BlockerTarget, TicketLabelNames, TrackerSnapshot } from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
-import { LOG_EVENTS } from '../protocol/log-events.ts'
+import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
@@ -30,7 +36,7 @@ export interface SnapshotServiceDeps {
 export interface SnapshotService {
   /**
    * 处理一个 RPC 方法。
-   * @param method - `snapshot.get` 或 `snapshot.refresh`。
+   * @param method - 三个快照方法之一。
    * @param params - `{ workspaceRoot }`。
    * @returns 成功快照或带错误码的失败。
    */
@@ -38,27 +44,57 @@ export interface SnapshotService {
 }
 
 /**
+ * 一个工作区的缓存条目。刷新会用新条目替换旧条目；
+ * 补齐结果靠条目身份判断是否过期，旧条目写不回缓存。
+ */
+interface CachedWorkspace {
+  readonly kind: BackendKind
+  /** 远端实例主机；列表与补齐两阶段共用同一份，本地 Markdown 为 null。 */
+  readonly repositoryHost: string | null
+  /** 后端的原始列表，补齐后按它重新判定，避免丢失标签。 */
+  readonly raw: TrackerSnapshot
+  snapshot: WorkspaceSnapshot
+  /** 原生阻塞补齐能力；null 表示后端不实现，列表阶段已经定稿。 */
+  readonly resolver: BlockerResolver | null
+  pending: Promise<RpcResult<WorkspaceSnapshot>> | null
+}
+
+type BlockerResolver = (
+  workspaceRoot: string,
+  tickets: readonly BlockerTarget[],
+) => Promise<ReadonlyMap<string, number>>
+
+/**
  * 创建按工作区根目录缓存的快照服务。
  * @param deps - 工单后端、时钟、标签名与日志出口。
  * @returns 快照服务。
  */
 export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotService {
-  const cache = new Map<string, WorkspaceSnapshot>()
+  const cache = new Map<string, CachedWorkspace>()
+  // 冷启动时两个面板会同时请求：共享同一次列表拉取，后续补齐才能挂到同一条缓存上。
+  const loading = new Map<string, Promise<RpcResult<WorkspaceSnapshot>>>()
 
   return {
-    async handle(method, params) {
-      if (method !== RPC_METHODS.snapshotGet && method !== RPC_METHODS.snapshotRefresh) {
-        return failure(ERROR_CODES.unknownMethod, `未知方法：${method}`)
+    handle(method, params) {
+      if (!isSnapshotMethod(method)) {
+        return Promise.resolve(failure(ERROR_CODES.unknownMethod, `未知方法：${method}`))
       }
 
       const workspaceRoot = readWorkspaceRoot(params)
       if (workspaceRoot === undefined) {
-        return failure(ERROR_CODES.invalidParams, '缺少非空的 workspaceRoot 参数。')
+        return Promise.resolve(
+          failure(ERROR_CODES.invalidParams, '缺少非空的 workspaceRoot 参数。'),
+        )
       }
 
       if (method === RPC_METHODS.snapshotGet) {
         const cached = cache.get(workspaceRoot)
-        if (cached !== undefined) return { ok: true, result: cached }
+        if (cached !== undefined) return Promise.resolve({ ok: true, result: cached.snapshot })
+        return loadWorkspace(deps, cache, loading, workspaceRoot)
+      }
+
+      if (method === RPC_METHODS.snapshotResolveBlockers) {
+        return resolveBlockers(deps, cache, loading, workspaceRoot)
       }
 
       return fetchAndCache(deps, cache, workspaceRoot)
@@ -66,9 +102,39 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
   }
 }
 
+function isSnapshotMethod(method: string): boolean {
+  return (
+    method === RPC_METHODS.snapshotGet ||
+    method === RPC_METHODS.snapshotRefresh ||
+    method === RPC_METHODS.snapshotResolveBlockers
+  )
+}
+
+function loadWorkspace(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  loading: Map<string, Promise<RpcResult<WorkspaceSnapshot>>>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const running = loading.get(workspaceRoot)
+  if (running !== undefined) return running
+
+  const task = fetchAndCache(deps, cache, workspaceRoot)
+  loading.set(workspaceRoot, task)
+  void task.then(
+    () => {
+      loading.delete(workspaceRoot)
+    },
+    () => {
+      loading.delete(workspaceRoot)
+    },
+  )
+  return task
+}
+
 async function fetchAndCache(
   deps: SnapshotServiceDeps,
-  cache: Map<string, WorkspaceSnapshot>,
+  cache: Map<string, CachedWorkspace>,
   workspaceRoot: string,
 ): Promise<RpcResult<WorkspaceSnapshot>> {
   const startedAt = deps.now()
@@ -79,30 +145,23 @@ async function fetchAndCache(
     kind = resolved.kind
     const raw = await resolved.tracker.fetchSnapshot(workspaceRoot)
     const tickets = classifyTickets(raw.tickets, deps.labels)
-    const snapshot: WorkspaceSnapshot = {
-      backend: resolved.kind,
-      repository: raw.repository,
-      repositoryHost: resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null),
-      fetchedAt: raw.fetchedAt,
-      loaded: tickets.length,
-      total: raw.total,
-      tickets: tickets.map((ticket) => ({
-        ref: ticket.ref,
-        number: ticket.number,
-        title: ticket.title,
-        state: ticket.state,
-        category: ticket.category,
-        status: ticket.status,
-        createdAt: ticket.createdAt,
-        updatedAt: ticket.updatedAt,
-        openBlockers: ticket.openBlockers,
-      })),
-    }
+    const resolver = resolved.tracker.resolveBlockers ?? null
+    const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
+    const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
+    const snapshot = buildSnapshot(resolved.kind, repositoryHost, raw, tickets, finalized)
 
-    cache.set(workspaceRoot, snapshot)
+    cache.set(workspaceRoot, {
+      kind: resolved.kind,
+      repositoryHost,
+      raw,
+      snapshot,
+      resolver,
+      pending: null,
+    })
     deps.log('info', LOG_EVENTS.snapshot, {
       result: 'ok',
       backend: resolved.kind,
+      stage: SNAPSHOT_STAGES.list,
       durationMs: Math.max(0, deps.now() - startedAt),
       repository: snapshot.repository,
       loaded: snapshot.loaded,
@@ -114,10 +173,122 @@ async function fetchAndCache(
     deps.log('warn', LOG_EVENTS.snapshot, {
       result: 'error',
       ...(kind === undefined ? {} : { backend: kind }),
+      stage: SNAPSHOT_STAGES.list,
       code: mapped.code,
       durationMs: Math.max(0, deps.now() - startedAt),
     })
     return failure(mapped.code, mapped.message)
+  }
+}
+
+/**
+ * 补齐入口：没有缓存时先按 `snapshot.get` 的规则拉一次列表。
+ * 命中缓存时同步登记进行中的补齐，保证并发调用共享同一个请求。
+ */
+function resolveBlockers(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  loading: Map<string, Promise<RpcResult<WorkspaceSnapshot>>>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const cached = cache.get(workspaceRoot)
+  if (cached !== undefined) return resolveCached(deps, cache, workspaceRoot, cached)
+
+  return loadWorkspace(deps, cache, loading, workspaceRoot).then((result) => {
+    if (!result.ok) return result
+    const entry = cache.get(workspaceRoot)
+    return entry === undefined ? result : resolveCached(deps, cache, workspaceRoot, entry)
+  })
+}
+
+function resolveCached(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  entry: CachedWorkspace,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  if (entry.snapshot.blockersFinalized || entry.resolver === null) {
+    return Promise.resolve({ ok: true, result: entry.snapshot })
+  }
+
+  if (entry.pending !== null) return entry.pending
+
+  const task = finalize(deps, cache, workspaceRoot, entry, entry.resolver)
+  entry.pending = task
+  return task
+}
+
+async function finalize(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  entry: CachedWorkspace,
+  resolver: BlockerResolver,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const startedAt = deps.now()
+  const targets: BlockerTarget[] = entry.snapshot.tickets
+    .filter((ticket) => ticket.state === 'open')
+    .map((ticket) => ({ ref: ticket.ref, number: ticket.number }))
+
+  let settled: WorkspaceSnapshot
+  let failure: { readonly code: ErrorCode; readonly message: string } | null = null
+
+  try {
+    const native = await resolver(workspaceRoot, targets)
+    const tickets = classifyTickets(mergeNativeBlockers(entry.raw.tickets, native), deps.labels)
+    settled = buildSnapshot(entry.kind, entry.repositoryHost, entry.raw, tickets, true)
+  } catch (error) {
+    // 补齐失败只影响定稿标记：保留阶段一结果，下一次刷新重新尝试。
+    failure = mapError(error)
+    settled = { ...entry.snapshot, blockersFinalized: true }
+  }
+
+  // 刷新会用新条目替换缓存；旧条目的结果不能再写回去。
+  const current = cache.get(workspaceRoot)
+  const stale = current !== entry
+  if (!stale) {
+    entry.snapshot = settled
+    entry.pending = null
+  }
+
+  deps.log(failure === null ? 'info' : 'warn', LOG_EVENTS.snapshot, {
+    result: failure === null ? 'ok' : 'error',
+    backend: entry.kind,
+    stage: SNAPSHOT_STAGES.blockers,
+    ...(failure === null ? {} : { code: failure.code }),
+    durationMs: Math.max(0, deps.now() - startedAt),
+    ...(stale ? { stale: true } : {}),
+  })
+  // 旧调用方拿到的是它那一代快照的定稿结果；缓存里已经是新快照，不受影响。
+  return { ok: true, result: settled }
+}
+
+function buildSnapshot(
+  kind: BackendKind,
+  repositoryHost: string | null,
+  raw: TrackerSnapshot,
+  tickets: readonly ClassifiedTicket[],
+  blockersFinalized: boolean,
+): WorkspaceSnapshot {
+  return {
+    backend: kind,
+    repository: raw.repository,
+    repositoryHost,
+    fetchedAt: raw.fetchedAt,
+    loaded: tickets.length,
+    total: raw.total,
+    blockersFinalized,
+    tickets: tickets.map((ticket) => ({
+      ref: ticket.ref,
+      number: ticket.number,
+      title: ticket.title,
+      state: ticket.state,
+      category: ticket.category,
+      status: ticket.status,
+      createdAt: ticket.createdAt,
+      updatedAt: ticket.updatedAt,
+      openBlockers: ticket.openBlockers,
+    })),
   }
 }
 

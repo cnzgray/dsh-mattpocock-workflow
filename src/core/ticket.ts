@@ -34,10 +34,28 @@ export interface TrackerSnapshot {
   readonly tickets: readonly Ticket[]
 }
 
+/**
+ * 需要补齐原生阻塞信息的票。`ref` 与 {@link Ticket.ref} 相同，用于把补齐结果
+ * 对回快照；`number` 为 null 的票（本地 Markdown）没有原生链接。
+ */
+export type BlockerTarget = Pick<Ticket, 'ref' | 'number'>
+
 /** 工单后端。GitHub / GitLab / 本地 Markdown 都实现同一契约。 */
 export interface Tracker {
   /** 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。 */
   fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot>
+  /**
+   * 可选能力：读取开放票的未关闭原生阻塞数。
+   *
+   * 列表阶段只能拿到描述回退结果；实现该能力的后端在首屏之后补齐原生计数，
+   * 返回 `ref → 未关闭阻塞数`。没有原生数据的票可以不出现在结果里，宿主会保留
+   * 描述回退值。不实现该能力的后端视为阻塞信息已定稿；业务失败时抛
+   * {@link TrackerError}，宿主会保留阶段一结果。
+   */
+  resolveBlockers?: (
+    workspaceRoot: string,
+    tickets: readonly BlockerTarget[],
+  ) => Promise<ReadonlyMap<string, number>>
 }
 
 /** 一次命令的标准输出与标准错误。 */

@@ -74,6 +74,13 @@ function trackerWith(options: RunnerOptions = {}): {
   }
 }
 
+/** 让出一轮事件循环，不依赖真实耗时。 */
+function flush(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve)
+  })
+}
+
 describe('GitLab 工单后端', () => {
   it('读取含嵌套 group 的项目路径与工单', async () => {
     const { tracker } = trackerWith()
@@ -107,17 +114,34 @@ describe('GitLab 工单后端', () => {
     expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual(['#15', '#16', '#9'])
   })
 
-  it('原生 blocking link 只统计未关闭的票，且只查询开放工单', async () => {
+  it('列表阶段不请求 blocking link，只按描述回退', async () => {
     const { tracker, linkCalls } = trackerWith()
 
     const snapshot = await tracker.fetchSnapshot('/workspace')
 
-    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 1, 0])
-    expect(new Set(linkCalls)).toEqual(new Set([15, 16]))
+    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 0, 0])
+    expect(linkCalls).toEqual([])
   })
 
-  it('原生 links 为空时仍读描述顶部的 Blocked by 行', async () => {
-    const { tracker } = trackerWith({
+  it('补齐阶段按票请求 blocking link，只统计未关闭的票', async () => {
+    const { tracker, linkCalls } = trackerWith()
+
+    const blockers = await tracker.resolveBlockers?.('/workspace', [
+      { ref: '#15', number: 15 },
+      { ref: '#16', number: 16 },
+    ])
+
+    expect(new Set(linkCalls)).toEqual(new Set([15, 16]))
+    expect(blockers).toEqual(
+      new Map([
+        ['#15', 0],
+        ['#16', 1],
+      ]),
+    )
+  })
+
+  it('描述顶部的 Blocked by 行在列表阶段直接生效', async () => {
+    const { tracker, linkCalls } = trackerWith({
       issues: () =>
         issuesJson([
           gitlabIssue({ iid: 15, title: '前置任务', labels: ['ready-for-agent'] }),
@@ -128,55 +152,111 @@ describe('GitLab 工单后端', () => {
             description: '# 被阻塞的任务\n\nBlocked by: #15\n',
           }),
         ]),
-      links: () => '[]',
     })
 
     const snapshot = await tracker.fetchSnapshot('/workspace')
 
     expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 1])
+    expect(linkCalls).toEqual([])
   })
 
-  it('blocking link 不可用时退回描述顶部的 Blocked by 行', async () => {
+  it.each([
+    '403 Forbidden: blocking issues are a Premium feature',
+    '404 Not Found: native blocking links are not available',
+    'blocking links are not supported on this instance',
+  ])('blocking link 不可用时补齐返回空映射（%s）', async (stderr) => {
     const { tracker } = trackerWith({
-      issues: () =>
-        issuesJson([
-          gitlabIssue({
-            iid: 15,
-            title: '前置任务',
-            labels: ['ready-for-agent'],
-          }),
-          gitlabIssue({
-            iid: 16,
-            title: '被阻塞的任务',
-            labels: ['ready-for-agent'],
-            description: '# 被阻塞的任务\n\nBlocked by: #15, #9, #99\n',
-          }),
-          gitlabIssue({
-            iid: 9,
-            title: '整理术语表',
-            state: 'closed',
-            labels: ['needs-triage'],
-          }),
-        ]),
       links: () => {
-        throw new CommandError(
-          'failed',
-          'glab 退出码 1',
-          '403 Forbidden: blocking issues are a Premium feature',
-          1,
-        )
+        throw new CommandError('failed', 'glab 退出码 1', stderr, 1)
       },
     })
 
-    const snapshot = await tracker.fetchSnapshot('/workspace')
+    const blockers = await tracker.resolveBlockers?.('/workspace', [{ ref: '#15', number: 15 }])
 
-    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 2, 0])
+    expect(blockers?.size).toBe(0)
+  })
+
+  it('补齐阶段忽略没有编号的票', async () => {
+    const { tracker, linkCalls } = trackerWith()
+
+    const blockers = await tracker.resolveBlockers?.('/workspace', [
+      { ref: '.scratch/login/issues/01-token.md', number: null },
+    ])
+
+    expect(linkCalls).toEqual([])
+    expect(blockers?.size).toBe(0)
+  })
+
+  it('补齐阶段的其他失败映射成 fetch-failed', async () => {
+    const { tracker } = trackerWith({
+      links: () => {
+        throw new CommandError('failed', 'glab 退出码 1', 'HTTP 502: Bad Gateway', 1)
+      },
+    })
+
+    await expect(
+      tracker.resolveBlockers?.('/workspace', [{ ref: '#15', number: 15 }]),
+    ).rejects.toMatchObject({ code: 'fetch-failed' })
+  })
+
+  it('补齐阶段并发不超过给定上限', async () => {
+    const gates: (() => void)[] = []
+    let active = 0
+    let maxActive = 0
+    const runner: CommandRunner = (command, args) => {
+      if (command === 'git') {
+        return Promise.resolve({ stdout: GITLAB_REMOTES_OUTPUT, stderr: '' })
+      }
+
+      const endpoint = args[1] ?? ''
+      if (endpoint.endsWith('/links')) {
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        return new Promise((resolve) => {
+          gates.push(() => {
+            active -= 1
+            resolve({ stdout: '[]', stderr: '' })
+          })
+        })
+      }
+
+      return Promise.resolve({
+        stdout: issuesJson([
+          gitlabIssue({ iid: 1, title: '一' }),
+          gitlabIssue({ iid: 2, title: '二' }),
+          gitlabIssue({ iid: 3, title: '三' }),
+          gitlabIssue({ iid: 4, title: '四' }),
+        ]),
+        stderr: '',
+      })
+    }
+    const tracker = createGitlabTracker({ run: runner, now: () => NOW, concurrency: 2 })
+    const targets = [1, 2, 3, 4].map((iid) => ({ ref: `#${String(iid)}`, number: iid }))
+
+    const pending = tracker.resolveBlockers?.('/workspace', targets)
+    await flush()
+    expect(gates).toHaveLength(2)
+    gates.shift()?.()
+    await flush()
+    expect(gates).toHaveLength(2)
+    gates.shift()?.()
+    await flush()
+    expect(gates).toHaveLength(2)
+    gates.splice(0).forEach((release) => {
+      release()
+    })
+    await flush()
+
+    const blockers = await pending
+    expect(maxActive).toBe(2)
+    expect(blockers?.size).toBe(4)
   })
 
   it('只读 issue 接口，不请求 merge request', async () => {
     const { tracker, calls } = trackerWith()
 
     await tracker.fetchSnapshot('/workspace')
+    await tracker.resolveBlockers?.('/workspace', [{ ref: '#15', number: 15 }])
 
     const apiCalls = calls.filter((call) => call[0] === 'glab').map((call) => call[2] ?? '')
     expect(apiCalls.length).toBeGreaterThan(0)
@@ -253,5 +333,15 @@ describeTrackerContract('GitLab', {
       }),
     repository: 'cnzgray/platform/dsh-workflow',
     fetchedAt: NOW,
+  },
+  blockers: {
+    request: [
+      { ref: '#15', number: 15 },
+      { ref: '#16', number: 16 },
+    ],
+    expected: new Map([
+      ['#15', 0],
+      ['#16', 1],
+    ]),
   },
 })

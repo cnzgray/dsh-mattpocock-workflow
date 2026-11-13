@@ -19,6 +19,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   loaded: 0,
   total: 0,
   tickets: [],
+  blockersFinalized: true,
 }
 
 function response(body: unknown, ok = true, status = 200): HttpResponseLike {
@@ -69,6 +70,18 @@ describe('快照 RPC 客户端', () => {
     expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({ method: 'snapshot.refresh' })
   })
 
+  it('向插件私有路由发送 snapshot.resolveBlockers', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.resolveBlockers('/repo')
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'snapshot.resolveBlockers',
+      params: { workspaceRoot: '/repo' },
+    })
+  })
+
   it('成功响应原样返回', async () => {
     const expected: RpcResult<WorkspaceSnapshot> = { ok: true, result: SNAPSHOT }
     const client = createPanelClient(recordingFetch(response(expected)).fetchImpl)
@@ -98,6 +111,27 @@ describe('快照 RPC 客户端', () => {
     const legacy = {
       backend: SNAPSHOT.backend,
       repository: SNAPSHOT.repository,
+      fetchedAt: SNAPSHOT.fetchedAt,
+      loaded: SNAPSHOT.loaded,
+      total: SNAPSHOT.total,
+      tickets: SNAPSHOT.tickets,
+      blockersFinalized: SNAPSHOT.blockersFinalized,
+    }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+    )
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('快照缺少 blockersFinalized 时返回 fetch-failed', async () => {
+    const legacy = {
+      backend: SNAPSHOT.backend,
+      repository: SNAPSHOT.repository,
+      repositoryHost: SNAPSHOT.repositoryHost,
       fetchedAt: SNAPSHOT.fetchedAt,
       loaded: SNAPSHOT.loaded,
       total: SNAPSHOT.total,
