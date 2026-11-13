@@ -33,7 +33,7 @@ The instance or the repo can disable issue dependencies; the API then answers 40
 
 ## Triage labels
 
-Create any missing triage label before applying it, so labelling can't fail:
+List the labels the repo already has with `tea labels list --output json`, then create only the missing ones, so labelling can't fail and creating an existing label doesn't error:
 
 ```bash
 tea labels create --name "needs-triage" --color "#ededed"

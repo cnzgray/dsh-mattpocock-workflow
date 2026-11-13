@@ -107,8 +107,8 @@ async function resolveBackend(
     if (direct.kind !== 'markdown') return resolved(direct)
 
     // GitLab 判定完之后才探测 tea：只装了一种 CLI 的工作区不会被多叫一次。
-    const tea = await readTeaLogins(deps.run, workspaceRoot)
-    return resolved(chooseBackend(address, glabHosts, tea.hosts))
+    const teaHosts = await readTeaLogins(deps.run, workspaceRoot)
+    return resolved(chooseBackend(address, glabHosts, teaHosts))
   }
 
   return {
@@ -171,17 +171,15 @@ async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<
   }
 }
 
-async function readTeaLogins(run: CommandRunner, workspaceRoot: string): Promise<CliLogins> {
+async function readTeaLogins(run: CommandRunner, workspaceRoot: string): Promise<string[]> {
   try {
     const output = await run('tea', ['logins', 'list', '--output', 'json'], {
       cwd: workspaceRoot,
     })
-    return { installed: true, hosts: parseTeaLoginHosts(output.stdout) }
-  } catch (error) {
+    return parseTeaLoginHosts(output.stdout)
+  } catch {
     // 没装 tea 与配置读不出来都当作“没有匹配的登录”，交给本地 Markdown。
-    if (error instanceof CommandError && error.kind === 'not-found') {
-      return { installed: false, hosts: [] }
-    }
-    return { installed: true, hosts: [] }
+    // tea 是否安装只影响能否探测到登录，不影响已经解析出的后端是否可用。
+    return []
   }
 }

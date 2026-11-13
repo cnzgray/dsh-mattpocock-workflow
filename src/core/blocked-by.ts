@@ -2,7 +2,7 @@
  * 解析工单正文顶部的 `Blocked by:` 行。GitLab 的 blocking link 不可用、
  * Gitea 关闭了 issue 依赖时，两个后端都退回到这一行；这里只实现一次。
  */
-import type { TicketState } from './ticket.ts'
+import type { Ticket, TicketState } from './ticket.ts'
 
 const BLOCKED_BY = /^\s*Blocked by:\s*(.*)$/im
 const REFERENCE = /#?(\d+)/g
@@ -30,6 +30,32 @@ export function countDescriptionBlockers(
     if (states.get(number) !== 'closed') count += 1
   }
   return count
+}
+
+/** 判定一张远端工单的阻塞数所需的最小输入。 */
+export interface OpenBlockerInput {
+  readonly ticket: Pick<Ticket, 'state' | 'number'>
+  /** 后端原生依赖里的未关闭数；依赖功能不可用时为 undefined。 */
+  readonly nativeBlockers: number | undefined
+  /** 工单正文，用于原生依赖为空时读 `Blocked by:` 行。 */
+  readonly text: string
+  readonly states: ReadonlyMap<number, TicketState>
+}
+
+/**
+ * 算出一张远端工单的未关闭阻塞数。
+ *
+ * 规则对 GitLab 与 Gitea 完全相同：原生依赖有未关闭的票就用它；
+ * 原生依赖为空（或功能不可用）时退回正文顶部的 `Blocked by:` 行，
+ * 这样功能关闭前按退路格式写下的阻塞关系不会丢。
+ * @param input - 工单状态、原生依赖数、正文与同仓库工单状态。
+ * @returns 未关闭的阻塞票数量。
+ */
+export function resolveOpenBlockers(input: OpenBlockerInput): number {
+  if (input.ticket.state !== 'open' || input.ticket.number === null) return 0
+  const native = input.nativeBlockers
+  if (native !== undefined && native > 0) return native
+  return countDescriptionBlockers(input.text, input.states)
 }
 
 /**

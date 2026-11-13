@@ -265,4 +265,13 @@ describeTrackerContract('Gitea', {
     refs: ['#15', '#16', '#9'],
     fetchedAt: NOW,
   },
+  empty: {
+    createTracker: () =>
+      createGiteaTracker({
+        run: recordedRunner({ issues: () => apiCall([], 0) }).runner,
+        now: () => NOW,
+      }),
+    repository: 'cnzgray/dsh-workflow',
+    fetchedAt: NOW,
+  },
 })

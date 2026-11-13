@@ -1,5 +1,5 @@
 /**
- * 工单后端共用契约用例。GitHub、GitLab 与本地 Markdown 都跑这一组断言，
+ * 工单后端共用契约用例。GitHub、GitLab、Gitea 与本地 Markdown 都跑这一组断言，
  * 只替换各自的工厂与录制输入。套件不规定依赖形状：命令型后端在自己的
  * 测试里注入假命令，Markdown 后端注入内存假文件。
  */
@@ -16,6 +16,12 @@ export interface TrackerContractFixture {
     readonly repository: string
     readonly total: number
     readonly refs: readonly string[]
+    readonly fetchedAt: number
+  }
+  /** 空仓库：各后端用自己的空输入，验证零计数不会变成错误。 */
+  readonly empty: {
+    readonly createTracker: () => Tracker
+    readonly repository: string
     readonly fetchedAt: number
   }
 }
@@ -40,6 +46,16 @@ export function describeTrackerContract(backend: string, fixture: TrackerContrac
       const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 
       expect(snapshot.fetchedAt).toBe(fixture.expected.fetchedAt)
+    })
+
+    it('空仓库返回空列表与零计数', async () => {
+      const snapshot = await fixture.empty.createTracker().fetchSnapshot(fixture.workspaceRoot)
+
+      expect(snapshot.tickets).toEqual([])
+      expect(snapshot.loaded).toBe(0)
+      expect(snapshot.total).toBe(0)
+      expect(snapshot.repository).toBe(fixture.empty.repository)
+      expect(snapshot.fetchedAt).toBe(fixture.empty.fetchedAt)
     })
 
     it('每张票都带 ref 与判定所需的字段', async () => {

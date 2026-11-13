@@ -177,6 +177,10 @@ describe('GitHub 工单后端', () => {
   })
 })
 
+const EMPTY_ISSUES_OUTPUT = JSON.stringify({
+  data: { repository: { issues: { totalCount: 0, nodes: [] } } },
+})
+
 describeTrackerContract('GitHub', {
   createTracker: () => createGithubTracker({ run: recordedRunner({}).runner, now: () => NOW }),
   workspaceRoot: '/workspace',
@@ -184,6 +188,15 @@ describeTrackerContract('GitHub', {
     repository: 'cnzgray/dsh-mattpocock-workflow',
     total: 30,
     refs: ['#15', '#16', '#12', '#9', '#7'],
+    fetchedAt: NOW,
+  },
+  empty: {
+    createTracker: () =>
+      createGithubTracker({
+        run: recordedRunner({ gh: () => EMPTY_ISSUES_OUTPUT }).runner,
+        now: () => NOW,
+      }),
+    repository: 'cnzgray/dsh-mattpocock-workflow',
     fetchedAt: NOW,
   },
 })

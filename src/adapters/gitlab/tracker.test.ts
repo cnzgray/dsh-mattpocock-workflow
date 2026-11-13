@@ -245,4 +245,13 @@ describeTrackerContract('GitLab', {
     refs: ['#15', '#16', '#9'],
     fetchedAt: NOW,
   },
+  empty: {
+    createTracker: () =>
+      createGitlabTracker({
+        run: recordedRunner({ issues: () => issuesJson([]) }).runner,
+        now: () => NOW,
+      }),
+    repository: 'cnzgray/platform/dsh-workflow',
+    fetchedAt: NOW,
+  },
 })

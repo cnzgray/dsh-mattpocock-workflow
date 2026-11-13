@@ -7,7 +7,7 @@
  * - 阻塞优先用原生 blocking link，接口报告功能不可用或无权限时
  *   退回描述顶部的 `Blocked by:` 行。
  */
-import { countDescriptionBlockers } from '../../core/blocked-by.ts'
+import { resolveOpenBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type {
@@ -60,7 +60,15 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
       }
 
       const native = await readNativeBlockers(deps, workspaceRoot, project, issues, concurrency)
-      const tickets = issues.map((issue) => withBlockers(issue, native, states))
+      const tickets = issues.map((issue) => ({
+        ...issue.ticket,
+        openBlockers: resolveOpenBlockers({
+          ticket: issue.ticket,
+          nativeBlockers: native?.get(issue.ticket.number ?? -1),
+          text: issue.description,
+          states,
+        }),
+      }))
 
       return {
         repository: project,
@@ -138,27 +146,6 @@ async function readNativeBlockers(
     if (isBlockingUnavailable(error)) return undefined
     throw mapGlabError(error)
   }
-}
-
-function withBlockers(
-  issue: ParsedIssue,
-  native: ReadonlyMap<number, number> | undefined,
-  states: ReadonlyMap<number, TicketState>,
-): Ticket {
-  const number = issue.ticket.number
-  if (issue.ticket.state !== 'open' || number === null) {
-    return { ...issue.ticket, openBlockers: 0 }
-  }
-
-  // GitLab 免费套餐没有原生 blocking link：links 接口照常返回空数组，
-  // 而不是报错。原生链接为空时仍要读描述顶部的 `Blocked by:` 行。
-  const fromLinks = native?.get(number)
-  const openBlockers =
-    fromLinks !== undefined && fromLinks > 0
-      ? fromLinks
-      : countDescriptionBlockers(issue.description, states)
-
-  return { ...issue.ticket, openBlockers }
 }
 
 function mapGlabError(error: unknown): TrackerError {

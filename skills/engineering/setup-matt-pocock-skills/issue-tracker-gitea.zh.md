@@ -33,7 +33,7 @@ Gitea 原生的 issue 依赖是规范的、网页上也可见的表示。`tea` �
 
 ## 分诊标签
 
-打标签之前先把仓库里缺的分诊标签补齐，避免打标签失败：
+先用 `tea labels list --output json` 列出仓库已有的标签，只建缺的那些，这样打标签不会失败，也不会因为重复创建报错：
 
 ```bash
 tea labels create --name "needs-triage" --color "#ededed"

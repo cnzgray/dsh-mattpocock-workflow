@@ -15,6 +15,7 @@ Gitea 后端的初始化约定：
 1. 当前工作区 `origin` 远端的主机与 `tea logins list --output json` 里某个登录的主机一致时，默认推荐
    Gitea；用户也可以手动选择；
 2. 选了 Gitea 但没有匹配的登录时停下来，让用户先运行 `tea login add`，不要写出一份用不了的配置；
-3. 完成标志是在仓库目录里运行 `tea api /repos/{owner}/{repo}` 能返回仓库信息（`tea repo` 只列仓库，
+3. `tea --version` 低于 0.16 时提示升级，`tea api --include` 与 `--description-file` 依赖这个版本；
+4. 完成标志是在仓库目录里运行 `tea api /repos/{owner}/{repo}` 能返回仓库信息（`tea repo` 只列仓库，
    不能判断当前目录）；
-4. 用 `tea labels create` 把缺失的分诊标签补齐，再写种子模板。
+5. 先用 `tea labels list --output json` 看缺哪些分诊标签，再用 `tea labels create` 补齐，最后写种子模板。

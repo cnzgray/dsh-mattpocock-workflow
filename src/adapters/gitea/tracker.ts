@@ -7,7 +7,7 @@
  * - 阻塞：优先读 Gitea 原生 issue 依赖，只查开放的工单，并发有上限；
  *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行。
  */
-import { countDescriptionBlockers } from '../../core/blocked-by.ts'
+import { resolveOpenBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type {
@@ -78,7 +78,15 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         pageSize,
         concurrency,
       )
-      const tickets = issues.items.map((issue) => withBlockers(issue, native, states))
+      const tickets = issues.items.map((issue) => ({
+        ...issue.ticket,
+        openBlockers: resolveOpenBlockers({
+          ticket: issue.ticket,
+          nativeBlockers: native?.get(issue.ticket.number ?? -1),
+          text: issue.body,
+          states,
+        }),
+      }))
 
       return {
         repository: `${repository.owner}/${repository.name}`,
@@ -212,27 +220,6 @@ async function readDependencies(
   }
 
   return open
-}
-
-function withBlockers(
-  issue: ParsedIssue,
-  native: ReadonlyMap<number, number> | undefined,
-  states: ReadonlyMap<number, TicketState>,
-): Ticket {
-  const number = issue.ticket.number
-  if (issue.ticket.state !== 'open' || number === null) {
-    return { ...issue.ticket, openBlockers: 0 }
-  }
-
-  // 原生依赖为空时仍要读正文顶部的 `Blocked by:` 行：依赖功能可能关闭过，
-  // 之前的票按退路格式写过阻塞关系。
-  const fromNative = native?.get(number)
-  const openBlockers =
-    fromNative !== undefined && fromNative > 0
-      ? fromNative
-      : countDescriptionBlockers(issue.body, states)
-
-  return { ...issue.ticket, openBlockers }
 }
 
 /** 依赖功能未启用。只用于在读取阶段区分 404，不向外暴露。 */

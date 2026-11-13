@@ -165,4 +165,9 @@ describeTrackerContract('本地 Markdown', {
     ],
     fetchedAt: NOW,
   },
+  empty: {
+    createTracker: () => trackerFor({ directories: {}, files: {} }),
+    repository: 'ws',
+    fetchedAt: NOW,
+  },
 })
