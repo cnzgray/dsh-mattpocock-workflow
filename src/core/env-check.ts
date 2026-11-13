@@ -81,8 +81,8 @@ export interface EnvCheckFacts {
   readonly home: ProbeOutcome
   readonly backend: BackendProbeOutcome
   readonly workspace: ProbeOutcome
-  /** 本地工单目录的探测事实；与后端判定无关，任何后端都会检查。 */
-  readonly localIssues: LocalIssuesFact
+  /** 本地工单目录的探测事实；只在本地 Markdown 或后端未判定时探测，其余为 undefined。 */
+  readonly localIssues: LocalIssuesFact | undefined
   /** 以下三项在前置项未通过时不会探测，为 undefined。 */
   readonly cli: ProbeOutcome | undefined
   readonly auth: ProbeOutcome | undefined
@@ -123,9 +123,30 @@ interface RemedyFacts {
 }
 
 /**
+ * 已判定的托管后端；本地 Markdown 或后端尚未判定时缺省。
+ * 判定与「要不要检查本地工单目录」共用同一处分类，后端集合变化时只需改这里。
+ */
+function hostedBackend(backend: BackendProbeOutcome): EnvCliBackend | undefined {
+  return backend.status === 'pass' && backend.choice.kind !== 'markdown'
+    ? backend.choice.kind
+    : undefined
+}
+
+/**
+ * 本地工单目录只在会读它的后端下检查：本地 Markdown；后端尚未判定时也可能回退
+ * 本地，一并检查。托管后端的工单列表完全来自远端，探测本地文件没有意义。
+ * @param backend - 后端判定结果。
+ * @returns 是否产出并探测「本地工单目录可用」。
+ */
+export function shouldCheckLocalIssues(backend: BackendProbeOutcome): boolean {
+  return hostedBackend(backend) === undefined
+}
+
+/**
  * 产出固定顺序的检查项。
  * @param facts - 各项探测结果。
- * @returns 顺序为：主目录、后端、命令行、登录、仓库可达、工作区、本地工单目录、技能。
+ * @returns 顺序为：主目录、后端、命令行、登录、仓库可达、工作区、本地工单目录（仅本地
+ * Markdown 或后端未判定）、技能。
  */
 export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[] {
   const items: EnvCheckItem[] = []
@@ -151,11 +172,11 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
   const candidate = facts.backend.status === 'fail' ? (facts.backend.backend ?? null) : null
   const backend = place('backend', candidate, toProbeOutcome(facts.backend), null)
 
-  if (facts.backend.status === 'pass' && facts.backend.choice.kind !== 'markdown') {
-    const backendKind = facts.backend.choice.kind
-    const cli = place('cli', backendKind, facts.cli, backend)
-    const auth = place('auth', backendKind, facts.auth, cli)
-    place('repository', backendKind, facts.repository, auth)
+  const hosted = hostedBackend(facts.backend)
+  if (hosted !== undefined) {
+    const cli = place('cli', hosted, facts.cli, backend)
+    const auth = place('auth', hosted, facts.auth, cli)
+    place('repository', hosted, facts.repository, auth)
   } else if (facts.backend.status !== 'pass') {
     const cli = place('cli', candidate, undefined, backend)
     const auth = place('auth', candidate, undefined, cli)
@@ -163,7 +184,11 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
   }
 
   place('workspace', null, facts.workspace, null)
-  place('local-issues', null, localIssuesOutcome(facts.localIssues), null)
+  if (shouldCheckLocalIssues(facts.backend)) {
+    const localIssues =
+      facts.localIssues === undefined ? undefined : localIssuesOutcome(facts.localIssues)
+    place('local-issues', null, localIssues, null)
+  }
   for (const skill of facts.skills) {
     place('skill', skill.name, skill.outcome, home)
   }

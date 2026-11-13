@@ -20,7 +20,7 @@ export const ENV_CHECK_IDS = {
   repository: 'repository',
   /** 工作区已用 `setup-matt-pocock-skills` 初始化。 */
   workspace: 'workspace',
-  /** 工作区里的本地工单目录可读；与后端无关。 */
+  /** 工作区里的本地工单目录可读；只在本地 Markdown 后端或后端未判定时检查。 */
   localIssues: 'local-issues',
   /** 一项必需技能已安装；subject 是技能名。 */
   skill: 'skill',

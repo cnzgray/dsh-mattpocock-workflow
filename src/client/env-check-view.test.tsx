@@ -130,7 +130,7 @@ describe('环境检查视图', () => {
     expect(itemCard('auth', 'github').textContent).toContain('因为「GitHub CLI (gh) 已安装」未通过')
   })
 
-  it('Gitea 后端显示 tea 口径的三项与安装命令，本地工单目录独立失败', async () => {
+  it('Gitea 后端显示 tea 口径的三项与安装命令，不出现本地工单目录', async () => {
     renderView(() => okResponse(GITEA_REPORT))
     await screen.findByTestId('env-items')
 
@@ -140,8 +140,9 @@ describe('环境检查视图', () => {
     expect(itemCard('auth', 'gitea').textContent).toContain('tea 已登录远端实例')
     expect(itemCard('repository', 'gitea').textContent).toContain('Gitea 仓库可达')
     expect(itemCard('auth', 'gitea').textContent).toContain('因为「Gitea CLI (tea) 已安装」未通过')
-    expect(itemCard('local-issues', '').textContent).toContain('本地工单目录可用')
-    expect(remedyCard('local-issues', '').textContent).toContain('.scratch/<feature>/issues/')
+    expect(
+      screen.getAllByTestId('env-item').some((entry) => entry.dataset.id === 'local-issues'),
+    ).toBe(false)
   })
 
   it('判定项带候选 Gitea 时标题点名后端，解决给 tea 的登录命令', async () => {
@@ -164,7 +165,6 @@ describe('环境检查视图', () => {
     })
     expect(document.activeElement).toBe(cli)
     expect(itemCard('repository', 'gitea').dataset.highlighted).toBeUndefined()
-    expect(itemCard('local-issues', '').dataset.highlighted).toBeUndefined()
   })
 
   it('失败卡片在依据下面显示解决区，通过项与跳过项没有', async () => {

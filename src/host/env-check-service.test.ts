@@ -216,7 +216,6 @@ describe('环境检查服务', () => {
       'auth',
       'repository',
       'workspace',
-      'local-issues',
       ...REQUIRED_SKILLS.map(() => 'skill'),
     ])
   })
@@ -413,8 +412,8 @@ describe('环境检查服务', () => {
     expect(logs[0]?.event).toBe(LOG_EVENTS.envCheck)
     expect(logs[0]?.fields).toMatchObject({
       backend: 'github',
-      // 主目录、后端、工作区、本地工单目录与每一项技能都通过；命令行失败后登录与仓库被跳过。
-      passed: 4 + REQUIRED_SKILLS.length,
+      // 主目录、后端、工作区与每一项技能都通过；托管后端不检查本地工单目录，命令行失败后登录与仓库被跳过。
+      passed: 3 + REQUIRED_SKILLS.length,
       failed: 1,
       skipped: 2,
       level: 'info',

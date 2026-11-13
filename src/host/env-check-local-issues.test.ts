@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createLocalIssuesProbe } from '../adapters/markdown/env.ts'
 import type { WorkspaceFiles } from '../adapters/markdown/files.ts'
+import { TrackerError } from '../core/tracker-error.ts'
 import type { EnvRemedyCode } from '../protocol/env-check.ts'
 import {
   FOUND_LOCAL_ISSUES,
@@ -43,6 +44,9 @@ const SCRATCH = `${ROOT}/.scratch`
 const LOGIN = `${SCRATCH}/login`
 const ISSUES = `${LOGIN}/issues`
 
+/** 本地 Markdown 后端的装配；只有该后端与后端未判定时才会探测本地工单目录。 */
+const MARKDOWN = { kind: 'markdown', source: 'no-remote' } as const
+
 describe('环境检查的本地工单目录', () => {
   it('真实文件扫描的四类结果在 RPC 接缝处映射成通过或放置解决', async () => {
     const cases: readonly [TreeSpec, string, EnvRemedyCode | null][] = [
@@ -76,6 +80,7 @@ describe('环境检查的本地工单目录', () => {
 
     for (const [tree, status, code] of cases) {
       const { service } = harness({
+        ...MARKDOWN,
         localIssues: createLocalIssuesProbe({ files: memoryFiles(tree) }),
       })
 
@@ -104,7 +109,10 @@ describe('环境检查的本地工单目录', () => {
       'Status:',
     ],
   ])('本地工单目录：%s', async (_label, fact, status, code, detail) => {
-    const { service } = harness({ localIssues: () => Promise.resolve(fact) })
+    const { service } = harness({
+      ...MARKDOWN,
+      localIssues: () => Promise.resolve(fact),
+    })
 
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
     const found = item(result.items, 'local-issues', null)
@@ -114,7 +122,7 @@ describe('环境检查的本地工单目录', () => {
     expect(found.detail).toContain(detail)
   })
 
-  it('探测与后端探测并发，超时按失败处理', async () => {
+  it('后端判定超时后仍检查本地工单目录，本地探测超时按失败处理', async () => {
     let localStarted = false
     const { service } = harness({
       deadline: () => Promise.resolve({ ok: false }),
@@ -136,6 +144,7 @@ describe('环境检查的本地工单目录', () => {
 
   it('读取失败时给出重试，而不是伪装成通过', async () => {
     const { service } = harness({
+      ...MARKDOWN,
       localIssues: () => Promise.reject(new Error('permission denied')),
     })
 
@@ -148,11 +157,44 @@ describe('环境检查的本地工单目录', () => {
     })
   })
 
-  it('在任何后端下都出现，且不受后端判定结果影响', async () => {
-    for (const kind of ['github', 'gitea', 'markdown'] as const) {
-      const { service } = harness({ kind, skills: CATALOG })
+  it('托管后端下不探测本地工单目录，也不产出该项', async () => {
+    for (const [kind, source] of [
+      ['github', 'remote'],
+      ['gitlab', 'glab-auth'],
+      ['gitea', 'tea-auth'],
+    ] as const) {
+      let probed = false
+      const { service } = harness({
+        kind,
+        source,
+        skills: CATALOG,
+        localIssues: () => {
+          probed = true
+          return Promise.resolve(FOUND_LOCAL_ISSUES)
+        },
+      })
+
       const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
-      expect(item(result.items, 'local-issues', null).status).toBe('pass')
+
+      expect(probed).toBe(false)
+      expect(result.items.some((entry) => entry.id === 'local-issues')).toBe(false)
     }
+  })
+
+  it('后端判定失败时仍探测本地工单目录，因为可能回退本地 Markdown', async () => {
+    let probed = false
+    const { service } = harness({
+      resolveError: new TrackerError('fetch-failed', '读取 git 远端失败'),
+      skills: CATALOG,
+      localIssues: () => {
+        probed = true
+        return Promise.resolve(FOUND_LOCAL_ISSUES)
+      },
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(probed).toBe(true)
+    expect(item(result.items, 'local-issues', null).status).toBe('pass')
   })
 })

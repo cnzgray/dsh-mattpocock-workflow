@@ -11,6 +11,12 @@ import {
 
 const SETUP = 'setup-matt-pocock-skills'
 
+const MARKDOWN_BACKEND: BackendProbeOutcome = {
+  status: 'pass',
+  choice: { kind: 'markdown', source: 'no-remote' },
+  detail: 'no-remote:markdown',
+}
+
 function pass(detail = '依据'): ProbeOutcome {
   return { status: 'pass', detail }
 }
@@ -74,7 +80,6 @@ describe('环境检查判定', () => {
       'auth:github',
       'repository:github',
       'workspace:null',
-      'local-issues:null',
       'skill:to-spec',
       'skill:triage',
     ])
@@ -238,11 +243,7 @@ describe('环境检查判定', () => {
   it('本地 Markdown 后端不产生命令行、登录与仓库可达检查', () => {
     const items = buildEnvCheckItems(
       facts({
-        backend: {
-          status: 'pass',
-          choice: { kind: 'markdown', source: 'unsupported-remote' },
-          detail: 'unsupported-remote:markdown',
-        },
+        backend: MARKDOWN_BACKEND,
         cli: undefined,
         auth: undefined,
         repository: undefined,
@@ -264,7 +265,7 @@ describe('环境检查判定', () => {
     ['没有工单文件', { status: 'no-files' } as const],
     ['缺少状态行', { status: 'unparsable', files: ['.scratch/login/issues/01-token.md'] } as const],
   ])('本地工单目录：%s', (_label, localIssues) => {
-    const items = buildEnvCheckItems(facts({ localIssues }))
+    const items = buildEnvCheckItems(facts({ backend: MARKDOWN_BACKEND, localIssues }))
     const entry = item(items, 'local-issues', null)
     const remedy = entry.remedy
 
@@ -279,30 +280,40 @@ describe('环境检查判定', () => {
   })
 
   it('本地工单目录探测失败时按重试处理', () => {
-    const items = buildEnvCheckItems(facts({ localIssues: { status: 'probe-failed' } }))
+    const items = buildEnvCheckItems(
+      facts({ backend: MARKDOWN_BACKEND, localIssues: { status: 'probe-failed' } }),
+    )
 
     expect(item(items, 'local-issues', null)).toMatchObject({ status: 'fail' })
     expect(remedyOf(items, 'local-issues', null)).toEqual({ code: 'retry', subject: null })
   })
 
-  it('本地工单目录在任何后端下都出现，不受判定结果影响', () => {
-    for (const backend of [
-      {
-        status: 'pass',
-        choice: { kind: 'markdown', source: 'no-remote' },
-        detail: 'no-remote:markdown',
-      },
-      {
-        status: 'fail',
-        detail: '无法判定工单后端',
-        reason: 'backend-unavailable',
-      },
-    ] as const) {
+  it.each(['github', 'gitlab', 'gitea'] as const)(
+    '托管后端 %s 下不产出本地工单目录检查',
+    (kind) => {
       const items = buildEnvCheckItems(
-        facts({ backend, cli: undefined, auth: undefined, repository: undefined }),
+        facts({
+          backend: { status: 'pass', choice: { kind, source: 'remote' }, detail: `remote:${kind}` },
+          localIssues: undefined,
+        }),
       )
-      expect(item(items, 'local-issues', null).status).toBe('pass')
-    }
+
+      expect(items.some((entry) => entry.id === 'local-issues')).toBe(false)
+    },
+  )
+
+  it('后端判定失败时仍检查本地工单目录，因为可能回退本地 Markdown', () => {
+    const items = buildEnvCheckItems(
+      facts({
+        backend: { status: 'fail', detail: '无法判定工单后端', reason: 'backend-unavailable' },
+        localIssues: { status: 'found', files: ['.scratch/login/issues/01-token.md'] },
+        cli: undefined,
+        auth: undefined,
+        repository: undefined,
+      }),
+    )
+
+    expect(item(items, 'local-issues', null).status).toBe('pass')
   })
 
   it('仓库无权限、不存在与网络失败给出三种不同的解决', () => {

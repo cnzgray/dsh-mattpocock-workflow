@@ -21,7 +21,7 @@ import type {
   ProbeOutcome,
   SkillProbeFact,
 } from '../core/env-check.ts'
-import { buildEnvCheckItems } from '../core/env-check.ts'
+import { buildEnvCheckItems, shouldCheckLocalIssues } from '../core/env-check.ts'
 import type { BackendChoice } from '../core/backend.ts'
 import type { RepositoryAddress } from '../core/remote.ts'
 import { TrackerError } from '../core/tracker-error.ts'
@@ -70,7 +70,7 @@ export interface EnvCheckServiceDeps {
   readonly gitlab: EnvCommandProbe
   readonly gitea: EnvCommandProbe
   readonly files: EnvFiles
-  /** 本地工单目录探测；与后端无关。 */
+  /** 本地工单目录探测；只在本地 Markdown 或后端未判定时调用。 */
   readonly localIssues: LocalIssuesProbe
   /** DSH 技能清单；服务不可用时为 undefined，降级为只查磁盘。 */
   readonly skills: SkillCatalog | undefined
@@ -176,14 +176,19 @@ async function collectFacts(
       ? { status: 'fail', detail: '无法解析用户主目录', reason: 'home-unresolved' }
       : { status: 'pass', detail: home }
 
-  // 主目录、后端、工作区、本地工单目录与技能互不依赖，并发探测；命令行链等后端结果。
-  const [backend, workspace, localIssues, skills] = await Promise.all([
+  // 主目录、后端、工作区与技能互不依赖，并发探测；本地工单目录与命令行链等后端结果。
+  const [backend, workspace, skills] = await Promise.all([
     probeBackend(deps, workspaceRoot),
     probeWorkspace(deps.files, workspaceRoot),
-    probeLocalIssues(deps, workspaceRoot),
     home === undefined ? Promise.resolve(unprobedSkills()) : probeSkills(deps, workspaceRoot, home),
   ])
-  const commands = await probeCommands(deps, workspaceRoot, backend)
+  // 托管后端的工单完全来自远端：不探测本地目录，也就不会产出这一项。
+  const [commands, localIssues] = await Promise.all([
+    probeCommands(deps, workspaceRoot, backend),
+    shouldCheckLocalIssues(backend.outcome)
+      ? probeLocalIssues(deps, workspaceRoot)
+      : Promise.resolve(undefined),
+  ])
   const decided = backend.outcome.status === 'pass' ? backend.outcome.choice.kind : null
 
   return {

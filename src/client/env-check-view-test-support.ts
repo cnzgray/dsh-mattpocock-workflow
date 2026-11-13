@@ -99,7 +99,7 @@ export const RETRY_REPORT: EnvCheckReport = {
   ),
 }
 
-/** Gitea 后端：CLI 缺失，登录与仓库可达跳过，本地工单目录单独失败。 */
+/** Gitea 后端：CLI 缺失，登录与仓库可达跳过；托管后端不检查本地工单目录。 */
 export const GITEA_REPORT: EnvCheckReport = {
   checkedAt: 2,
   backend: 'gitea',
@@ -126,12 +126,6 @@ export const GITEA_REPORT: EnvCheckReport = {
       status: 'skipped',
       detail: '未执行检查',
       blockedBy: { id: 'cli', subject: 'gitea' },
-    }),
-    row({
-      id: 'local-issues',
-      status: 'fail',
-      detail: '工作区里没有 .scratch 目录',
-      remedy: { code: 'place-local-issues', subject: null },
     }),
   ],
   capabilities: [],
