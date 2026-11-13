@@ -402,6 +402,8 @@ describe('GitLab 工单增量', () => {
     const endpoint = calls.find((call) => call[0] === 'glab')?.[2] ?? ''
     expect(endpoint).toContain('state=all')
     expect(endpoint).toContain(`updated_after=${new Date(SINCE).toISOString()}`)
+    expect(endpoint).toContain('order_by=updated_at')
+    expect(endpoint).toContain('sort=asc')
     expect(endpoint).toContain('projects/cnzgray%2Fplatform%2Fdsh-workflow/issues')
   })
 
@@ -432,6 +434,51 @@ describe('GitLab 工单增量', () => {
     const changes = await tracker.fetchChanges?.('/workspace', SINCE)
 
     expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#15', '#16', '#12'])
+    expect(changes?.truncated).toBe(false)
+  })
+
+  it('整页倍数时探一页空结果确认结束，不误报截断', async () => {
+    const recorded = recordedRunner({
+      changes: (page) =>
+        page <= 2
+          ? issuesJson([
+              gitlabIssue({ iid: 10 + page * 2, title: '变更一' }),
+              gitlabIssue({ iid: 11 + page * 2, title: '变更二' }),
+            ])
+          : '[]',
+    })
+    const tracker = createGitlabTracker({
+      run: recorded.runner,
+      now: () => NOW,
+      pageSize: 2,
+      incrementalPageLimit: 2,
+    })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#12', '#13', '#14', '#15'])
+    expect(changes?.truncated).toBe(false)
+  })
+
+  it('超过页数上限时标记截断，探到的票不并入结果', async () => {
+    const recorded = recordedRunner({
+      changes: (page) =>
+        issuesJson([
+          gitlabIssue({ iid: page * 2, title: '变更一' }),
+          gitlabIssue({ iid: page * 2 + 1, title: '变更二' }),
+        ]),
+    })
+    const tracker = createGitlabTracker({
+      run: recorded.runner,
+      now: () => NOW,
+      pageSize: 2,
+      incrementalPageLimit: 1,
+    })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#2', '#3'])
+    expect(changes?.truncated).toBe(true)
   })
 })
 

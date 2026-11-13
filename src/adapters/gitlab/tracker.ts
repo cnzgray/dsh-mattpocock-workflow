@@ -50,6 +50,8 @@ export interface GitlabTrackerDeps {
   readonly now: () => number
   /** 单页大小；默认 100，测试可以调小以便构造分页。 */
   readonly pageSize?: number
+  /** 一次增量刷新最多翻几页；默认 5，超过即标记截断。 */
+  readonly incrementalPageLimit?: number
   /**
    * 原生阻塞能力探测缓存，键为实例主机。生产环境由后端解析器共享，
    * 同一实例上的多个工作区只探测一次；单独创建 tracker 时默认各自一份。
@@ -60,6 +62,8 @@ export interface GitlabTrackerDeps {
 }
 
 const DEFAULT_PAGE_SIZE = 100
+/** 增量窗口最多翻的页数；再多就标记截断，由宿主退回全量。 */
+const DEFAULT_INCREMENTAL_PAGE_LIMIT = 5
 /** GraphQL 的 `first` 上限；开放票更多时分批查询。 */
 const BLOCKER_COUNT_BATCH = 100
 const DEFAULT_CONCURRENCY = 8
@@ -71,6 +75,10 @@ const DEFAULT_CONCURRENCY = 8
  */
 export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
   const pageSize = normalizePositive(deps.pageSize ?? DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE)
+  const incrementalPageLimit = normalizePositive(
+    deps.incrementalPageLimit ?? DEFAULT_INCREMENTAL_PAGE_LIMIT,
+    DEFAULT_INCREMENTAL_PAGE_LIMIT,
+  )
   const concurrency = normalizePositive(
     deps.concurrency ?? DEFAULT_CONCURRENCY,
     DEFAULT_CONCURRENCY,
@@ -104,7 +112,8 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
     },
 
     async fetchChanges(workspaceRoot: string, since: number): Promise<TrackerChanges> {
-      return readGitlabChanges(deps, workspaceRoot, pageSize, since)
+      const listing = { pageSize, pageLimit: incrementalPageLimit }
+      return readGitlabChanges(deps, workspaceRoot, listing, since)
     },
 
     async resolveBlockers(workspaceRoot, targets) {
@@ -184,15 +193,23 @@ function blockerHint(project: RepositoryAddress, issues: readonly ParsedIssue[])
   }
 }
 
+/** 列表阶段的翻页参数。 */
+interface GitlabListing {
+  readonly pageSize: number
+  /** 增量窗口最多翻几页；再多就标记截断。 */
+  readonly pageLimit: number
+}
+
 /**
  * 读取某个时刻之后变更过的工单。
  *
- * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口。
+ * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口；翻页按更新时间升序，
+ * 到页数上限就标记截断，由宿主改用全量重拉，不把没取全的增量当成完整结果。
  */
 async function readGitlabChanges(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
-  pageSize: number,
+  listing: GitlabListing,
   since: number,
 ): Promise<TrackerChanges> {
   if (!Number.isFinite(since)) {
@@ -200,44 +217,96 @@ async function readGitlabChanges(
   }
 
   const project = await readProjectAddress(deps.run, workspaceRoot)
-  const issues = await readIssues(deps, workspaceRoot, project.path, pageSize, since)
+  const { issues, truncated } = await readChangedIssues(
+    deps,
+    workspaceRoot,
+    project.path,
+    listing,
+    new Date(since).toISOString(),
+  )
 
   return {
     // 增量只负责取回变更过的票，阻塞判定由宿主在合并后统一处理。
     tickets: issues.map((issue) => issue.ticket),
-    // GitLab 的列表按页读到不足一页为止，没有额外的页数上限。
-    truncated: false,
+    truncated,
   }
 }
 
 /**
  * 读取一页页的工单。
  *
- * `since` 给了就只取该时刻之后更新过的票：同一路径、同样的过滤条件，
- * 只多一个时间窗口，这样增量与全量覆盖的是同一批工单。
+ * 没有时间窗口：列表要覆盖全部工单，读到不足一页为止。
  */
 async function readIssues(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
   project: string,
   pageSize: number,
-  since?: number,
 ): Promise<ParsedIssue[]> {
   const issues: ParsedIssue[] = []
 
   for (let page = 1; ; page += 1) {
-    const endpoint = issuesEndpoint(project, pageSize, page, since)
-    let output: string
-    try {
-      output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
-    } catch (error) {
-      throw mapGlabError(error)
-    }
-
-    const parsed = parseIssuesPage(output)
+    const parsed = await readIssuesPage(deps, workspaceRoot, project, pageSize, page)
     issues.push(...parsed)
     if (parsed.length < pageSize) return issues
   }
+}
+
+/**
+ * 只读增量窗口：按更新时间升序翻页，最多翻 `pageLimit` 页。
+ *
+ * 到上限时再探一页确认是否还有内容，避免整页倍数时误报截断；
+ * 探到的票不并入本次结果——本次结果已经标记为截断，宿主会全量重拉。
+ */
+async function readChangedIssues(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  listing: GitlabListing,
+  updatedAfter: string,
+): Promise<{ readonly issues: ParsedIssue[]; readonly truncated: boolean }> {
+  const issues: ParsedIssue[] = []
+
+  for (let page = 1; page <= listing.pageLimit; page += 1) {
+    const parsed = await readIssuesPage(
+      deps,
+      workspaceRoot,
+      project,
+      listing.pageSize,
+      page,
+      updatedAfter,
+    )
+    issues.push(...parsed)
+    if (parsed.length < listing.pageSize) return { issues, truncated: false }
+  }
+
+  const probe = await readIssuesPage(
+    deps,
+    workspaceRoot,
+    project,
+    listing.pageSize,
+    listing.pageLimit + 1,
+    updatedAfter,
+  )
+  return { issues, truncated: probe.length > 0 }
+}
+
+async function readIssuesPage(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  pageSize: number,
+  page: number,
+  updatedAfter?: string,
+): Promise<ParsedIssue[]> {
+  const endpoint = issuesEndpoint(project, pageSize, page, updatedAfter)
+  let output: string
+  try {
+    output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
+  } catch (error) {
+    throw mapGlabError(error)
+  }
+  return parseIssuesPage(output)
 }
 
 /**
@@ -373,12 +442,22 @@ function withOpenBlockers(issue: ParsedIssue, states: ReadonlyMap<number, Ticket
  * 工单列表接口。
  *
  * 增量查询只在同一条路径上加 `updated_after`：语义是「更新时间在该时刻之后」，
- * 边界不含，边界上的票由宿主向前重叠一段时间兜底。
- * 其余参数（状态、页大小、页码）与列表完全一致，避免增量与全量口径不同。
+ * 边界不含，边界上的票由宿主向前重叠一段时间兜底。其余参数（状态、页大小、页码）
+ * 与列表完全一致，避免增量与全量口径不同；增量另按更新时间升序翻页，
+ * 截断后重新拉取的窗口从同一批票开始，不会跳过中间的票。
  */
-function issuesEndpoint(project: string, pageSize: number, page: number, since?: number): string {
-  const window = since === undefined ? '' : `&updated_after=${new Date(since).toISOString()}`
-  return `${projectEndpoint(project)}/issues?state=all&per_page=${String(pageSize)}&page=${String(page)}${window}`
+function issuesEndpoint(
+  project: string,
+  pageSize: number,
+  page: number,
+  updatedAfter?: string,
+): string {
+  const query = ['state=all']
+  if (updatedAfter !== undefined) {
+    query.push('order_by=updated_at', 'sort=asc', `updated_after=${updatedAfter}`)
+  }
+  query.push(`per_page=${String(pageSize)}`, `page=${String(page)}`)
+  return `${projectEndpoint(project)}/issues?${query.join('&')}`
 }
 
 function normalizePositive(value: number, fallback: number): number {
