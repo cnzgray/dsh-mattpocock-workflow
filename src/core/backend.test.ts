@@ -1,40 +1,53 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseGlabAuthHosts, selectBackend } from './backend.ts'
+import { chooseBackend, parseLoggedInHosts } from './backend.ts'
 
 describe('后端选择', () => {
   it('没有远端时走本地 Markdown', () => {
-    expect(selectBackend(undefined, ['gitlab.com'])).toBe('markdown')
+    expect(chooseBackend(undefined, ['gitlab.com'])).toEqual({
+      kind: 'markdown',
+      source: 'no-remote',
+    })
   })
 
   it('github.com 走 GitHub，不受 glab 登录列表影响', () => {
-    expect(selectBackend({ host: 'github.com', path: 'owner/repo' }, ['github.com'])).toBe('github')
+    expect(chooseBackend({ host: 'github.com', path: 'owner/repo' }, ['github.com'])).toEqual({
+      kind: 'github',
+      source: 'remote',
+    })
   })
 
   it('.gitlab.com 走 GitLab', () => {
-    expect(selectBackend({ host: 'gitlab.com', path: 'group/repo' }, [])).toBe('gitlab')
+    expect(chooseBackend({ host: 'gitlab.com', path: 'group/repo' }, [])).toEqual({
+      kind: 'gitlab',
+      source: 'remote',
+    })
   })
 
   it('自建主机出现在 glab 已登录列表里时走 GitLab', () => {
     expect(
-      selectBackend({ host: 'gitlab.example.com', path: 'group/repo' }, ['gitlab.example.com']),
-    ).toBe('gitlab')
+      chooseBackend({ host: 'gitlab.example.com', path: 'group/repo' }, ['gitlab.example.com']),
+    ).toEqual({ kind: 'gitlab', source: 'glab-auth' })
   })
 
   it('自建主机没有登录时回退本地 Markdown', () => {
-    expect(selectBackend({ host: 'gitlab.example.com', path: 'group/repo' }, [])).toBe('markdown')
+    expect(chooseBackend({ host: 'gitlab.example.com', path: 'group/repo' }, [])).toEqual({
+      kind: 'markdown',
+      source: 'unsupported-remote',
+    })
   })
 
   it('主机比较不区分大小写并忽略端口', () => {
     expect(
-      selectBackend({ host: 'GitLab.Example.COM:8443', path: 'g/r' }, ['gitlab.example.com']),
-    ).toBe('gitlab')
+      chooseBackend({ host: 'GitLab.Example.COM:8443', path: 'g/r' }, ['gitlab.example.com']),
+    ).toEqual({ kind: 'gitlab', source: 'glab-auth' })
   })
 
   it('glab 已登录的任意主机都走 GitLab', () => {
-    expect(selectBackend({ host: 'example.com', path: 'group/repo' }, ['example.com'])).toBe(
-      'gitlab',
-    )
+    expect(chooseBackend({ host: 'example.com', path: 'group/repo' }, ['example.com'])).toEqual({
+      kind: 'gitlab',
+      source: 'glab-auth',
+    })
   })
 })
 
@@ -51,7 +64,7 @@ describe('glab 登录状态解析', () => {
       '',
     ].join('\n')
 
-    expect(parseGlabAuthHosts(output)).toEqual(['gitlab.com', 'gitlab.example.com'])
+    expect(parseLoggedInHosts(output)).toEqual(['gitlab.com', 'gitlab.example.com'])
   })
 
   it('识别不同版本的勾号并忽略失败行', () => {
@@ -60,11 +73,11 @@ describe('glab 登录状态解析', () => {
       'X No token found for gitlab.example.com',
     ].join('\n')
 
-    expect(parseGlabAuthHosts(output)).toEqual(['gitlab.com'])
+    expect(parseLoggedInHosts(output)).toEqual(['gitlab.com'])
   })
 
   it('没有可识别的行时返回空列表', () => {
-    expect(parseGlabAuthHosts('')).toEqual([])
-    expect(parseGlabAuthHosts('glab: not logged in')).toEqual([])
+    expect(parseLoggedInHosts('')).toEqual([])
+    expect(parseLoggedInHosts('glab: not logged in')).toEqual([])
   })
 })

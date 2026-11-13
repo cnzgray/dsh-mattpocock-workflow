@@ -10,8 +10,10 @@
  */
 import * as React from 'react'
 
+import { createClientCapabilities, type ClientCapabilities } from './capabilities.ts'
+import type { UiCapabilityId } from '../protocol/env-check.ts'
+import { createPanelClient, type PanelClient } from './rpc.ts'
 import { TaskPanel } from './task-panel.tsx'
-import { createSnapshotClient, type SnapshotClient } from './rpc.ts'
 
 const PLUGIN_NAME = 'dsh-mattpocock-workflow'
 const TAB_ID = 'dsh-mattpocock-workflow:task-panel'
@@ -92,11 +94,14 @@ export function apply(ctx: ClientContextLike): void {
     return
   }
 
-  const client = createSnapshotClient()
+  const client = createPanelClient()
+  const capabilities = createClientCapabilities()
 
   ctx.inject(['slots', 'sidebarRightTabs'], (scope) => {
     const slots = readSlots(scope.get('slots'))
     const tabs = readTabs(scope.get('sidebarRightTabs'))
+    capabilities.mark('slots', slots !== undefined)
+    capabilities.mark('sidebarRightTabs', tabs !== undefined)
     if (slots === undefined || tabs === undefined) {
       console.warn(`[${PLUGIN_NAME}] slots 或 sidebarRightTabs 不可用，任务面板未注册。`)
       return
@@ -105,8 +110,12 @@ export function apply(ctx: ClientContextLike): void {
     // sessions 与 conversation 可能比 slots 晚就绪：先挂面板，注入能力就绪后再装进 ref。
     const injectorRef: InjectorRef = { current: undefined }
     scope.inject(['sessions', 'conversation'], (inner) => {
+      capabilities.mark('sessions', readSessions(inner.get('sessions')) !== undefined)
+      capabilities.mark('conversation', readConversation(inner.get('conversation')) !== undefined)
       injectorRef.current = createDraftInjector(inner)
       return () => {
+        capabilities.mark('sessions', false)
+        capabilities.mark('conversation', false)
         injectorRef.current = undefined
       }
     })
@@ -133,9 +142,11 @@ export function apply(ctx: ClientContextLike): void {
     scope.effect(
       () =>
         slots.inject('sidebar.right.pane.tab', () =>
-          slots.register(
-            { name: 'sidebar.right.pane.tab', key: TAB_ID },
-            createTaskTab(client, injectorRef),
+          registerSlot('sidebar.right.pane.tab', capabilities, () =>
+            slots.register(
+              { name: 'sidebar.right.pane.tab', key: TAB_ID },
+              createTaskTab(client, injectorRef, capabilities),
+            ),
           ),
         ),
       `${PLUGIN_NAME}: 页签内容`,
@@ -144,7 +155,9 @@ export function apply(ctx: ClientContextLike): void {
     scope.effect(
       () =>
         slots.inject('sidebar.right.pane.tab.title', () =>
-          slots.register({ name: 'sidebar.right.pane.tab.title', key: TAB_ID }, TaskTabTitle),
+          registerSlot('sidebar.right.pane.tab.title', capabilities, () =>
+            slots.register({ name: 'sidebar.right.pane.tab.title', key: TAB_ID }, TaskTabTitle),
+          ),
         ),
       `${PLUGIN_NAME}: 页签标题`,
     )
@@ -156,8 +169,9 @@ function TaskTabTitle(): React.ReactElement {
 }
 
 function createTaskTab(
-  client: SnapshotClient,
+  client: PanelClient,
   injectorRef: InjectorRef,
+  capabilities: ClientCapabilities,
 ): React.ComponentType<TaskTabProps> {
   return function TaskTab(props: TaskTabProps): React.ReactElement {
     const sessionId = props.sessionId
@@ -179,6 +193,7 @@ function createTaskTab(
         workspaceRoot={cwd}
         canInject={sessionId !== undefined}
         injectDraft={injectDraft}
+        clientCapabilities={capabilities.read}
       />
     )
   }
@@ -194,6 +209,19 @@ function createDraftInjector(ctx: ClientContextLike): DraftInjector | undefined 
     if (scope === undefined) return false
     conversation.input.for(scope).setDraft(text)
     return true
+  }
+}
+
+function registerSlot(
+  id: UiCapabilityId,
+  capabilities: ClientCapabilities,
+  register: () => () => void,
+): () => void {
+  const dispose = register()
+  capabilities.mark(id, true)
+  return () => {
+    capabilities.mark(id, false)
+    dispose()
   }
 }
 

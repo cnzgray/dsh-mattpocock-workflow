@@ -4,14 +4,11 @@ import type { Ticket, Tracker, TrackerSnapshot } from '../core/ticket.ts'
 import { TrackerError, type TrackerErrorCode } from '../core/tracker-error.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
-import {
-  ERROR_CODES,
-  type BackendKind,
-  type RpcResult,
-  type WorkspaceSnapshot,
-} from '../protocol/tracker.ts'
+import type { BackendKind } from '../protocol/backend.ts'
+import { ERROR_CODES, type RpcResult, type WorkspaceSnapshot } from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
-import { createSnapshotService, type SnapshotLog } from './snapshot-service.ts'
+import type { LogSink } from './log.ts'
+import { createSnapshotService } from './snapshot-service.ts'
 
 const ROOT = '/workspace'
 
@@ -69,7 +66,12 @@ function fakeResolver(
     const tracker: Tracker = {
       fetchSnapshot: () => Promise.resolve(response),
     }
-    return Promise.resolve({ kind, tracker })
+    return Promise.resolve({
+      kind,
+      tracker,
+      choice: { kind, source: 'remote' },
+      address: undefined,
+    })
   }
   return { resolve, calls }
 }
@@ -95,7 +97,7 @@ function serviceWith(
 } {
   const { resolve, calls } = fakeResolver(responses, kind)
   const logs: { level: string; event: string; fields: Record<string, unknown> }[] = []
-  const log: SnapshotLog = (level, event, fields) => {
+  const log: LogSink = (level, event, fields) => {
     logs.push({ level, event, fields: { ...fields } })
   }
   let clock = 1_000
@@ -263,6 +265,8 @@ describe('快照服务', () => {
           tracker: {
             fetchSnapshot: () => Promise.reject(new TrackerError('fetch-failed', '超时')),
           },
+          choice: { kind: 'gitlab', source: 'remote' },
+          address: undefined,
         }),
       now: () => {
         clock += 25

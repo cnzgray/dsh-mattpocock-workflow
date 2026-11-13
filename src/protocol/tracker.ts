@@ -5,25 +5,21 @@
  * `{ ok: false, error: { code, message } }`。宿主在每张票上附带判定结果，
  * 界面只做展示层的统计、过滤和排序。
  */
+import type { BackendKind } from './backend.ts'
+import type { EnvCheckParams } from './env-check.ts'
 
 /** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
 
-/** 当前版本只提供两个方法：读缓存与强制刷新。 */
+/** 当前版本提供的方法：读缓存、强制刷新与环境检查。 */
 export const RPC_METHODS = {
   /** 读缓存；没有缓存时拉取一次。 */
   snapshotGet: 'snapshot.get',
   /** 忽略缓存，强制拉取。 */
   snapshotRefresh: 'snapshot.refresh',
+  /** 重新跑一次环境检查；同一工作区的进行中请求会复用。 */
+  envCheck: 'env.check',
 } as const
-
-/**
- * 工单后端类型。宿主按工作区的 `origin` 远端自动选择，界面只据此显示徽标：
- * - `github`：`github.com` 仓库，通过 `gh` 读取；
- * - `gitlab`：`gitlab.com` 或 `glab` 已登录的自建实例，通过 `glab` 读取；
- * - `markdown`：其余情况，读取工作区里的 `.scratch/<feature>/issues/*.md`。
- */
-export type BackendKind = 'github' | 'gitlab' | 'markdown'
 
 /** 工单的开闭状态。 */
 export type TicketState = 'open' | 'closed'
@@ -87,6 +83,7 @@ export interface SnapshotParams {
 export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
   'snapshot.refresh': SnapshotParams
+  'env.check': EnvCheckParams
 }
 
 /** 已支持的方法名。 */
@@ -117,6 +114,17 @@ export const ERROR_CODES = {
 
 /** 错误码的联合类型。 */
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+
+/**
+ * 属于环境问题的快照错误码。列表视图据此在错误提示里给出「查看环境检查」入口：
+ * 这几类失败都能在环境检查里定位到具体检查项。
+ */
+export const ENV_ISSUE_ERROR_CODES: readonly ErrorCode[] = [
+  ERROR_CODES.ghMissing,
+  ERROR_CODES.ghUnauthenticated,
+  ERROR_CODES.glabMissing,
+  ERROR_CODES.glabUnauthenticated,
+]
 
 /** 失败的响应体。 */
 export interface RpcErrorBody {

@@ -3,15 +3,19 @@
  * 只做传输层校验，业务结果原样放进响应体。
  */
 import { ERROR_CODES, type ErrorCode, type RpcResult } from '../protocol/tracker.ts'
-import type { SnapshotService } from './snapshot-service.ts'
+
+/** 插件 RPC 的入口形状；快照服务与环境检查服务都实现它。 */
+export interface RpcHandler {
+  handle(method: string, params: unknown): Promise<RpcResult<unknown>>
+}
 
 /**
  * 创建挂到 `connection.fetch` 上的路由处理器。
- * @param service - 快照服务。
+ * @param service - 按方法名分发的 RPC 处理器。
  * @returns 接收 Fetch Request、返回 JSON 响应的处理器。
  */
 export function createRpcFetchHandler(
-  service: SnapshotService,
+  service: RpcHandler,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
     if (request.method !== 'POST') {

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
+import type { EnvCheckReport } from '../protocol/env-check.ts'
 import { RPC_PATH, type RpcResult, type WorkspaceSnapshot } from '../protocol/tracker.ts'
-import { createSnapshotClient, type FetchLike, type HttpResponseLike } from './rpc.ts'
+import { createPanelClient, type FetchLike, type HttpResponseLike } from './rpc.ts'
+
+const ENV_REPORT: EnvCheckReport = {
+  checkedAt: 1,
+  backend: 'github',
+  items: [],
+  capabilities: [],
+}
 
 const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
@@ -35,7 +43,7 @@ function recordingFetch(result: HttpResponseLike): {
 describe('快照 RPC 客户端', () => {
   it('向插件私有路由发送 snapshot.get', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createSnapshotClient(fetchImpl)
+    const client = createPanelClient(fetchImpl)
 
     await client.get('/repo')
 
@@ -53,7 +61,7 @@ describe('快照 RPC 客户端', () => {
 
   it('向插件私有路由发送 snapshot.refresh', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createSnapshotClient(fetchImpl)
+    const client = createPanelClient(fetchImpl)
 
     await client.refresh('/repo')
 
@@ -62,13 +70,13 @@ describe('快照 RPC 客户端', () => {
 
   it('成功响应原样返回', async () => {
     const expected: RpcResult<WorkspaceSnapshot> = { ok: true, result: SNAPSHOT }
-    const client = createSnapshotClient(recordingFetch(response(expected)).fetchImpl)
+    const client = createPanelClient(recordingFetch(response(expected)).fetchImpl)
 
     await expect(client.get('/repo')).resolves.toEqual(expected)
   })
 
   it('HTTP 非 2xx 返回 fetch-failed', async () => {
-    const client = createSnapshotClient(recordingFetch(response({}, false, 502)).fetchImpl)
+    const client = createPanelClient(recordingFetch(response({}, false, 502)).fetchImpl)
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
@@ -77,9 +85,7 @@ describe('快照 RPC 客户端', () => {
   })
 
   it('响应体不是快照结果时返回 fetch-failed', async () => {
-    const client = createSnapshotClient(
-      recordingFetch(response({ ok: true, result: {} })).fetchImpl,
-    )
+    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
@@ -95,7 +101,7 @@ describe('快照 RPC 客户端', () => {
       total: SNAPSHOT.total,
       tickets: SNAPSHOT.tickets,
     }
-    const client = createSnapshotClient(
+    const client = createPanelClient(
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -106,11 +112,33 @@ describe('快照 RPC 客户端', () => {
   })
 
   it('网络异常返回 fetch-failed 并保留原因', async () => {
-    const client = createSnapshotClient(() => Promise.reject(new Error('offline')))
+    const client = createPanelClient(() => Promise.reject(new Error('offline')))
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
       error: { code: 'fetch-failed', message: expect.stringContaining('offline') as string },
+    })
+  })
+  it('向插件私有路由发送 env.check', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: ENV_REPORT }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.envCheck('/repo')
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'env.check',
+      params: { workspaceRoot: '/repo' },
+    })
+  })
+
+  it('环境检查响应缺少 items 时返回 fetch-failed', async () => {
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: { checkedAt: 1, backend: 'github' } })).fetchImpl,
+    )
+
+    await expect(client.envCheck('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
     })
   })
 })

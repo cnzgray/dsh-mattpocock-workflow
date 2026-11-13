@@ -281,6 +281,21 @@ describe('宿主后端选择', () => {
     expect(failed).toMatchObject({ ok: false, error: { code: 'fetch-failed' } })
     expect(again).toEqual(first)
   })
+  it('关闭缓存后每次检查都重新解析远端', async () => {
+    let remote = 'git@github.com:owner/repo.git'
+    const run: CommandRunner = (command) => {
+      if (command !== 'git') return Promise.resolve({ stdout: '', stderr: '' })
+      return Promise.resolve({
+        stdout: remote.length === 0 ? '' : `origin\t${remote} (fetch)\n`,
+        stderr: '',
+      })
+    }
+    const fresh = createBackendResolver({ run, now: () => NOW, cache: false })
+
+    await expect(fresh('/repo')).resolves.toMatchObject({ kind: 'github' })
+    remote = ''
+    await expect(fresh('/repo')).resolves.toMatchObject({ kind: 'markdown' })
+  })
 })
 
 function markdownFiles(): WorkspaceFiles {

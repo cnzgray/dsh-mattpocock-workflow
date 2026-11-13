@@ -5,23 +5,17 @@
 import { classifyTickets } from '../core/classify.ts'
 import type { TicketLabelNames } from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
-import { LOG_EVENTS, type LogEvent } from '../protocol/log-events.ts'
+import type { BackendKind } from '../protocol/backend.ts'
+import { LOG_EVENTS } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
   type ErrorCode,
-  type BackendKind,
   type RpcResult,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
-
-/** 快照服务写日志的形状。 */
-export type SnapshotLog = (
-  level: 'info' | 'warn' | 'error',
-  event: LogEvent,
-  fields: Readonly<Record<string, unknown>>,
-) => void
+import type { LogSink } from './log.ts'
 
 /** 快照服务依赖。 */
 export interface SnapshotServiceDeps {
@@ -29,7 +23,7 @@ export interface SnapshotServiceDeps {
   readonly resolve: BackendResolver
   readonly now: () => number
   readonly labels: TicketLabelNames
-  readonly log: SnapshotLog
+  readonly log: LogSink
 }
 
 /** 宿主对界面的唯一 RPC 入口。 */

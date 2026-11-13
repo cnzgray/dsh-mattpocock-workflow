@@ -59,7 +59,7 @@ export function createCommandRunner(subprocess: SubprocessLike, timer: TimerLike
         const label = exitCode === null ? '被信号终止' : `退出码 ${String(exitCode)}`
         throw new CommandError('failed', `${command} ${label}`, stderr, exitCode)
       }
-      return { stdout, stderr }
+      return { stdout, stderr, executable }
     } finally {
       disposeTimeout()
     }

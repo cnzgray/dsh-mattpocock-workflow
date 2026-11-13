@@ -44,6 +44,11 @@ export interface Tracker {
 export interface CommandOutput {
   readonly stdout: string
   readonly stderr: string
+  /**
+   * 实际执行的可执行文件路径。DSH 子进程服务解析后得到，环境检查用它显示
+   * 找到了哪个 `gh` / `glab`；注入的假 runner 可以省略。
+   */
+  readonly executable?: string
 }
 
 /**

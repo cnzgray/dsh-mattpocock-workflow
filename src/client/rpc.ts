@@ -2,6 +2,7 @@
  * 浏览器侧的 RPC 客户端。只通过 protocol 定义的路径、方法名和响应形状
  * 与宿主通信；不导入 core 或 adapters。
  */
+import type { EnvCheckReport } from '../protocol/env-check.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
@@ -28,29 +29,36 @@ export type FetchLike = (
   },
 ) => Promise<HttpResponseLike>
 
-/** 快照客户端：面板只依赖这两个方法。 */
-export interface SnapshotClient {
+/** 面板客户端：界面只依赖这三个方法。 */
+export interface PanelClient {
   get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   refresh(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+  /** 重新跑一次环境检查；宿主不缓存结果。 */
+  envCheck(workspaceRoot: string): Promise<RpcResult<EnvCheckReport>>
 }
 
 /**
  * 创建走插件私有 HTTP 路由的客户端。
  * @param fetchImpl - fetch 实现，默认用全局 fetch。
- * @returns 快照客户端。
+ * @returns 面板客户端。
  */
-export function createSnapshotClient(fetchImpl: FetchLike = defaultFetch): SnapshotClient {
+export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelClient {
   return {
-    get: (workspaceRoot) => call(fetchImpl, RPC_METHODS.snapshotGet, workspaceRoot),
-    refresh: (workspaceRoot) => call(fetchImpl, RPC_METHODS.snapshotRefresh, workspaceRoot),
+    get: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.snapshotGet, workspaceRoot, isSnapshotResult),
+    refresh: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.snapshotRefresh, workspaceRoot, isSnapshotResult),
+    envCheck: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.envCheck, workspaceRoot, isEnvCheckResult),
   }
 }
 
-async function call(
+async function call<T>(
   fetchImpl: FetchLike,
   method: string,
   workspaceRoot: string,
-): Promise<RpcResult<WorkspaceSnapshot>> {
+  isResult: (value: unknown) => value is RpcResult<T>,
+): Promise<RpcResult<T>> {
   try {
     const response = await fetchImpl(RPC_PATH, {
       method: 'POST',
@@ -63,7 +71,7 @@ async function call(
     }
 
     const body = await response.json()
-    if (!isSnapshotResult(body)) {
+    if (!isResult(body)) {
       return failure(ERROR_CODES.fetchFailed, '宿主返回的响应格式不正确。')
     }
     return body
@@ -84,11 +92,14 @@ function defaultFetch(
   return fetch(input, init)
 }
 
-function failure(code: ErrorCode, message: string): RpcResult<WorkspaceSnapshot> {
+function failure<T>(code: ErrorCode, message: string): RpcResult<T> {
   return { ok: false, error: { code, message } }
 }
 
-function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot> {
+function isRpcResult<T>(
+  value: unknown,
+  isPayload: (payload: unknown) => payload is T,
+): value is RpcResult<T> {
   if (typeof value !== 'object' || value === null) return false
   if (!('ok' in value)) return false
 
@@ -101,7 +112,11 @@ function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot>
 
   if (value.ok !== true) return false
   if (!('result' in value)) return false
-  return isWorkspaceSnapshot(value.result)
+  return isPayload(value.result)
+}
+
+function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot> {
+  return isRpcResult(value, isWorkspaceSnapshot)
 }
 
 function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
@@ -112,5 +127,20 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
+  return true
+}
+
+function isEnvCheckResult(value: unknown): value is RpcResult<EnvCheckReport> {
+  return isRpcResult(value, isEnvCheckReport)
+}
+
+function isEnvCheckReport(value: unknown): value is EnvCheckReport {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('checkedAt' in value) || typeof value.checkedAt !== 'number') return false
+  if (!('backend' in value) || !(value.backend === null || typeof value.backend === 'string')) {
+    return false
+  }
+  if (!('items' in value) || !Array.isArray(value.items)) return false
+  if (!('capabilities' in value) || !Array.isArray(value.capabilities)) return false
   return true
 }

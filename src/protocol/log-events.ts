@@ -7,6 +7,8 @@
 export const LOG_EVENTS = {
   /** 一次工单拉取（缓存未命中或强制刷新）。 */
   snapshot: 'tracker.snapshot',
+  /** 一次环境检查。 */
+  envCheck: 'env.check',
 } as const
 
 /** 日志事件名的联合类型。 */

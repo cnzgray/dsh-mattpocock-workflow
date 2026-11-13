@@ -4,7 +4,8 @@
  */
 import type { CSSProperties } from 'react'
 
-import type { BackendKind, TicketStatus } from '../protocol/tracker.ts'
+import type { BackendKind } from '../protocol/backend.ts'
+import type { TicketStatus } from '../protocol/tracker.ts'
 import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 
 export const COLORS = {
@@ -85,21 +86,9 @@ export const AGE_STYLE: CSSProperties = {
 export const ACTION_BAR_STYLE: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
+  justifyContent: 'flex-end',
   gap: 8,
   padding: '0 12px 8px',
-}
-
-export const SECTION_LABEL_STYLE: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 6,
-  padding: '3px 10px',
-  color: COLORS.text,
-  fontSize: 12,
-  background: COLORS.surfaceActive,
 }
 
 export const BUTTON_STYLE: CSSProperties = {

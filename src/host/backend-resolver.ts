@@ -9,16 +9,26 @@ import { createGithubTracker } from '../adapters/github/tracker.ts'
 import { createGitlabTracker } from '../adapters/gitlab/tracker.ts'
 import { createNodeWorkspaceFiles, type WorkspaceFiles } from '../adapters/markdown/files.ts'
 import { createMarkdownTracker } from '../adapters/markdown/tracker.ts'
-import { GITHUB_HOST, GITLAB_HOST, parseGlabAuthHosts, selectBackend } from '../core/backend.ts'
+import {
+  chooseBackend,
+  GITHUB_HOST,
+  GITLAB_HOST,
+  parseLoggedInHosts,
+  type BackendChoice,
+} from '../core/backend.ts'
 import { parseRemotes, pickRemoteAddress, type RepositoryAddress } from '../core/remote.ts'
 import type { CommandRunner, Tracker } from '../core/ticket.ts'
 import { CommandError, TrackerError } from '../core/tracker-error.ts'
-import type { BackendKind } from '../protocol/tracker.ts'
+import type { BackendKind } from '../protocol/backend.ts'
 
 /** 一个工作区解析出的后端。 */
 export interface ResolvedBackend {
   readonly kind: BackendKind
   readonly tracker: Tracker
+  /** 后端判定依据；环境检查把它显示成 `remote:github` 这样的一行。 */
+  readonly choice: BackendChoice
+  /** 选中的远端地址；本地 Markdown 且没有可用远端时为 undefined。 */
+  readonly address: RepositoryAddress | undefined
 }
 
 /** 按工作区根目录解析后端；失败时抛 {@link TrackerError}。 */
@@ -30,6 +40,11 @@ export interface BackendResolverDeps {
   readonly now: () => number
   /** 本地 Markdown 的文件读取能力；正式代码默认用 `node:fs`。 */
   readonly files?: WorkspaceFiles
+  /**
+   * 是否按工作区缓存解析结果。快照要缓存，环境检查不要：用户刚装好 `glab`
+   * 或刚加上远端时，「重新检查」必须重新探测。
+   */
+  readonly cache?: boolean
 }
 
 /** `glab auth status` 的探测结果。 */
@@ -39,12 +54,14 @@ interface GlabAuth {
 }
 
 /**
- * 创建按工作区缓存的后端解析器。
+ * 创建后端解析器。默认按工作区缓存结果；`cache: false` 时每次重新探测。
  * @param deps - 命令执行器、时钟与可选的本地文件读取能力。
  * @returns 后端解析函数。
  */
 export function createBackendResolver(deps: BackendResolverDeps): BackendResolver {
   const files = deps.files ?? createNodeWorkspaceFiles()
+  if (deps.cache === false) return (workspaceRoot) => resolveBackend(deps, files, workspaceRoot)
+
   const cache = new Map<string, Promise<ResolvedBackend>>()
 
   return (workspaceRoot) => {
@@ -81,17 +98,38 @@ async function resolveBackend(
       )
     }
 
-    switch (selectBackend(address, auth?.hosts ?? [])) {
+    const choice = chooseBackend(address, auth?.hosts ?? [])
+    switch (choice.kind) {
       case 'github':
-        return { kind: 'github', tracker: createGithubTracker({ run: deps.run, now: deps.now }) }
+        return {
+          kind: 'github',
+          tracker: createGithubTracker({ run: deps.run, now: deps.now }),
+          choice,
+          address,
+        }
       case 'gitlab':
-        return { kind: 'gitlab', tracker: createGitlabTracker({ run: deps.run, now: deps.now }) }
+        return {
+          kind: 'gitlab',
+          tracker: createGitlabTracker({ run: deps.run, now: deps.now }),
+          choice,
+          address,
+        }
       case 'markdown':
-        break
+        return {
+          kind: 'markdown',
+          tracker: createMarkdownTracker({ files, now: deps.now }),
+          choice,
+          address,
+        }
     }
   }
 
-  return { kind: 'markdown', tracker: createMarkdownTracker({ files, now: deps.now }) }
+  return {
+    kind: 'markdown',
+    tracker: createMarkdownTracker({ files, now: deps.now }),
+    choice: { kind: 'markdown', source: 'no-remote' },
+    address: undefined,
+  }
 }
 
 async function readAddress(
@@ -113,13 +151,13 @@ async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<
     // glab 把文本报告写在标准错误上；不同版本也可能写标准输出，两边都认。
     return {
       installed: true,
-      hosts: parseGlabAuthHosts(`${output.stdout}\n${output.stderr}`),
+      hosts: parseLoggedInHosts(`${output.stdout}\n${output.stderr}`),
     }
   } catch (error) {
     if (error instanceof CommandError) {
       if (error.kind === 'not-found') return { installed: false, hosts: [] }
       // 部分主机未登录时 glab 以非零退出；标准错误里仍可能有已登录主机。
-      return { installed: true, hosts: parseGlabAuthHosts(error.stderr) }
+      return { installed: true, hosts: parseLoggedInHosts(error.stderr) }
     }
     return { installed: true, hosts: [] }
   }

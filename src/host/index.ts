@@ -5,11 +5,27 @@
  * 每个 `ctx.get` 都做存在性检查：DSH 版本不同或某个服务缺失时，
  * 插件降级并记日志，而不是抛错让整个客户端加载失败。
  */
+import { createNodeEnvFiles } from '../adapters/fs/env-files.ts'
+import { createGithubEnvProbe } from '../adapters/github/env.ts'
+import { createGitlabEnvProbe } from '../adapters/gitlab/env.ts'
+import type { CommandRunner } from '../core/ticket.ts'
+import { HOST_CAPABILITY_IDS, type CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
-import { RPC_PATH } from '../protocol/tracker.ts'
+import { RPC_METHODS, RPC_PATH } from '../protocol/tracker.ts'
 import { createBackendResolver } from './backend-resolver.ts'
-import { readConnection, readSubprocess, readTimer, type DshContext } from './dsh-types.ts'
-import { createRpcFetchHandler } from './rpc-http.ts'
+import {
+  readConnection,
+  readSkills,
+  readSubprocess,
+  readTimer,
+  type DshContext,
+  type DshLogger,
+  type TimerLike,
+} from './dsh-types.ts'
+import { createEnvCheckService, type SkillCatalog } from './env-check-service.ts'
+import { createProbeDeadline, ENV_PROBE_TIMEOUT_MS } from './probe-deadline.ts'
+import type { LogSink } from './log.ts'
+import { createRpcFetchHandler, type RpcHandler } from './rpc-http.ts'
 import { createSnapshotService } from './snapshot-service.ts'
 import { createCommandRunner } from './subprocess-runner.ts'
 
@@ -36,21 +52,12 @@ const plugin = {
         return
       }
 
-      const run = createCommandRunner(subprocess, timer)
-      const resolve = createBackendResolver({ run, now: () => Date.now() })
-      const service = createSnapshotService({
-        resolve,
-        now: () => Date.now(),
-        labels: TRACKER_LABELS,
-        log: (level, event, fields) => {
-          try {
-            logger[level]('%s %o', event, fields)
-          } catch (logError) {
-            // 日志出口失败不能影响 RPC 响应，但也不能静默吞掉。
-            console.error(`[${PLUGIN_NAME}] 日志写入失败`, logError)
-          }
-        },
-      })
+      const rpc = createRpcHandler(
+        scope,
+        createCommandRunner(subprocess, timer),
+        timer,
+        createLog(logger),
+      )
 
       let dispose: (() => Promise<void>) | undefined
       try {
@@ -58,7 +65,7 @@ const plugin = {
           path: RPC_PATH,
           methods: ['POST'],
           requestBody: 'buffered',
-          fetch: createRpcFetchHandler(service),
+          fetch: createRpcFetchHandler(rpc),
         })
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
@@ -74,6 +81,76 @@ const plugin = {
       logger.info('%s %s', '工单 RPC 已注册：', RPC_PATH)
     })
   },
+}
+
+/**
+ * 组装快照与环境检查两个服务，并按方法名分发。
+ * @param scope - connection 就绪后的宿主上下文。
+ * @param run - 注入式命令执行器。
+ * @param timer - 计时服务，用于探测超时。
+ * @param log - 日志出口。
+ * @returns RPC 处理器。
+ */
+function createRpcHandler(
+  scope: DshContext,
+  run: CommandRunner,
+  timer: TimerLike,
+  log: LogSink,
+): RpcHandler {
+  const now = (): number => Date.now()
+  const resolve = createBackendResolver({ run, now })
+  // 环境检查每次都重新探测后端：刚装好 glab 或刚加上远端时要能马上看到变化。
+  const resolveFresh = createBackendResolver({ run, now, cache: false })
+
+  const snapshot = createSnapshotService({ resolve, now, labels: TRACKER_LABELS, log })
+  const envCheck = createEnvCheckService({
+    resolve: resolveFresh,
+    github: createGithubEnvProbe({ run }),
+    gitlab: createGitlabEnvProbe({ run }),
+    files: createNodeEnvFiles(),
+    skills: createSkillCatalog(scope),
+    capabilities: () => readHostCapabilities(scope),
+    now,
+    deadline: createProbeDeadline(timer, ENV_PROBE_TIMEOUT_MS),
+    log,
+  })
+
+  return {
+    handle: (method, params) =>
+      method === RPC_METHODS.envCheck
+        ? envCheck.handle(method, params)
+        : snapshot.handle(method, params),
+  }
+}
+
+function createLog(logger: DshLogger): LogSink {
+  return (level, event, fields) => {
+    try {
+      logger[level]('%s %o', event, fields)
+    } catch (logError) {
+      // 日志出口失败不能影响 RPC 响应，但也不能静默吞掉。
+      console.error(`[${PLUGIN_NAME}] 日志写入失败`, logError)
+    }
+  }
+}
+
+function createSkillCatalog(scope: DshContext): SkillCatalog {
+  return {
+    async names(workspaceRoot) {
+      const registry = readSkills(scope.get('skills'))
+      if (registry === undefined) throw new Error('skills 服务不可用')
+      const skills = await registry.list({ cwd: workspaceRoot })
+      return skills.map((skill) => skill.name)
+    },
+  }
+}
+
+function readHostCapabilities(scope: DshContext): readonly CapabilityDiagnostic[] {
+  return HOST_CAPABILITY_IDS.map((id) => ({
+    id,
+    category: 'host-service' as const,
+    status: scope.get(id) === undefined ? ('missing' as const) : ('present' as const),
+  }))
 }
 
 export default plugin

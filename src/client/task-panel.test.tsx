@@ -2,9 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
+import type { EnvCheckReport } from '../protocol/env-check.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './prompts.ts'
-import type { SnapshotClient } from './rpc.ts'
+import type { PanelClient } from './rpc.ts'
 import { TaskPanel, type TaskPanelProps } from './task-panel.tsx'
 
 afterEach(cleanup)
@@ -69,6 +70,22 @@ const TICKETS: readonly TicketSnapshot[] = [
   },
 ]
 
+const ENV_REPORT: EnvCheckReport = {
+  checkedAt: NOW,
+  backend: 'github',
+  items: [
+    {
+      id: 'home',
+      subject: null,
+      status: 'pass',
+      detail: '/home/dev',
+      suggestion: null,
+      blockedBy: null,
+    },
+  ],
+  capabilities: [],
+}
+
 const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
@@ -79,7 +96,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
 }
 
 interface FakeClient {
-  readonly client: SnapshotClient
+  readonly client: PanelClient
   readonly getCalls: string[]
   readonly refreshCalls: string[]
 }
@@ -92,7 +109,7 @@ function fakeClient(
   const refreshCalls: string[] = []
   const get = (root: string): RpcResult<WorkspaceSnapshot> =>
     typeof getResult === 'function' ? getResult(root) : getResult
-  const client: SnapshotClient = {
+  const client: PanelClient = {
     get(root) {
       getCalls.push(root)
       return Promise.resolve(get(root))
@@ -101,6 +118,7 @@ function fakeClient(
       refreshCalls.push(root)
       return Promise.resolve(refreshResult ?? get(root))
     },
+    envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
   return { client, getCalls, refreshCalls }
 }
@@ -147,9 +165,11 @@ describe('任务面板', () => {
 
   it('首次加载时显示正在读取状态', async () => {
     const pending = Promise.withResolvers<RpcResult<WorkspaceSnapshot>>()
-    const client: SnapshotClient = {
+    const client: PanelClient = {
       get: () => pending.promise,
       refresh: () => pending.promise,
+      envCheck: () =>
+        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
     }
     render(<TaskPanel {...panelProps({ client })} />)
 
@@ -266,9 +286,11 @@ describe('任务面板', () => {
 
   it('刷新进行中时按钮禁用且不能重复触发', async () => {
     const pending = deferred<RpcResult<WorkspaceSnapshot>>()
-    const client: SnapshotClient = {
+    const client: PanelClient = {
       get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       refresh: () => pending.promise,
+      envCheck: () =>
+        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
     }
     render(<TaskPanel {...panelProps({ client })} />)
     await screen.findAllByTestId('ticket-row')
@@ -365,5 +387,62 @@ describe('任务面板', () => {
       expect(screen.getByTestId('repo-name').textContent).toBe('/two/repo')
     })
     expect(fake.getCalls).toEqual(['/one', '/two'])
+  })
+  it('点击「环境检查」切换视图并自动检查当前工作区', async () => {
+    const envCheckCalls: string[] = []
+    const client: PanelClient = {
+      get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+      refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+      envCheck(root) {
+        envCheckCalls.push(root)
+        return Promise.resolve({ ok: true, result: ENV_REPORT })
+      },
+    }
+    render(<TaskPanel {...panelProps({ client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('view-env'))
+
+    await screen.findByTestId('env-items')
+    expect(envCheckCalls).toEqual(['/repo'])
+    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/1')
+    expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
+  })
+
+  it('列表因环境问题失败时提供「查看环境检查」入口', async () => {
+    const client: PanelClient = {
+      get: () =>
+        Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
+      refresh: () =>
+        Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
+      envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
+    }
+    render(<TaskPanel {...panelProps({ client })} />)
+
+    await screen.findByTestId('error')
+    fireEvent.click(screen.getByTestId('open-env-check'))
+
+    await screen.findByTestId('env-items')
+    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/1')
+  })
+
+  it('与环境无关的错误不提供环境检查入口', async () => {
+    const client: PanelClient = {
+      get: () =>
+        Promise.resolve({
+          ok: false,
+          error: { code: 'markdown-read-failed', message: '读取失败' },
+        }),
+      refresh: () =>
+        Promise.resolve({
+          ok: false,
+          error: { code: 'markdown-read-failed', message: '读取失败' },
+        }),
+      envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
+    }
+    render(<TaskPanel {...panelProps({ client })} />)
+
+    await screen.findByTestId('error')
+    expect(screen.queryByTestId('open-env-check')).toBeNull()
   })
 })

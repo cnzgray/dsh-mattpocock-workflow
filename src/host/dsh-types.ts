@@ -72,6 +72,13 @@ export interface TimerLike {
   timeout(callback: () => void, delay: number): () => void
 }
 
+/** `skills` 服务里插件用到的部分：当前工作区的技能清单。 */
+export interface SkillsLike {
+  list(options?: {
+    readonly cwd?: string | undefined
+  }): Promise<readonly { readonly name: string }[]>
+}
+
 /**
  * 收窄 `subprocess` 服务。
  * @param value - `ctx.get('subprocess')` 的返回值。
@@ -106,4 +113,15 @@ export function readTimer(value: unknown): TimerLike | undefined {
   if (!isRecord(value)) return undefined
   if (typeof value.timeout !== 'function') return undefined
   return value as unknown as TimerLike
+}
+
+/**
+ * 收窄 `skills` 服务。
+ * @param value - `ctx.get('skills')` 的返回值。
+ * @returns 服务可用时返回声明，否则 undefined。
+ */
+export function readSkills(value: unknown): SkillsLike | undefined {
+  if (!isRecord(value)) return undefined
+  if (typeof value.list !== 'function') return undefined
+  return value as unknown as SkillsLike
 }

@@ -73,6 +73,7 @@ describe('命令执行器', () => {
     await expect(run('gh', ['api', 'graphql'], { cwd: '/repo' })).resolves.toEqual({
       stdout: 'ok',
       stderr: '',
+      executable: '/opt/homebrew/bin/gh',
     })
     expect(lookups).toEqual(['gh', '/opt/homebrew/bin/gh'])
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/gh', 'api', 'graphql'])
@@ -91,6 +92,7 @@ describe('命令执行器', () => {
     await expect(run('glab', ['auth', 'status'], { cwd: '/repo' })).resolves.toEqual({
       stdout: 'ok',
       stderr: '',
+      executable: '/opt/homebrew/bin/glab',
     })
     expect(lookups).toEqual(['glab', '/opt/homebrew/bin/glab'])
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/glab', 'auth', 'status'])
@@ -133,6 +135,7 @@ describe('命令执行器', () => {
     await expect(run('glab', ['auth', 'status'], { cwd: '/repo' })).resolves.toEqual({
       stdout: '',
       stderr: '✓ Logged in to gitlab.example.com',
+      executable: '/usr/bin/glab',
     })
   })
 

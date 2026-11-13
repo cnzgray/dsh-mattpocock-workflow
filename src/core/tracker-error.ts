@@ -28,6 +28,13 @@ export class TrackerError extends Error {
   }
 }
 
+/**
+ * 网络类失败的特征。`gh` / `glab` 的错误措辞接近，这里只认明确的连接与超时字样；
+ * 两个后端的环境探测共用这一份，避免同一组判断各写一遍。
+ */
+const NETWORK_FAILURE =
+  /dial tcp|no such host|i\/o timeout|timeout|network is unreachable|connection refused|connection reset|TLS handshake|proxyconnect|unexpected EOF/i
+
 /** 命令失败的两类原因：可执行文件不存在，或进程非零退出。 */
 export type CommandFailureKind = 'not-found' | 'failed'
 
@@ -55,6 +62,24 @@ export class CommandError extends Error {
     this.stderr = stderr
     this.exitCode = exitCode
   }
+}
+
+/**
+ * 判断命令失败是否属于网络不可达或超时。
+ * @param stderr - 进程的标准错误。
+ * @returns 命中网络类特征时为 true。
+ */
+export function isNetworkFailure(stderr: string): boolean {
+  return NETWORK_FAILURE.test(stderr)
+}
+
+/**
+ * 判断失败是否因为可执行文件不存在。
+ * @param error - 任意错误。
+ * @returns 是 `CommandError` 且 kind 为 `not-found` 时为 true。
+ */
+export function isCommandNotFound(error: unknown): error is CommandError {
+  return error instanceof CommandError && error.kind === 'not-found'
 }
 
 /**
