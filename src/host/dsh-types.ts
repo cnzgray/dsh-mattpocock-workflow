@@ -79,6 +79,28 @@ export interface SkillsLike {
   }): Promise<readonly { readonly name: string }[]>
 }
 
+/** 插件内嵌技能：注册后由 DSH 在内存里提供，不写用户的技能目录。 */
+export interface SkillRegistrationLike {
+  readonly name: string
+  readonly description: string
+  /** 技能正文；用户消息里的手势命中时作为 instructions 注入这一轮。 */
+  readonly content: string
+  /** 技能来源；运行时注册的技能用 `runtime`，加载时 DSH 会校验。 */
+  readonly source: string
+  /** 调用策略；省略时模型和用户都能调用。 */
+  readonly invocation?:
+    | {
+        readonly modelInvocable: boolean
+        readonly userInvocable: boolean
+      }
+    | undefined
+}
+
+/** `skills` 服务里插件用到的注册部分。 */
+export interface SkillRegistryLike extends SkillsLike {
+  register(skill: SkillRegistrationLike): () => void
+}
+
 /**
  * 收窄 `subprocess` 服务。
  * @param value - `ctx.get('subprocess')` 的返回值。
@@ -124,4 +146,17 @@ export function readSkills(value: unknown): SkillsLike | undefined {
   if (!isRecord(value)) return undefined
   if (typeof value.list !== 'function') return undefined
   return value as unknown as SkillsLike
+}
+
+/**
+ * 收窄 `skills` 服务的注册能力。
+ * @param value - `ctx.get('skills')` 的返回值。
+ * @returns 服务可用且能注册内嵌技能时返回声明，否则 undefined。
+ */
+export function readSkillRegistry(value: unknown): SkillRegistryLike | undefined {
+  const skills = readSkills(value)
+  if (skills === undefined) return undefined
+  if (!isRecord(value)) return undefined
+  if (typeof value.register !== 'function') return undefined
+  return value as unknown as SkillRegistryLike
 }

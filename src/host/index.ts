@@ -31,6 +31,7 @@ import type { LogSink } from './log.ts'
 import { createRpcFetchHandler, type RpcHandler } from './rpc-http.ts'
 import { createSnapshotService } from './snapshot-service.ts'
 import { createCommandRunner } from './subprocess-runner.ts'
+import { registerWorkflowCommands } from './workflow-commands.ts'
 
 const PLUGIN_NAME = 'dsh-mattpocock-workflow'
 
@@ -39,6 +40,14 @@ const plugin = {
   apply(rawCtx: unknown): void {
     const ctx = rawCtx as DshContext
     const logger = ctx.logger(PLUGIN_NAME)
+
+    // 入池命令是插件自带的内嵌技能：技能服务就绪后注册，缺失时只降级。
+    if (ctx.get('skills') === undefined) {
+      logger.info('%s', 'skills 服务尚未就绪，入池命令等待注册。')
+    }
+    ctx.inject(['skills'], (scope) => {
+      registerWorkflowCommands(scope, logger)
+    })
 
     // connection 是可选依赖：没有它时面板仍可加载，只是没有 RPC 通道。
     ctx.inject(['connection'], (scope) => {

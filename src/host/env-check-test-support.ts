@@ -185,11 +185,12 @@ export const CATALOG: SkillCatalog = {
   names: () => Promise.resolve([...REQUIRED_SKILLS]),
 }
 
+/** 磁盘上装好全部必需技能：一个在用户主目录，其余在用户 `.agents` 下。 */
 export const DISK_FILES = fakeFiles({
   home: HOME,
   files: [
     '/workspace/docs/agents/issue-tracker.md',
-    `${HOME}/.claude/skills/to-spec/SKILL.md`,
+    `${HOME}/.dsh/skills/to-spec/SKILL.md`,
     ...[...REQUIRED_SKILLS]
       .filter((name) => name !== 'to-spec')
       .map((name) => `${HOME}/.agents/skills/${name}/SKILL.md`),

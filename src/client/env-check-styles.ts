@@ -4,7 +4,7 @@
 import type { CSSProperties } from 'react'
 
 import type { EnvCheckStatus } from '../protocol/env-check.ts'
-import { BACKEND_BADGE_STYLE, COLORS } from './task-panel-styles.ts'
+import { BACKEND_BADGE_STYLE, COLORS, MONO_FONT } from './task-panel-styles.ts'
 
 export const ENV_HEADER_STYLE: CSSProperties = {
   display: 'flex',
@@ -101,7 +101,7 @@ export const ENV_COMMAND_STYLE: CSSProperties = {
   borderRadius: 6,
   background: COLORS.surfaceActive,
   color: COLORS.text,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontFamily: MONO_FONT,
   fontSize: 12,
   overflowX: 'auto',
   maxWidth: '100%',

@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import * as React from 'react'
 
 import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
-import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT } from './prompts.ts'
+import { gestures } from './prompt-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import {
   badgeFor,
@@ -25,6 +25,13 @@ afterEach(() => {
   localStorage.clear()
 })
 
+/** 最近一次注入的文本。 */
+function lastInjection(injectDraft: Mock): string {
+  const calls = injectDraft.mock.calls
+  const last: unknown = calls.at(-1)?.[0]
+  if (typeof last !== 'string') throw new Error('没有注入文本')
+  return last
+}
 describe('任务面板', () => {
   it('显示仓库、快照时间、统计与已加载数量', async () => {
     render(<TaskPanel {...panelProps()} />)
@@ -248,19 +255,43 @@ describe('任务面板', () => {
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
-  it('新建入口与技能徽标分别填入对应提示词', async () => {
+  it('新建入口填入入池命令，技能徽标填入实现提示词', async () => {
     const injectDraft = vi.fn(() => true)
     render(<TaskPanel {...panelProps({ injectDraft })} />)
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('new-feature'))
-    expect(injectDraft).toHaveBeenLastCalledWith(NEW_FEATURE_PROMPT)
+    expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-feature'])
+    expect(lastInjection(injectDraft)).toContain('需求（一句话）：')
 
     fireEvent.click(screen.getByTestId('new-bug'))
-    expect(injectDraft).toHaveBeenLastCalledWith(NEW_BUG_PROMPT)
+    expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-bug'])
+    for (const slot of ['现象：', '复现步骤：', '预期行为：']) {
+      expect(lastInjection(injectDraft)).toContain(slot)
+    }
 
     fireEvent.click(badgeFor('#1'))
     expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/implement 处理工单 #1/))
+  })
+
+  it('快照还没加载出来时两个入池按钮也能填草稿', () => {
+    const pending = deferred<RpcResult<WorkspaceSnapshot>>()
+    const client: PanelClient = {
+      get: () => pending.promise,
+      refresh: () => pending.promise,
+      resolveBlockers: UNUSED_RESOLVE,
+      envCheck: () =>
+        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
+    }
+    const injectDraft = vi.fn(() => true)
+    render(<TaskPanel {...panelProps({ client, injectDraft })} />)
+
+    fireEvent.click(screen.getByTestId('new-feature'))
+    expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-feature'])
+
+    fireEvent.click(screen.getByTestId('new-bug'))
+    expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-bug'])
+    expect(lastInjection(injectDraft)).not.toContain('跟踪器')
   })
 
   it('没有可用会话时禁用注入按钮并给出提示', async () => {

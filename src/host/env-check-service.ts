@@ -47,8 +47,14 @@ import type { ProbeDeadline } from './probe-deadline.ts'
 /** 工作区初始化后的工单操作说明；存在即视为已初始化。 */
 const TRACKER_DOC = 'docs/agents/issue-tracker.md'
 
-/** 磁盘上可能存放技能的目录，按顺序查找；工作区优先，其次用户主目录。 */
-const SKILL_DIRECTORIES: readonly string[] = ['.agents/skills', '.claude/skills']
+/**
+ * 磁盘上可能存放技能的目录，按顺序查找；工作区优先，其次用户主目录。
+ *
+ * 只列 DSH 文件系统技能提供方真正扫描的根：`<root>/.dsh/skills` 与
+ * `<root>/.agents/skills`。`.claude/skills` 不在其中——文件在那里 DSH 也不会
+ * 收录，`/技能名` 手势解析不到，按它判定会造成假通过。
+ */
+const SKILL_DIRECTORIES: readonly string[] = ['.dsh/skills', '.agents/skills']
 
 /** DSH 技能清单的读取能力；服务缺失时整体为 undefined。 */
 export interface SkillCatalog {

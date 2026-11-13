@@ -81,6 +81,7 @@ describe('解决文案表', () => {
     })
 
     if (content.action.kind !== 'session') throw new Error('动作类型不符')
+    expect(content.action.prompt.split('\n')[0]).toBe('/setup-matt-pocock-skills')
     expect(content.action.prompt).toContain('setup-matt-pocock-skills')
     expect(content.action.prompt).toContain('docs/agents/issue-tracker.md')
     expect(content.action.prompt).toContain('工作区已初始化')

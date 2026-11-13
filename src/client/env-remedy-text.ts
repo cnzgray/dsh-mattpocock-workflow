@@ -134,10 +134,10 @@ const REMEDIES: Readonly<Record<EnvRemedyCode, (context: RemedyContext) => Remed
   'install-skill': (context) => {
     const skill = context.subject ?? '缺失技能'
     return {
-      summary: `让当前会话把 ${skill} 技能装到工作区的技能目录（如 .claude/skills），来源是 mattpocock/skills。`,
+      summary: `让当前会话把 ${skill} 技能装到 DSH 会扫描的技能目录（如 .agents/skills），来源是 mattpocock/skills。`,
       action: {
         kind: 'session',
-        prompt: `安装 mattpocock/skills 里的 ${skill} 技能到当前工作区的技能目录（如 .claude/skills 或 .agents/skills），让环境检查项「${context.title}」通过。装好后告诉我，我再重新检查。`,
+        prompt: `安装 mattpocock/skills 里的 ${skill} 技能到当前工作区 DSH 会扫描的技能目录（如 .agents/skills 或 .dsh/skills），让环境检查项「${context.title}」通过。装好后告诉我，我再重新检查。`,
       },
       link: { href: SKILLS_REPO, label: 'mattpocock/skills 仓库' },
     }
@@ -146,7 +146,12 @@ const REMEDIES: Readonly<Record<EnvRemedyCode, (context: RemedyContext) => Remed
     summary: `让当前会话运行 ${PANEL_SKILLS.setup}，把工作区按面板要求初始化。`,
     action: {
       kind: 'session',
-      prompt: `使用 ${PANEL_SKILLS.setup} 技能初始化当前工作区。环境检查项「${context.title}」未通过：${context.detail}。按技能完成初始化后告诉我，我再重新检查。`,
+      prompt: [
+        `/${PANEL_SKILLS.setup}`,
+        '',
+        `初始化当前工作区。环境检查项「${context.title}」未通过：${context.detail}。`,
+        '按技能完成初始化后告诉我，我再重新检查。',
+      ].join('\n'),
     },
   }),
   'place-local-issues': (context) => ({

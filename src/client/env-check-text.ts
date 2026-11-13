@@ -86,7 +86,7 @@ const CAPABILITIES: Readonly<Record<CapabilityId, CapabilityContent>> = {
   skills: {
     label: '技能清单服务',
     impact: '读不到 DSH 技能清单，技能检查只能按磁盘目录判定。',
-    fix: '确认 DSH 的 skills 服务已启用，或把技能装到工作区的 .claude/skills 下。',
+    fix: '确认 DSH 的 skills 服务已启用，或把技能装到 DSH 会扫描的目录（工作区的 .dsh/skills 或 .agents/skills）下。',
   },
   slots: {
     label: '插槽注册',

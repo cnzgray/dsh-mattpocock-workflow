@@ -8,6 +8,9 @@ import type { TicketActionReason } from '../protocol/labels.ts'
 import type { TicketStatus } from '../protocol/tracker.ts'
 import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 
+/** 等宽字体：命令名、标签名与可复制的命令块共用。 */
+export const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, monospace'
+
 export const COLORS = {
   text: 'var(--dsw-alias-label-primary, #1f2328)',
   secondary: 'var(--dsw-alias-label-secondary, #57606a)',
@@ -127,6 +130,16 @@ export const BUTTON_STYLE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
+/** 图标按钮：不抢主操作的视觉，只做入口。 */
+export const ICON_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_STYLE,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '3px 5px',
+  color: COLORS.secondary,
+}
+
 const ACTION_BUTTON_STYLE: CSSProperties = {
   ...BUTTON_STYLE,
   display: 'inline-flex',
@@ -184,12 +197,20 @@ export const SEGMENTED_STYLE: CSSProperties = {
   background: COLORS.track,
 }
 
+/** 面板顶部：左侧视图页签，右侧流程帮助入口；分隔线横跨整行。 */
+export const VIEW_BAR_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  padding: '0 12px',
+  borderBottom: `1px solid ${COLORS.border}`,
+}
+
 /** 视图页签：导航层级，用下划线而不是分段控件，和下面的筛选区分开。 */
 export const VIEW_TABS_STYLE: CSSProperties = {
   display: 'flex',
   gap: 16,
-  padding: '0 12px',
-  borderBottom: `1px solid ${COLORS.border}`,
 }
 
 export const VIEW_TAB_STYLE: CSSProperties = {

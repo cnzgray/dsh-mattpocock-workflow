@@ -316,7 +316,7 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(screen.getByTestId('new-bug'))
 
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('处理一个缺陷'))
+    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('/mattwf-bug'))
     expect(badgeFor('#10').getAttribute('data-injected')).toBeNull()
   })
 

@@ -171,11 +171,7 @@ describe('环境检查服务', () => {
       'backend',
       'workspace',
       'local-issues',
-      'skill',
-      'skill',
-      'skill',
-      'skill',
-      'skill',
+      ...REQUIRED_SKILLS.map(() => 'skill'),
     ])
   })
 
@@ -213,6 +209,16 @@ describe('环境检查服务', () => {
       code: 'init-workspace',
       subject: null,
     })
+    expect(result.items.map((entry) => entry.id)).toEqual([
+      'home',
+      'backend',
+      'cli',
+      'auth',
+      'repository',
+      'workspace',
+      'local-issues',
+      ...REQUIRED_SKILLS.map(() => 'skill'),
+    ])
   })
 
   it('技能优先按 DSH 技能清单判定', async () => {
@@ -236,8 +242,62 @@ describe('环境检查服务', () => {
 
     expect(item(result.items, 'skill', 'to-spec')).toMatchObject({
       status: 'pass',
-      detail: `${HOME}/.claude/skills/to-spec/SKILL.md（DSH 技能清单未收录，按磁盘判定）`,
+      detail: `${HOME}/.dsh/skills/to-spec/SKILL.md（DSH 技能清单未收录，按磁盘判定）`,
     })
+  })
+
+  it('工作区的技能目录优先于用户主目录', async () => {
+    const { service } = harness({
+      skills: { names: () => Promise.resolve([]) },
+      files: fakeFiles({
+        home: HOME,
+        files: [
+          '/workspace/docs/agents/issue-tracker.md',
+          `${ROOT}/.dsh/skills/to-spec/SKILL.md`,
+          `${HOME}/.agents/skills/to-spec/SKILL.md`,
+        ],
+      }),
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'skill', 'to-spec').detail).toContain(
+      `${ROOT}/.dsh/skills/to-spec/SKILL.md`,
+    )
+  })
+
+  it('只装在 DSH 不扫描的 .claude/skills 下时报失败，不给假通过', async () => {
+    const { service } = harness({
+      skills: { names: () => Promise.resolve([]) },
+      files: fakeFiles({
+        home: HOME,
+        files: [
+          '/workspace/docs/agents/issue-tracker.md',
+          ...[...REQUIRED_SKILLS].map((name) => `${HOME}/.claude/skills/${name}/SKILL.md`),
+        ],
+      }),
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'skill', 'grill-with-docs')).toMatchObject({
+      status: 'fail',
+      remedy: { code: 'install-skill', subject: 'grill-with-docs' },
+    })
+  })
+
+  it('必需技能清单覆盖两个创建按钮用到的全部阶段', async () => {
+    const { service } = harness({ skills: CATALOG })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    const checked = result.items
+      .filter((entry) => entry.id === 'skill')
+      .map((entry) => entry.subject)
+    expect(checked).toEqual([...REQUIRED_SKILLS])
+    for (const skill of ['grill-with-docs', 'to-spec', 'to-tickets', 'triage', 'implement']) {
+      expect(checked).toContain(skill)
+    }
   })
 
   it('清单服务缺失或报错时降级为只查磁盘', async () => {
@@ -353,7 +413,8 @@ describe('环境检查服务', () => {
     expect(logs[0]?.event).toBe(LOG_EVENTS.envCheck)
     expect(logs[0]?.fields).toMatchObject({
       backend: 'github',
-      passed: 9,
+      // 主目录、后端、工作区、本地工单目录与每一项技能都通过；命令行失败后登录与仓库被跳过。
+      passed: 4 + REQUIRED_SKILLS.length,
       failed: 1,
       skipped: 2,
       level: 'info',

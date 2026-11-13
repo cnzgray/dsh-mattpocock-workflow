@@ -1,15 +1,17 @@
 /**
- * 预设提示词。只填进输入框，不自动发送；用户可以改完再按发送。
+ * 面板预设提示词。只填进输入框，不自动发送；用户可以改完再按发送。
+ *
+ * 「+ 新建需求」「+ bug」注入插件自带的入池命令加槽位：第一行是
+ * `/mattwf-feature` 或 `/mattwf-bug`，DSH 按用户消息里空白边界的
+ * `/技能名` 词元把命令正文注入这一轮。草稿不写阶段说明、边界和跟踪器行，
+ * 这些都在命令正文里维护；槽位只是引导，用户删掉直接写一段话也可以。
+ *
+ * 技能徽标按工单的技能动作组装：一个技能手势、本阶段要做什么、要处理的票号。
  * 技能名取自 protocol 的面板技能常量，环境检查不会和这里脱节。
  */
-import { PANEL_SKILLS, SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
+import { SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
+import { FLOW_COMMANDS, INTAKE_COMMANDS, type IntakeCommandDefinition } from '../protocol/flow.ts'
 import type { TicketActionReason, TicketSkillAction } from '../protocol/labels.ts'
-
-/** “新建需求”按钮填入的开场提示词。 */
-export const NEW_FEATURE_PROMPT = `使用 ${PANEL_SKILLS.toSpec} 技能开始一项新需求：先向我提问，澄清目标、验收标准和边界，再整理成规格并创建工单。现在先问第一个问题。`
-
-/** “+ bug”按钮填入的开场提示词。 */
-export const NEW_BUG_PROMPT = `使用 ${PANEL_SKILLS.triage} 和 ${PANEL_SKILLS.diagnosingBugs} 技能处理一个缺陷：先复现并确认现象，再定位根因。开始前先问我要复现步骤和预期行为。`
 
 /** 生成某张票的提示词所需的最小信息。 */
 export interface TicketPromptTarget {
@@ -42,4 +44,24 @@ export function ticketPrompt(ticket: TicketPromptTarget): string | null {
         ? `/${SKILL_ACTION_SKILLS.triage} 处理工单 ${ticket.ref}：这张票缺信息，先列出缺失信息清单并向工单作者追问，补齐后推进到 ready-for-agent。`
         : `/${SKILL_ACTION_SKILLS.triage} 处理工单 ${ticket.ref}：按 triage 状态机评估这张工单，补齐分类标签与状态标签，必要时写出 agent brief。`
   }
+}
+
+/**
+ * 「+ 新建需求」填入的开场提示词：进入需求入池。
+ * @returns 以 mattwf-feature 手势开头、后面是槽位的注入文本。
+ */
+export function newFeaturePrompt(): string {
+  return intakePrompt(INTAKE_COMMANDS.feature)
+}
+
+/**
+ * 「+ bug」填入的开场提示词：进入缺陷入池。
+ * @returns 以 mattwf-bug 手势开头、后面是槽位的注入文本。
+ */
+export function newBugPrompt(): string {
+  return intakePrompt(INTAKE_COMMANDS.bug)
+}
+
+function intakePrompt(intake: IntakeCommandDefinition): string {
+  return [`/${FLOW_COMMANDS[intake.command].name}`, '', ...intake.slots].join('\n')
 }

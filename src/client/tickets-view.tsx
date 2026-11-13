@@ -12,7 +12,7 @@ import {
 } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
-import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT } from './prompts.ts'
+import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import { TicketList } from './ticket-list.tsx'
@@ -121,10 +121,10 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         counts={snapshot === null ? null : counts}
         canInject={props.canInject}
         onNewFeature={() => {
-          inject(NEW_FEATURE_PROMPT)
+          inject(newFeaturePrompt())
         }}
         onNewBug={() => {
-          inject(NEW_BUG_PROMPT)
+          inject(newBugPrompt())
         }}
       />
       {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
