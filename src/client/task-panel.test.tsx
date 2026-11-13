@@ -8,7 +8,10 @@ import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './promp
 import type { PanelClient } from './rpc.ts'
 import { TaskPanel, type TaskPanelProps } from './task-panel.tsx'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 const NOW = Date.parse('2026-11-12T15:00:00Z')
 
@@ -167,7 +170,7 @@ describe('任务面板', () => {
     expect(screen.getByTestId('stat-blocked').textContent).toContain('1')
     expect(screen.getByTestId('stat-closed').textContent).toContain('1')
     expect(screen.getByTestId('loaded-total').textContent).toContain('已加载 5 / 共 30')
-    expect(screen.getAllByTestId('ticket-row')).toHaveLength(5)
+    expect(screen.getAllByTestId('ticket-row')).toHaveLength(4)
   })
 
   it('首次加载时显示正在读取状态', async () => {
@@ -202,26 +205,26 @@ describe('任务面板', () => {
     expect(rowRefs()).toEqual(['#3'])
 
     fireEvent.click(screen.getByTestId('filter-open'))
-    expect(rowRefs()).toEqual(['#1', '#2', '#4', '#5'])
+    expect(rowRefs()).toEqual(['#1', '#5', '#2', '#4'])
   })
 
   it('按标题和编号排序，再次点击当前排序切换升降序', async () => {
     render(<TaskPanel {...panelProps()} />)
     await screen.findAllByTestId('ticket-row')
 
-    expect(rowRefs()).toEqual(['#1', '#3', '#2', '#4', '#5'])
+    expect(rowRefs()).toEqual(['#1', '#5', '#2', '#4'])
 
     fireEvent.click(screen.getByTestId('sort-title'))
-    expect(rowRefs()).toEqual(['#2', '#1', '#3', '#4', '#5'])
+    expect(rowRefs()).toEqual(['#2', '#1', '#4', '#5'])
 
     fireEvent.click(screen.getByTestId('sort-title'))
-    expect(rowRefs()).toEqual(['#5', '#4', '#3', '#1', '#2'])
+    expect(rowRefs()).toEqual(['#5', '#4', '#1', '#2'])
 
     fireEvent.click(screen.getByTestId('sort-number'))
-    expect(rowRefs()).toEqual(['#5', '#4', '#3', '#2', '#1'])
+    expect(rowRefs()).toEqual(['#5', '#4', '#2', '#1'])
 
     fireEvent.click(screen.getByTestId('sort-number'))
-    expect(rowRefs()).toEqual(['#1', '#2', '#3', '#4', '#5'])
+    expect(rowRefs()).toEqual(['#1', '#2', '#4', '#5'])
   })
 
   it.each([
@@ -353,7 +356,7 @@ describe('任务面板', () => {
 
     await screen.findByTestId('error')
     expect(screen.getByTestId('error').textContent).toContain('未找到 gh 命令')
-    expect(screen.getAllByTestId('ticket-row')).toHaveLength(5)
+    expect(screen.getAllByTestId('ticket-row')).toHaveLength(4)
   })
 
   it.each([

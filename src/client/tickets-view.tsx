@@ -50,6 +50,7 @@ import {
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
+import { useViewPreference } from './use-view-preference.ts'
 
 /** 工单列表视图依赖。 */
 export interface TicketsViewProps {
@@ -87,9 +88,7 @@ const ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
   const { snapshot, error, phase, refresh } = useSnapshotRequest(props.client, props.workspaceRoot)
-  const [filter, setFilter] = React.useState<TicketFilter>('all')
-  const [sortKey, setSortKey] = React.useState<TicketSortKey>('updated')
-  const [direction, setDirection] = React.useState<SortDirection>('desc')
+  const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const [selected, setSelected] = React.useState<string | null>(null)
   const nowValue = useNow(clock)
   const { notice, inject } = useDraftInjection(props.canInject, props.injectDraft)
@@ -100,17 +99,12 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
 
   const tickets = snapshot?.tickets ?? []
   const counts = countTickets(tickets)
-  const visible = sortTickets(filterTickets(tickets, filter), sortKey, direction)
+  const visible = sortTickets(
+    filterTickets(tickets, preference.filter),
+    preference.sortKey,
+    preference.direction,
+  )
   const busy = phase === 'loading' || phase === 'refreshing'
-
-  const onSort = (key: TicketSortKey): void => {
-    if (key === sortKey) {
-      setDirection(direction === 'asc' ? 'desc' : 'asc')
-      return
-    }
-    setSortKey(key)
-    setDirection(key === 'title' ? 'asc' : 'desc')
-  }
 
   const onPick = (ticket: TicketSnapshot): void => {
     setSelected(ticket.ref)
@@ -143,11 +137,11 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         <>
           <StatsRow counts={counts} />
           <Toolbar
-            filter={filter}
-            sortKey={sortKey}
-            direction={direction}
+            filter={preference.filter}
+            sortKey={preference.sortKey}
+            direction={preference.direction}
             onFilter={setFilter}
-            onSort={onSort}
+            onSort={toggleSort}
           />
           <div data-testid="loaded-total" style={LOADED_STYLE}>
             已加载 {snapshot.loaded} / 共 {snapshot.total}

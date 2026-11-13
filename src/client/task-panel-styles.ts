@@ -326,6 +326,7 @@ export const FILTERS: readonly { readonly value: TicketFilter; readonly label: s
 ]
 
 export const SORT_OPTIONS: readonly { readonly value: TicketSortKey; readonly label: string }[] = [
+  { value: 'status', label: '状态' },
   { value: 'updated', label: '更新' },
   { value: 'created', label: '创建' },
   { value: 'number', label: '编号' },

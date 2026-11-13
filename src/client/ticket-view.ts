@@ -2,13 +2,13 @@
  * 面板的展示逻辑：统计、过滤、排序。纯函数，不依赖 DSH，也不重复判定规则——
  * 每张票的 `status` 已由宿主附上。
  */
-import type { TicketSnapshot } from '../protocol/tracker.ts'
+import type { TicketSnapshot, TicketStatus } from '../protocol/tracker.ts'
 
 /** 过滤条件。`open` 包含可接、阻塞和其他开放。 */
 export type TicketFilter = 'all' | 'open' | 'closed' | 'blocked' | 'ready'
 
 /** 排序字段。 */
-export type TicketSortKey = 'updated' | 'created' | 'number' | 'title'
+export type TicketSortKey = 'updated' | 'created' | 'number' | 'title' | 'status'
 
 /** 排序方向。 */
 export type SortDirection = 'asc' | 'desc'
@@ -79,8 +79,18 @@ export function sortTickets(
 
   return [...tickets].sort((left, right) => {
     if (key === 'number') return compareByNumber(left, right, factor)
+    if (key === 'status') return compareByStatus(left, right, factor)
     return factor * compareTickets(left, right, key)
   })
+}
+
+/**
+ * 切换到某个排序键时的默认方向：标题与状态从升序看起，编号与时间从最大/最新看起。
+ * @param key - 排序字段。
+ * @returns 该字段的默认方向。
+ */
+export function defaultSortDirection(key: TicketSortKey): SortDirection {
+  return key === 'title' || key === 'status' ? 'asc' : 'desc'
 }
 
 /**
@@ -101,10 +111,24 @@ function numberGroup(ticket: TicketSnapshot): number {
   return ticket.number === null ? 1 : 0
 }
 
+/** 状态分组：可接、阻塞、其他开放、已关闭；组内沿用“按编号”的比较与分组。 */
+const STATUS_RANK: Record<TicketStatus, number> = {
+  ready: 0,
+  blocked: 1,
+  open: 2,
+  closed: 3,
+}
+
+function compareByStatus(left: TicketSnapshot, right: TicketSnapshot, factor: number): number {
+  const group = STATUS_RANK[left.status] - STATUS_RANK[right.status]
+  if (group !== 0) return factor * group
+  return compareByNumber(left, right, factor)
+}
+
 function compareTickets(
   left: TicketSnapshot,
   right: TicketSnapshot,
-  key: Exclude<TicketSortKey, 'number'>,
+  key: Exclude<TicketSortKey, 'number' | 'status'>,
 ): number {
   switch (key) {
     case 'title':

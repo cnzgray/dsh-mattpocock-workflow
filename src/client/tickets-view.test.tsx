@@ -2,7 +2,15 @@
  * 工单列表的两阶段加载：首屏只等列表，阻塞信息由后台补齐。
  * 这里直接渲染列表视图，用可控的假客户端制造「阶段一已返回、阶段二未返回」的中间态。
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  type RenderResult,
+} from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 
@@ -11,7 +19,10 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 const NOW = Date.parse('2026-11-12T15:00:00Z')
 
@@ -112,17 +123,21 @@ function fakeClient(
   return { client, refreshCalls, resolveCalls }
 }
 
-function renderView(client: PanelClient): void {
-  render(
+function viewElement(client: PanelClient, workspaceRoot: string): React.ReactElement {
+  return (
     <TicketsView
       client={client}
-      workspaceRoot="/repo"
+      workspaceRoot={workspaceRoot}
       canInject
       injectDraft={() => true}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
-    />,
+    />
   )
+}
+
+function renderView(client: PanelClient, workspaceRoot = '/repo'): RenderResult {
+  return render(viewElement(client, workspaceRoot))
 }
 
 function rowRefs(): readonly (string | null)[] {
@@ -186,7 +201,7 @@ describe('工单列表的阻塞补齐', () => {
     })
 
     expect(screen.queryByTestId('error')).toBeNull()
-    expect(screen.getAllByTestId('ticket-row')).toHaveLength(3)
+    expect(screen.getAllByTestId('ticket-row')).toHaveLength(2)
     expect(screen.getByTestId('stat-ready').textContent).toContain('2')
   })
 
@@ -268,5 +283,121 @@ describe('工单列表的阻塞补齐', () => {
     })
 
     expect(screen.getByTestId('repo-name').textContent).toBe('new/repo')
+  })
+})
+
+describe('视图偏好', () => {
+  function readyClient(): PanelClient {
+    return fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    ).client
+  }
+
+  it('默认只显示未关闭工单，并按状态升序', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-status').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-status').textContent).toContain('↑')
+    expect(rowRefs()).toEqual(['#1', '#2'])
+    // 统计仍然基于整份快照，不随当前筛选变化。
+    expect(screen.getByTestId('stat-closed').textContent).toContain('1')
+    expect(screen.getByTestId('loaded-total').textContent).toContain('已加载 3 / 共 3')
+  })
+
+  it('改动筛选、排序键与方向后，重新挂载原样恢复', async () => {
+    const first = renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-all'))
+    fireEvent.click(screen.getByTestId('sort-number'))
+    fireEvent.click(screen.getByTestId('sort-number'))
+    const before = rowRefs()
+    expect(before).toEqual(['#1', '#2', '#3'])
+
+    first.unmount()
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-number').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-number').textContent).toContain('↑')
+    expect(rowRefs()).toEqual(before)
+  })
+
+  it('两个工作区各自恢复自己的视图，互不污染', async () => {
+    const client = readyClient()
+    const view = renderView(client, '/one')
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-closed'))
+    expect(rowRefs()).toEqual(['#3'])
+
+    view.rerender(viewElement(client, '/two'))
+    await waitFor(() => {
+      expect(rowRefs()).toEqual(['#1', '#2'])
+    })
+    expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(screen.getByTestId('filter-ready'))
+    expect(rowRefs()).toEqual(['#1'])
+
+    view.rerender(viewElement(client, '/one'))
+    await waitFor(() => {
+      expect(rowRefs()).toEqual(['#3'])
+    })
+    expect(screen.getByTestId('filter-closed').getAttribute('aria-pressed')).toBe('true')
+
+    view.rerender(viewElement(client, '/two'))
+    await waitFor(() => {
+      expect(rowRefs()).toEqual(['#1'])
+    })
+    expect(screen.getByTestId('filter-ready').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('刷新快照不改变当前筛选、排序键与方向', async () => {
+    const fake = fakeClient(
+      { ok: true, result: FINAL },
+      () => Promise.resolve({ ok: true, result: FINAL }),
+      () => Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-all'))
+    fireEvent.click(screen.getByTestId('sort-title'))
+    fireEvent.click(screen.getByTestId('sort-title'))
+    fireEvent.click(screen.getByTestId('refresh'))
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-title').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('sort-title').textContent).toContain('↓')
+  })
+
+  it('存储不可用时仍按默认视图渲染', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('storage disabled')
+      },
+    })
+
+    try {
+      renderView(readyClient())
+      await screen.findAllByTestId('ticket-row')
+
+      expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
+      expect(screen.getByTestId('sort-status').getAttribute('aria-pressed')).toBe('true')
+      expect(screen.queryByTestId('error')).toBeNull()
+      expect(rowRefs()).toEqual(['#1', '#2'])
+    } finally {
+      if (descriptor === undefined) Reflect.deleteProperty(window, 'localStorage')
+      else Object.defineProperty(window, 'localStorage', descriptor)
+    }
   })
 })

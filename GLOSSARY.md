@@ -23,6 +23,7 @@
 | Gitea CLI         | `tea`                                                      | Gitea 官方命令行工具。Gitea 后端只通过它访问实例，最低版本 0.16。                                                                                         |
 | 工作区            | workspace / `workspaceRoot`                                | 当前会话的工作目录。插件用它选择后端、读取 git 远端与 `.scratch/`，并按它缓存快照。                                                                       |
 | MattWorkflow 面板 | MattWorkflow / task panel                                  | DSH 右侧栏里的“MattWorkflow”页签，展示快照、统计、过滤与排序，并往输入框填提示词。                                                                        |
+| 视图偏好          | view preference / `ViewPreference`                         | 面板按工作区记住的筛选条件、排序键与方向，存在浏览器本地存储里；读取失败、JSON 损坏或版本不符时整体退回默认视图，单个字段非法只回退该字段。               |
 | 提示词注入        | draft injection                                            | 把预设文本写进当前会话输入框（`setDraft`），不自动发送。                                                                                                  |
 | 环境检查          | env check / `EnvCheckReport`                               | 面板里与工单列表并列的只读视图：逐项检查本机与工作区是否满足面板和技能的前提，不安装、不登录、不改文件。                                                  |
 | 检查项            | check item / `EnvCheckItem`                                | 环境检查里的一条结论，状态为通过、失败或跳过；稳定 id 由 protocol 定义，标题由界面渲染。                                                                  |

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TicketSnapshot } from '../protocol/tracker.ts'
-import { countTickets, filterTickets, sortTickets } from './ticket-view.ts'
+import { countTickets, defaultSortDirection, filterTickets, sortTickets } from './ticket-view.ts'
 
 function ticket(
   overrides: Partial<TicketSnapshot> & Pick<TicketSnapshot, 'number'>,
@@ -151,5 +151,67 @@ describe('工单排序', () => {
     sortTickets(TICKETS, 'title', 'asc')
 
     expect(TICKETS).toEqual(original)
+  })
+})
+
+describe('状态排序', () => {
+  it('按可接、阻塞、其他开放、已关闭分组，组内按编号升序', () => {
+    expect(sortTickets(TICKETS, 'status', 'asc').map((item) => item.number)).toEqual([
+      1, 5, 2, 4, 3,
+    ])
+  })
+
+  it('降序翻转状态分组，组内方向同样翻转', () => {
+    expect(sortTickets(TICKETS, 'status', 'desc').map((item) => item.number)).toEqual([
+      3, 4, 2, 5, 1,
+    ])
+  })
+
+  it('同组内本地 Markdown 工单排在数字工单之后，降序也不翻到前面', () => {
+    const list = [
+      ticket({ number: null, ref: '.scratch/b/docs/01-b.md', status: 'ready' }),
+      ticket({ number: 7, status: 'ready' }),
+      ticket({ number: 2, status: 'ready' }),
+      ticket({ number: 9, status: 'blocked' }),
+    ]
+
+    expect(sortTickets(list, 'status', 'asc').map((item) => item.ref)).toEqual([
+      '#2',
+      '#7',
+      '.scratch/b/docs/01-b.md',
+      '#9',
+    ])
+    expect(sortTickets(list, 'status', 'desc').map((item) => item.ref)).toEqual([
+      '#9',
+      '#7',
+      '#2',
+      '.scratch/b/docs/01-b.md',
+    ])
+  })
+
+  it('新增状态排序不改变既有排序键的结果', () => {
+    expect(sortTickets(TICKETS, 'updated', 'desc').map((item) => item.number)).toEqual([
+      1, 3, 2, 4, 5,
+    ])
+    expect(sortTickets(TICKETS, 'created', 'desc').map((item) => item.number)).toEqual([
+      1, 2, 3, 4, 5,
+    ])
+    expect(sortTickets(TICKETS, 'title', 'asc').map((item) => item.title)).toEqual([
+      'Alpha',
+      'Bravo',
+      'Charlie',
+      'Delta',
+      'Echo',
+    ])
+  })
+})
+
+describe('切换排序键的默认方向', () => {
+  it('标题与状态用升序，编号、创建与更新用降序', () => {
+    expect(defaultSortDirection('title')).toBe('asc')
+    expect(defaultSortDirection('status')).toBe('asc')
+    expect(defaultSortDirection('number')).toBe('desc')
+    expect(defaultSortDirection('created')).toBe('desc')
+    expect(defaultSortDirection('updated')).toBe('desc')
   })
 })
