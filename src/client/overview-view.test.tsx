@@ -274,8 +274,12 @@ describe('概览视图', () => {
     expect(screen.getByTestId('metric-net-flow').textContent).toContain('可能高估')
     expect(screen.getByTestId('metric-oldest-update').textContent).toContain('45 天')
     expect(screen.getByTestId('metric-chain').textContent).toContain('3 层')
+    // 阻塞占比已写在触发说明里，卡片不再重复；停滞票没触发，仍列在数字里。
+    expect(screen.queryByTestId('metric-blocked-ratio')).toBeNull()
+    expect(screen.getByTestId('metric-stalled').textContent).toContain('1 张')
 
-    expect(screen.getByTestId('metric-backlog').textContent).toContain('样本 4/10')
+    // 样本范围在压力区底部说一次，不在每个数字后面重复。
+    expect(screen.getByTestId('metric-backlog').textContent).not.toContain('样本')
     expect(screen.getByTestId('metric-closed').textContent).toContain('可能低估')
     expect(screen.getByTestId('metric-closed').textContent).toContain('样本 4/10')
     expect(screen.getByTestId('pressure-coverage').textContent).toContain('按已加载的 4 / 共 10 张')
@@ -315,6 +319,34 @@ describe('概览视图', () => {
 
     expect(screen.getByTestId('attention-empty').textContent).toContain('没有需要特别关注的票')
     expect(screen.queryAllByTestId('attention-item')).toHaveLength(0)
+  })
+
+  it('流量图按周画出新开与关闭，悬停或聚焦某周时读数跟着切换', async () => {
+    renderView(fakeClient({ ok: true, result: SNAPSHOT }))
+    await screen.findByTestId('flow-chart')
+
+    const weeks = screen.getAllByTestId('flow-week')
+    expect(weeks).toHaveLength(8)
+    // 默认读数是最近一周：#1、#2 都不在本周新开，#4 也不在本周关闭。
+    expect(screen.getByTestId('flow-readout').textContent).toContain('0 新开')
+
+    const latestOpened = weeks.findIndex((week) =>
+      (week.getAttribute('aria-label') ?? '').includes('新开 1 张，关闭 1 张'),
+    )
+    expect(latestOpened).toBeGreaterThanOrEqual(0)
+    const target = weeks[latestOpened]
+    if (target === undefined) throw new Error('缺少周柱')
+    fireEvent.focus(target)
+    expect(screen.getByTestId('flow-readout').textContent).toContain('1 新开')
+    expect(screen.getByTestId('flow-readout').textContent).toContain('1 关闭')
+  })
+
+  it('时效分布按距上次更新的天数统计开放票', async () => {
+    renderView(fakeClient({ ok: true, result: SNAPSHOT }))
+    await screen.findByTestId('age-histogram')
+
+    expect(screen.getByTestId('age-week').textContent).toBe('2')
+    expect(screen.getByTestId('age-older').textContent).toBe('1')
   })
 
   it('指标不可用时显示不可用与缺口说明，不用 0 冒充', async () => {
@@ -360,6 +392,8 @@ describe('概览视图', () => {
     expect(screen.getByTestId('pressure-gap-freshness').textContent).toContain('后端不提供工单时间')
     expect(screen.getByTestId('pressure-tier-freshness').textContent).toBe('不可用')
     expect(screen.queryByTestId('overview-host')).toBeNull()
+    expect(screen.queryByTestId('flow-chart')).toBeNull()
+    expect(screen.queryByTestId('age-histogram')).toBeNull()
   })
 
   it('首屏显示加载态', async () => {

@@ -4,63 +4,42 @@
  */
 import * as React from 'react'
 
-import type {
-  ErrorCode,
-  MetricGap,
-  MetricValue,
-  PressureDimensionReport,
-  SnapshotMetrics,
-  WorkspaceSnapshot,
-} from '../protocol/tracker.ts'
+import type { ErrorCode, SnapshotMetrics, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, RefreshIcon } from './icons.tsx'
+import { updateAgeBuckets, weeklyFlow } from './overview-chart-data.ts'
+import { CHART_CAPTION_STYLE, CHART_CARD_STYLE } from './overview-chart-styles.ts'
+import { AgeHistogram, FlowChart, SegmentedBar } from './overview-charts.tsx'
+import { PressureSection } from './overview-pressure.tsx'
 import {
   ATTENTION_ITEM_STYLE,
   ATTENTION_LIST_STYLE,
   ATTENTION_REASON_STYLE,
   ATTENTION_REF_STYLE,
   ATTENTION_TITLE_STYLE,
-  BAR_STYLE,
   CARD_BASIS_STYLE,
-  CARD_FACT_STYLE,
-  CARD_HEADING_STYLE,
-  CARD_NAME_STYLE,
+  FLAT_METRIC_STYLE,
+  FLOW_STATS_STYLE,
   IDENTITY_META_STYLE,
   IDENTITY_ROW_STYLE,
   IDENTITY_STYLE,
-  LEGEND_DOT_STYLE,
-  LEGEND_ITEM_STYLE,
-  LEGEND_STYLE,
-  METRIC_CARD_STYLE,
-  METRIC_GRID_STYLE,
   METRIC_LABEL_STYLE,
   METRIC_NOTE_STYLE,
   METRIC_VALUE_STYLE,
   NOTE_STYLE,
   OVERVIEW_STYLE,
-  PRESSURE_CARDS_STYLE,
-  PRESSURE_CARD_STYLE,
-  PROVISIONAL_STYLE,
   SECTION_STYLE,
   SECTION_TITLE_STYLE,
-  SEGMENT_COLORS,
-  TIER_BADGE_STYLES,
-  UNAVAILABLE_BADGE_STYLE,
 } from './overview-styles.ts'
 import {
   attentionText,
+  gapNote,
+  joinNotes,
+  sampleNote,
   categorySegments,
-  formatPercent,
   metricText,
-  pressureFacts,
-  pressureGaps,
-  segmentRatio,
   statusSegments,
-  PRESSURE_DIMENSION_BASIS,
-  PRESSURE_DIMENSION_LABELS,
-  PRESSURE_TIER_LABELS,
-  type DistributionSegment,
 } from './overview-text.ts'
 import type { PanelClient } from './rpc.ts'
 import { formatAge, useNow } from './snapshot-age.ts'
@@ -115,7 +94,8 @@ export function OverviewView(props: OverviewViewProps): React.ReactElement {
       ) : (
         <div style={OVERVIEW_STYLE}>
           <PressureSection snapshot={snapshot} />
-          <MetricsGrid snapshot={snapshot} />
+          <FlowSection snapshot={snapshot} />
+          <AgeSection snapshot={snapshot} />
           <CompositionSection snapshot={snapshot} />
           <AttentionSection items={snapshot.metrics.attention} onOpenTicket={props.onOpenTicket} />
         </div>
@@ -185,150 +165,83 @@ function Identity(props: {
   )
 }
 
-function PressureSection(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement {
-  const { pressure } = props.snapshot.metrics
+/** 流量图回看的周数：比 30 天窗口长，能看出趋势。 */
+const FLOW_WEEKS = 8
+
+function FlowSection(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement {
+  const { metrics, tickets, fetchedAt } = props.snapshot
+  const truncated = metrics.coverage.truncated
+  const sample = sampleNote(props.snapshot)
+  const count = (value: number): string => `${String(value)} 张`
 
   return (
-    <section data-testid="pressure-overview" style={SECTION_STYLE}>
-      <div style={SECTION_TITLE_STYLE}>
-        <span>压力总览</span>
-        <span data-testid="pressure-tier" style={TIER_BADGE_STYLES[pressure.tier]}>
-          {PRESSURE_TIER_LABELS[pressure.tier]}
-        </span>
-      </div>
-      <div style={PRESSURE_CARDS_STYLE}>
-        {pressure.dimensions.map((report) => (
-          <PressureCard key={report.dimension} report={report} />
-        ))}
-      </div>
-      {props.snapshot.metrics.coverage.truncated ? (
-        <div data-testid="pressure-coverage" style={NOTE_STYLE}>
-          按已加载的 {String(props.snapshot.loaded)} / 共 {String(props.snapshot.total)} 张判定。
+    <section data-testid="flow" style={SECTION_STYLE}>
+      <div style={SECTION_TITLE_STYLE}>流量</div>
+      <div style={CHART_CARD_STYLE}>
+        <div style={FLOW_STATS_STYLE}>
+          <MetricCard
+            testId="metric-opened"
+            label="近 30 天新开"
+            value={metricText(metrics.openedLast30Days, count)}
+            note={joinNotes(gapNote(metrics.openedLast30Days), sample)}
+          />
+          <MetricCard
+            testId="metric-closed"
+            label="近 30 天关闭"
+            value={metricText(metrics.closedLast30Days, count)}
+            note={joinNotes(
+              gapNote(metrics.closedLast30Days),
+              truncated ? '可能低估' : undefined,
+              sample,
+            )}
+          />
+          <MetricCard
+            testId="metric-net-flow"
+            label="净流入"
+            value={metricText(
+              metrics.netFlow,
+              (value) => `${value > 0 ? '+' : ''}${String(value)}`,
+            )}
+            note={joinNotes(gapNote(metrics.netFlow), truncated ? '可能高估' : undefined, sample)}
+          />
         </div>
-      ) : null}
-    </section>
-  )
-}
-
-function PressureCard(props: { readonly report: PressureDimensionReport }): React.ReactElement {
-  const { report } = props
-  const facts = pressureFacts(report)
-
-  return (
-    <div
-      data-testid={`pressure-${report.dimension}`}
-      data-tier={report.tier}
-      style={PRESSURE_CARD_STYLE}
-    >
-      <div style={CARD_HEADING_STYLE}>
-        <span style={CARD_NAME_STYLE}>{PRESSURE_DIMENSION_LABELS[report.dimension]}</span>
-        {report.tier === null ? (
-          <span data-testid={`pressure-tier-${report.dimension}`} style={UNAVAILABLE_BADGE_STYLE}>
-            不可用
-          </span>
-        ) : (
-          <span
-            data-testid={`pressure-tier-${report.dimension}`}
-            style={TIER_BADGE_STYLES[report.tier]}
-          >
-            {PRESSURE_TIER_LABELS[report.tier]}
-          </span>
-        )}
-        {report.provisional ? (
-          <span data-testid={`pressure-provisional-${report.dimension}`} style={PROVISIONAL_STYLE}>
-            暂估
-          </span>
+        {hasTicketTimes(props.snapshot) ? (
+          <FlowChart
+            buckets={weeklyFlow(tickets, fetchedAt, {
+              weeks: FLOW_WEEKS,
+              closedAvailable: metrics.closedLast30Days.value !== null,
+            })}
+          />
         ) : null}
       </div>
-      <span style={CARD_BASIS_STYLE}>{PRESSURE_DIMENSION_BASIS[report.dimension]}</span>
-      <span data-testid={`pressure-facts-${report.dimension}`} style={CARD_FACT_STYLE}>
-        {facts}
-      </span>
-      {pressureGaps(report).map((gap) => (
-        <span key={gap} data-testid={`pressure-gap-${report.dimension}`} style={NOTE_STYLE}>
-          {gap}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function MetricsGrid(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement {
-  const { metrics, loaded, total } = props.snapshot
-  const truncated = metrics.coverage.truncated
-  const sample = truncated ? `样本 ${String(loaded)}/${String(total)}` : undefined
-
-  return (
-    <section style={SECTION_STYLE}>
-      <div style={SECTION_TITLE_STYLE}>关键数字</div>
-      <div data-testid="metric-grid" style={METRIC_GRID_STYLE}>
-        <MetricCard
-          testId="metric-backlog"
-          label="开放积压"
-          value={`${String(metrics.openBacklog)} 张`}
-          note={sample}
-        />
-        <MetricCard
-          testId="metric-ready"
-          label="可接容量"
-          value={`${String(metrics.readyCapacity)} 张`}
-          note={sample}
-        />
-        <MetricCard
-          testId="metric-triage"
-          label="待 triage"
-          value={`${String(metrics.needsTriage)} 张`}
-          note={sample}
-        />
-        <MetricCard
-          testId="metric-stale"
-          label="陈旧票"
-          value={metricText(metrics.staleCount, (value) => `${String(value)} 张`)}
-          note={joinNotes(gapNote(metrics.staleCount), sample)}
-        />
-        <MetricCard
-          testId="metric-opened"
-          label="近 30 天新开"
-          value={metricText(metrics.openedLast30Days, (value) => `${String(value)} 张`)}
-          note={joinNotes(gapNote(metrics.openedLast30Days), sample)}
-        />
-        <MetricCard
-          testId="metric-closed"
-          label="近 30 天关闭"
-          value={metricText(metrics.closedLast30Days, (value) => `${String(value)} 张`)}
-          note={joinNotes(
-            gapNote(metrics.closedLast30Days),
-            truncated ? '可能低估' : undefined,
-            sample,
-          )}
-        />
-        <MetricCard
-          testId="metric-net-flow"
-          label="净流入"
-          value={metricText(metrics.netFlow, (value) => `${value > 0 ? '+' : ''}${String(value)}`)}
-          note={joinNotes(gapNote(metrics.netFlow), truncated ? '可能高估' : undefined, sample)}
-        />
-        <MetricCard
-          testId="metric-oldest-update"
-          label="最久未动"
-          value={metricText(metrics.oldestUpdateDays, (value) => `${String(value)} 天`)}
-          note={joinNotes(gapNote(metrics.oldestUpdateDays), sample)}
-        />
-        <MetricCard
-          testId="metric-chain"
-          label="最长阻塞链"
-          value={metricText(metrics.longestBlockerChain, (value) => `${String(value)} 层`)}
-          note={joinNotes(gapNote(metrics.longestBlockerChain), sample)}
-        />
-      </div>
     </section>
   )
 }
 
-/** 把缺口、低估与样本范围合成一行小字；没有内容时不显示。 */
-function joinNotes(...notes: readonly (string | undefined)[]): string | undefined {
-  const present = notes.filter((note): note is string => note !== undefined)
-  return present.length === 0 ? undefined : present.join(' · ')
+/**
+ * 后端是否给出了真实的工单时间。宿主在没有时间时把“近 30 天新开”标为不可用，
+ * 图表据此决定画不画，不自己再判一遍后端类型。
+ */
+function hasTicketTimes(snapshot: WorkspaceSnapshot): boolean {
+  return snapshot.metrics.openedLast30Days.value !== null
+}
+
+/** 时效分布只在有真实工单时间时出现；本地 Markdown 的文件时间不算。 */
+function AgeSection(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement | null {
+  const { tickets, fetchedAt } = props.snapshot
+  if (!hasTicketTimes(props.snapshot)) return null
+
+  return (
+    <section data-testid="age" style={SECTION_STYLE}>
+      <div style={SECTION_TITLE_STYLE}>
+        <span>时效</span>
+        <span style={CHART_CAPTION_STYLE}>开放票距上次更新</span>
+      </div>
+      <div style={CHART_CARD_STYLE}>
+        <AgeHistogram buckets={updateAgeBuckets(tickets, fetchedAt)} />
+      </div>
+    </section>
+  )
 }
 
 function MetricCard(props: {
@@ -338,7 +251,7 @@ function MetricCard(props: {
   readonly note?: string | undefined
 }): React.ReactElement {
   return (
-    <div data-testid={props.testId} style={METRIC_CARD_STYLE}>
+    <div data-testid={props.testId} style={FLAT_METRIC_STYLE}>
       <span style={METRIC_LABEL_STYLE}>{props.label}</span>
       <span style={METRIC_VALUE_STYLE}>{props.value}</span>
       {props.note === undefined ? null : (
@@ -354,79 +267,19 @@ function CompositionSection(props: { readonly snapshot: WorkspaceSnapshot }): Re
   return (
     <section data-testid="composition" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>构成</div>
-      <DistributionBar
-        testId="status-distribution"
-        title="状态分布"
-        segments={statusSegments(props.snapshot.tickets)}
-      />
-      <DistributionBar
-        testId="category-distribution"
-        title="分类分布"
-        segments={categorySegments(props.snapshot.tickets)}
-      />
-    </section>
-  )
-}
-
-function DistributionBar(props: {
-  readonly testId: string
-  readonly title: string
-  readonly segments: readonly DistributionSegment[]
-}): React.ReactElement {
-  const total = props.segments.reduce((sum, segment) => sum + segment.count, 0)
-  let offset = 0
-  const rects = props.segments
-    .filter((segment) => segment.count > 0)
-    .map((segment) => {
-      const width = segmentRatio(segment, total) * 100
-      const rect = (
-        <rect
-          key={segment.key}
-          x={offset}
-          y={0}
-          width={width}
-          height={8}
-          fill={SEGMENT_COLORS[segment.key]}
+      <div style={{ ...CHART_CARD_STYLE, gap: 14 }}>
+        <SegmentedBar
+          testId="status-distribution"
+          title="状态分布"
+          segments={statusSegments(props.snapshot.tickets)}
         />
-      )
-      offset += width
-      return rect
-    })
-
-  return (
-    <div data-testid={props.testId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={CARD_BASIS_STYLE}>{props.title}</span>
-      <div style={BAR_STYLE}>
-        <svg
-          viewBox="0 0 100 8"
-          preserveAspectRatio="none"
-          width="100%"
-          height="8"
-          aria-hidden="true"
-          style={{ display: 'block' }}
-        >
-          {rects}
-        </svg>
+        <SegmentedBar
+          testId="category-distribution"
+          title="分类分布"
+          segments={categorySegments(props.snapshot.tickets)}
+        />
       </div>
-      <div style={LEGEND_STYLE}>
-        {props.segments.map((segment) => (
-          <span
-            key={segment.key}
-            data-testid={`${props.testId}-${segment.key}`}
-            style={LEGEND_ITEM_STYLE}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                ...LEGEND_DOT_STYLE,
-                background: SEGMENT_COLORS[segment.key],
-              }}
-            />
-            {segment.label} {String(segment.count)}（{formatPercent(segmentRatio(segment, total))}）
-          </span>
-        ))}
-      </div>
-    </div>
+    </section>
   )
 }
 
@@ -479,15 +332,4 @@ function displayRef(item: { readonly ref: string }): string {
   if (!item.ref.includes('/')) return item.ref
   const name = item.ref.slice(item.ref.lastIndexOf('/') + 1)
   return name.length > 0 ? name : item.ref
-}
-
-/** 缺口在关键数字卡片里的短说明。 */
-const GAP_NOTES: Readonly<Record<MetricGap, string>> = {
-  'no-timestamps': '缺时间数据',
-  'no-closed-time': '缺关闭时间',
-  'no-dependency-edges': '缺依赖边',
-}
-
-function gapNote(value: MetricValue): string | undefined {
-  return value.gap === null ? undefined : GAP_NOTES[value.gap]
 }

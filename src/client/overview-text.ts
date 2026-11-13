@@ -9,6 +9,7 @@ import type {
   PressureDimension,
   PressureDimensionReport,
   PressureMetric,
+  PressureSignal,
   PressureTier,
   TicketSnapshot,
 } from '../protocol/tracker.ts'
@@ -134,12 +135,20 @@ export function formatPercent(ratio: number): string {
  * @returns 一句中文说明。
  */
 export function pressureFacts(report: PressureDimensionReport): string {
-  const signals =
-    report.triggers.length === 0
-      ? report.signals
-      : report.signals.filter((signal) => report.triggers.includes(signal.metric))
+  const signals = factSignals(report)
   if (signals.length === 0) return '暂无可判定的指标。'
   return signals.map((signal) => pressureSignalText(signal.metric, signal.value)).join('，')
+}
+
+/**
+ * 触发说明里会列出的指标：有触发项时只列触发项，轻松档列出全部。
+ * @param report - 维度判档结果。
+ * @returns 要写进说明的指标与取值。
+ */
+export function factSignals(report: PressureDimensionReport): readonly PressureSignal[] {
+  return report.triggers.length === 0
+    ? report.signals
+    : report.signals.filter((signal) => report.triggers.includes(signal.metric))
 }
 
 /** 压力维度缺数据时的说明。 */
@@ -178,4 +187,45 @@ function pressureSignalText(metric: PressureMetric, value: number): string {
     case 'stalled':
       return `停滞票 ${String(value)} 张`
   }
+}
+
+/** 缺口在数字旁边的短说明。 */
+const GAP_NOTES: Readonly<Record<MetricGap, string>> = {
+  'no-timestamps': '缺时间数据',
+  'no-closed-time': '缺关闭时间',
+  'no-dependency-edges': '缺依赖边',
+}
+
+/**
+ * 指标缺口的短说明。
+ * @param value - 指标取值。
+ * @returns 有缺口时的短说明，否则 undefined。
+ */
+export function gapNote(value: MetricValue): string | undefined {
+  return value.gap === null ? undefined : GAP_NOTES[value.gap]
+}
+
+/**
+ * 把缺口、低估与样本范围合成一行小字。
+ * @param notes - 可能缺席的几段说明。
+ * @returns 用“ · ”连接的说明；没有内容时为 undefined。
+ */
+export function joinNotes(...notes: readonly (string | undefined)[]): string | undefined {
+  const present = notes.filter((note): note is string => note !== undefined)
+  return present.length === 0 ? undefined : present.join(' · ')
+}
+
+/**
+ * 样本被截断时的范围说明，例如“样本 4/10”。
+ * @param snapshot - 快照的已加载数、总数与截断标记。
+ * @returns 截断时的说明，否则 undefined。
+ */
+export function sampleNote(snapshot: {
+  readonly loaded: number
+  readonly total: number
+  readonly metrics: { readonly coverage: { readonly truncated: boolean } }
+}): string | undefined {
+  return snapshot.metrics.coverage.truncated
+    ? `样本 ${String(snapshot.loaded)}/${String(snapshot.total)}`
+    : undefined
 }

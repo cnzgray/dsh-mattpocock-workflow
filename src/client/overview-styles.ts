@@ -5,6 +5,7 @@
 import type { CSSProperties } from 'react'
 
 import type { PressureTier } from '../protocol/tracker.ts'
+import { NEUTRAL_FILL } from './overview-chart-styles.ts'
 import { COLORS } from './task-panel-styles.ts'
 import type { DistributionKey } from './overview-text.ts'
 
@@ -55,28 +56,12 @@ export const SECTION_STYLE: CSSProperties = {
 
 export const SECTION_TITLE_STYLE: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
+  alignItems: 'baseline',
   justifyContent: 'space-between',
   gap: 8,
-  color: COLORS.secondary,
+  color: COLORS.text,
   fontSize: 12,
   fontWeight: 600,
-}
-
-/** 三张档位卡纵向排布：侧栏窄，并排会把每个数字挤到换行。 */
-export const PRESSURE_CARDS_STYLE: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-}
-
-export const PRESSURE_CARD_STYLE: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-  padding: '8px 10px',
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 10,
 }
 
 const TIER_BADGE_BASE_STYLE: CSSProperties = {
@@ -95,6 +80,106 @@ export const TIER_BADGE_STYLES: Readonly<Record<PressureTier, CSSProperties>> = 
   light: { ...TIER_BADGE_BASE_STYLE, color: COLORS.success },
   normal: { ...TIER_BADGE_BASE_STYLE, color: COLORS.secondary },
   tight: { ...TIER_BADGE_BASE_STYLE, color: COLORS.error },
+}
+
+/** 维度卡片的栅格：面板够宽时三张并排，窄了自动叠成一列。 */
+export const DIMENSION_GRID_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(176px, 1fr))',
+  gap: 8,
+}
+
+export const DIMENSION_CARD_STYLE: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  padding: '10px 12px 12px',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 10,
+  minWidth: 0,
+}
+
+export const DIMENSION_HEAD_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  minWidth: 0,
+}
+
+export const DIMENSION_NAME_STYLE: CSSProperties = {
+  color: COLORS.text,
+  fontSize: 13,
+  fontWeight: 600,
+}
+
+/** 维度档位：色点加文字，文字用正文色，颜色只落在点和刻度条上。 */
+export const TIER_TEXT_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  color: COLORS.text,
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+}
+
+export const TIER_DOT_STYLE: CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  flex: 'none',
+}
+
+/** 触发原因：卡片里最先读到的一句。 */
+export const DIMENSION_FACT_STYLE: CSSProperties = {
+  color: COLORS.text,
+  fontSize: 13,
+  fontWeight: 500,
+  overflowWrap: 'anywhere',
+}
+
+export const DIMENSION_BASIS_STYLE: CSSProperties = {
+  color: COLORS.tertiary,
+  fontSize: 11,
+}
+
+/** 支撑数字：标签左、数值右，发丝线和上面的判定隔开。 */
+export const METRIC_ROWS_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  alignItems: 'baseline',
+  columnGap: 8,
+  rowGap: 4,
+  margin: 0,
+  paddingTop: 8,
+  borderTop: `1px solid ${COLORS.border}`,
+}
+
+export const METRIC_ROW_LABEL_STYLE: CSSProperties = {
+  margin: 0,
+  color: COLORS.secondary,
+  fontSize: 12,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+}
+
+export const METRIC_ROW_VALUE_STYLE: CSSProperties = {
+  margin: 0,
+  color: COLORS.text,
+  fontSize: 13,
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
+}
+
+export const METRIC_ROW_NOTE_STYLE: CSSProperties = {
+  gridColumn: '1 / -1',
+  margin: '-2px 0 0',
+  color: COLORS.tertiary,
+  fontSize: 10,
+  textAlign: 'right',
 }
 
 /** 维度数据不足、判不了档时的标记。 */
@@ -132,20 +217,17 @@ export const CARD_FACT_STYLE: CSSProperties = {
   overflowWrap: 'anywhere',
 }
 
-/** 关键数字两列，窄面板下仍然放得下。 */
-export const METRIC_GRID_STYLE: CSSProperties = {
+/** 流量卡片顶部的三个数字：同一张卡片里并排，不再各套边框。 */
+export const FLOW_STATS_STYLE: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 6,
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: 8,
 }
 
-export const METRIC_CARD_STYLE: CSSProperties = {
+export const FLAT_METRIC_STYLE: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 1,
-  padding: '6px 8px',
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 8,
   minWidth: 0,
 }
 
@@ -159,9 +241,9 @@ export const METRIC_LABEL_STYLE: CSSProperties = {
 
 export const METRIC_VALUE_STYLE: CSSProperties = {
   color: COLORS.text,
-  fontSize: 15,
+  fontSize: 18,
   fontWeight: 600,
-  fontVariantNumeric: 'tabular-nums',
+  lineHeight: 1.3,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -179,16 +261,6 @@ export const NOTE_STYLE: CSSProperties = {
   color: COLORS.tertiary,
   fontSize: 11,
   overflowWrap: 'anywhere',
-}
-
-/** 构成条的轨道；进度条本身是内联 SVG。 */
-export const BAR_STYLE: CSSProperties = {
-  display: 'flex',
-  width: '100%',
-  height: 8,
-  borderRadius: 999,
-  overflow: 'hidden',
-  background: 'rgba(128, 128, 128, 0.18)',
 }
 
 export const LEGEND_STYLE: CSSProperties = {
@@ -213,15 +285,29 @@ export const LEGEND_DOT_STYLE: CSSProperties = {
   flex: 'none',
 }
 
-/** 构成条每段的颜色键与状态/分类对齐。 */
+/**
+ * 构成条每段的颜色键与状态/分类对齐。可接、阻塞沿用状态色；其他开放用强调色，
+ * 与“已关闭”的中性灰拉开，两段相邻时也分得清。
+ */
 export const SEGMENT_COLORS: Readonly<Record<DistributionKey, string>> = {
   ready: COLORS.success,
   blocked: COLORS.warn,
-  open: COLORS.secondary,
-  closed: COLORS.tertiary,
+  open: COLORS.accent,
+  closed: NEUTRAL_FILL,
   bug: COLORS.error,
   enhancement: COLORS.accent,
-  untriaged: COLORS.tertiary,
+  untriaged: NEUTRAL_FILL,
+}
+
+/** 段内文字颜色：彩色块上用白字，半透明灰块上用正文色。 */
+export const SEGMENT_INK: Readonly<Record<DistributionKey, string>> = {
+  ready: '#ffffff',
+  blocked: '#ffffff',
+  open: '#ffffff',
+  closed: COLORS.text,
+  bug: '#ffffff',
+  enhancement: '#ffffff',
+  untriaged: COLORS.text,
 }
 
 export const ATTENTION_LIST_STYLE: CSSProperties = {
