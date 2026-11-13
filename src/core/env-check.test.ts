@@ -73,6 +73,32 @@ describe('环境检查判定', () => {
     }
   })
 
+  it('Gitea 后端的 CLI 三项标为跳过，不冒用其他后端的结论', () => {
+    const items = buildEnvCheckItems(
+      facts({
+        backend: {
+          status: 'pass',
+          choice: { kind: 'gitea', source: 'tea-auth' },
+          detail: 'tea-auth:gitea',
+        },
+        cli: undefined,
+        auth: undefined,
+        repository: undefined,
+      }),
+    )
+
+    for (const id of ['cli', 'auth', 'repository'] as const) {
+      expect(item(items, id, 'gitea')).toEqual({
+        id,
+        subject: 'gitea',
+        status: 'skipped',
+        detail: '暂不支持 Gitea 后端的环境检查',
+        suggestion: null,
+        blockedBy: null,
+      })
+    }
+  })
+
   it('CLI 未安装时，登录与仓库可达标为跳过并指向 CLI', () => {
     const items = buildEnvCheckItems(
       facts({

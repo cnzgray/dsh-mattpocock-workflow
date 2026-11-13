@@ -15,12 +15,13 @@ const COMMAND_TIMEOUT_MS = 30_000
 /** 终止阶段留给子进程服务的时间。 */
 const TERMINATION_GRACE_MS = 5_000
 /**
- * 桌面端从 Finder 启动时 PATH 只有系统目录，Homebrew 安装的 gh / glab 不在其中。
+ * 桌面端从 Finder 启动时 PATH 只有系统目录，Homebrew 安装的 gh / glab / tea 不在其中。
  * 先按 PATH 找，找不到再试常见的绝对路径；全部失败才算 xxx-missing。
  */
 const EXECUTABLE_FALLBACKS: Readonly<Record<string, readonly string[]>> = {
   gh: ['/opt/homebrew/bin/gh', '/usr/local/bin/gh'],
   glab: ['/opt/homebrew/bin/glab', '/usr/local/bin/glab'],
+  tea: ['/opt/homebrew/bin/tea', '/usr/local/bin/tea'],
 }
 
 /**

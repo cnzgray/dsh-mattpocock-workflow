@@ -16,10 +16,12 @@
 
 - `github.com` → GitHub，通过 `gh` 读取；
 - `gitlab.com` 或 `glab` 已登录的自建实例 → GitLab，通过 `glab` 读取，支持嵌套 group；
+- `tea` 已登录的自建 Gitea 实例 → Gitea，通过 `tea` 读取；
 - 其余情况（没有 git、没有远端、主机不匹配）→ 本地 Markdown，读取
   `.scratch/<feature>/issues/*.md`。
 
-面板顶部会标出当前后端（GitHub / GitLab / 本地）。三种后端共用同一套判定、统计、过滤排序与提示词注入。
+面板顶部会标出当前后端（GitHub / GitLab / Gitea / 本地）；Gitea 后端还显示实例主机，便于区分多个
+自建实例。四种后端共用同一套判定、统计、过滤排序与提示词注入。
 
 ## 环境要求
 
@@ -27,11 +29,15 @@
 - GitHub：已安装并登录 GitHub CLI（`gh auth login`）；
 - GitLab：已安装 GitLab CLI 并登录（`glab auth login`）；自建实例需要登录该实例。
   最低支持 `glab` 1.126（本插件验证的版本）；更早版本未验证，登录状态识别失败时会回退本地 Markdown；
+- Gitea：已安装 `tea` 0.16 或更高版本并登录实例（`tea login add`）；自建实例需要登录该实例；
 - 当前工作区是 git 仓库且有远端；或直接把工单放在 `.scratch/<feature>/issues/NN-<slug>.md`。
-- 同一个工作区同时有 GitHub 与 GitLab 远端时，以 `origin` 为准。
+- 同一个工作区有多个远端时，以 `origin` 为准；同一个主机同时出现在 `glab` 与 `tea` 的登录列表里时按
+  GitLab 处理。
 
 缺 `gh` / `glab` 或未登录时，列表会显示对应的操作提示，并提供“查看环境检查”入口；读取 `.scratch` 失败时只给出文件权限提示。
-自建 GitLab 未在 `glab` 登录时，面板回退本地 Markdown，并在顶部标明“本地”。
+自建 GitLab 或 Gitea 未在对应 CLI 登录时，面板回退本地 Markdown，并在顶部标明“本地”。
+Gitea 后端选定之后，如果 `tea` 不见了、令牌失效或权限不够，列表会显示安装或重新登录的提示
+（`tea-missing` / `tea-unauthenticated`）；Gitea 后端的 CLI 三项检查尚未进入环境检查视图。
 
 ## 开发
 

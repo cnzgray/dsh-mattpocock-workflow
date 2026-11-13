@@ -89,6 +89,7 @@ const ENV_REPORT: EnvCheckReport = {
 const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
+  repositoryHost: 'github.com',
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
   total: 30,
@@ -219,6 +220,7 @@ describe('任务面板', () => {
   it.each([
     ['github', 'GitHub'],
     ['gitlab', 'GitLab'],
+    ['gitea', 'Gitea'],
     ['markdown', '本地'],
   ] as const)('后端徽标显示 %s', async (backend, label) => {
     const client = fakeClient({ ok: true, result: { ...SNAPSHOT, backend } }).client
@@ -228,11 +230,32 @@ describe('任务面板', () => {
     expect(screen.getByTestId('backend-badge').textContent).toBe(label)
   })
 
+  it('Gitea 快照在顶部显示实例主机，其他后端不显示', async () => {
+    const gitea = fakeClient({
+      ok: true,
+      result: {
+        ...SNAPSHOT,
+        backend: 'gitea',
+        repositoryHost: 'gitea.example.com',
+      },
+    }).client
+    render(<TaskPanel {...panelProps({ client: gitea })} />)
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('repo-host').textContent).toBe('gitea.example.com')
+
+    cleanup()
+    render(<TaskPanel {...panelProps()} />)
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.queryByTestId('repo-host')).toBeNull()
+  })
+
   it('本地 Markdown 路径过长时中间截断，完整值放在 title 里', async () => {
     const ref = '.scratch/very-long-feature-name/issues/03-session.md'
     const snapshot: WorkspaceSnapshot = {
       backend: 'markdown',
       repository: 'my-workspace',
+      repositoryHost: null,
       fetchedAt: NOW - 5_000,
       loaded: 1,
       total: 1,
@@ -327,6 +350,8 @@ describe('任务面板', () => {
   it.each([
     ['glab-missing', '未找到 glab 命令'],
     ['glab-unauthenticated', 'glab 未登录或令牌已失效'],
+    ['tea-missing', '未找到 tea 命令'],
+    ['tea-unauthenticated', 'tea 未登录该实例或令牌已失效'],
     ['markdown-read-failed', '读取 .scratch'],
   ] as const)('错误码 %s 显示可操作提示且没有列表', async (code, text) => {
     const fake = fakeClient({

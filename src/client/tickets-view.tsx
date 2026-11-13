@@ -32,6 +32,7 @@ import {
   HEADER_STYLE,
   LOADED_STYLE,
   REPO_CHIP_STYLE,
+  REPO_HOST_STYLE,
   REPO_NAME_STYLE,
   SORT_OPTIONS,
   STATS_STYLE,
@@ -77,6 +78,8 @@ const ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
   'gh-unauthenticated': 'gh 未登录，请运行 gh auth login 后重试。',
   'glab-missing': '未找到 glab 命令，请先安装 GitLab CLI（https://gitlab.com/gitlab-org/cli）。',
   'glab-unauthenticated': 'glab 未登录或令牌已失效，请运行 glab auth login 后重试。',
+  'tea-missing': '未找到 tea 命令，请先安装 Gitea CLI（https://gitea.com/gitea/tea）。',
+  'tea-unauthenticated': 'tea 未登录该实例或令牌已失效，请运行 tea login add 后重试。',
   'markdown-read-failed': '读取 .scratch 里的工单失败，请检查文件读取权限。',
 }
 
@@ -267,6 +270,16 @@ function Header(props: {
             {BACKEND_LABELS[props.snapshot.backend]}
           </span>
         )}
+        {/* 自建 Gitea 可能同时登录多个实例，主机名是区分同名仓库的唯一线索。 */}
+        {props.snapshot?.backend === 'gitea' && props.snapshot.repositoryHost !== null ? (
+          <span
+            data-testid="repo-host"
+            title={props.snapshot.repositoryHost}
+            style={REPO_HOST_STYLE}
+          >
+            {props.snapshot.repositoryHost}
+          </span>
+        ) : null}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button

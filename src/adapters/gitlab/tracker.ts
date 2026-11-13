@@ -7,6 +7,8 @@
  * - 阻塞优先用原生 blocking link，接口报告功能不可用或无权限时
  *   退回描述顶部的 `Blocked by:` 行。
  */
+import { countDescriptionBlockers } from '../../core/blocked-by.ts'
+import { mapWithConcurrency } from '../../core/concurrency.ts'
 import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type {
   CommandRunner,
@@ -17,7 +19,6 @@ import type {
 } from '../../core/ticket.ts'
 import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
 import {
-  countDescriptionBlockers,
   countNativeBlockers,
   encodeProjectPath,
   parseIssuesPage,
@@ -211,39 +212,4 @@ function projectEndpoint(project: string): string {
 function normalizePositive(value: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback
   return Math.max(1, Math.trunc(value))
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Map<number, R>()
-  const errors: Error[] = []
-  let next = 0
-
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (errors.length === 0) {
-      const index = next
-      next += 1
-      const item = items[index]
-      if (index >= items.length || item === undefined) return
-      try {
-        results.set(index, await worker(item))
-      } catch (error) {
-        errors.push(error instanceof Error ? error : new Error(String(error)))
-      }
-    }
-  })
-
-  await Promise.all(runners)
-
-  const failure = errors[0]
-  if (failure !== undefined) throw failure
-
-  return items.map((_, index) => {
-    const result = results.get(index)
-    if (result === undefined) throw new Error('并发查询没有返回结果')
-    return result
-  })
 }

@@ -329,6 +329,23 @@ describe('环境检查服务', () => {
     expect(logs.at(0)?.fields.backend).toBeNull()
   })
 
+  it('Gitea 后端不调用 gh / glab 探测，CLI 三项标为跳过', async () => {
+    const github = fakeProbe('github', {})
+    const gitlab = fakeProbe('gitlab', {})
+    const { service } = harness({ kind: 'gitea', source: 'tea-auth', github, gitlab })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect((github as FakeProbe).calls).toEqual([])
+    expect((gitlab as FakeProbe).calls).toEqual([])
+    for (const id of ['cli', 'auth', 'repository'] as const) {
+      expect(item(result.items, id, 'gitea')).toMatchObject({
+        status: 'skipped',
+        detail: '暂不支持 Gitea 后端的环境检查',
+      })
+    }
+  })
+
   it('GitLab 后端换成 glab 探测，依据写判定来源', async () => {
     const gitlab = fakeProbe('gitlab', {})
     const github = fakeProbe('github', {})

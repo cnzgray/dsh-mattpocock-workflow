@@ -114,7 +114,19 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
   const home = place('home', null, facts.home, null)
   const backend = place('backend', null, toProbeOutcome(facts.backend), null)
 
-  if (facts.backend.status === 'pass' && facts.backend.choice.kind !== 'markdown') {
+  if (facts.backend.status === 'pass' && facts.backend.choice.kind === 'gitea') {
+    // Gitea 的 CLI 检查还没接入：如实标成跳过，不冒用 gh / glab 的结论。
+    for (const id of ['cli', 'auth', 'repository'] as const) {
+      items.push({
+        id,
+        subject: 'gitea',
+        status: 'skipped',
+        detail: '暂不支持 Gitea 后端的环境检查',
+        suggestion: null,
+        blockedBy: null,
+      })
+    }
+  } else if (facts.backend.status === 'pass' && facts.backend.choice.kind !== 'markdown') {
     const backendKind = facts.backend.choice.kind
     const cli = place('cli', backendKind, facts.cli, backend)
     const auth = place('auth', backendKind, facts.auth, cli)

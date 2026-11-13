@@ -14,6 +14,7 @@ const ENV_REPORT: EnvCheckReport = {
 const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
+  repositoryHost: 'github.com',
   fetchedAt: 1,
   loaded: 0,
   total: 0,
@@ -86,6 +87,25 @@ describe('快照 RPC 客户端', () => {
 
   it('响应体不是快照结果时返回 fetch-failed', async () => {
     const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('快照缺少实例主机字段时返回 fetch-failed', async () => {
+    const legacy = {
+      backend: SNAPSHOT.backend,
+      repository: SNAPSHOT.repository,
+      fetchedAt: SNAPSHOT.fetchedAt,
+      loaded: SNAPSHOT.loaded,
+      total: SNAPSHOT.total,
+      tickets: SNAPSHOT.tickets,
+    }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+    )
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TicketState } from '../../core/ticket.ts'
-import {
-  countDescriptionBlockers,
-  countNativeBlockers,
-  encodeProjectPath,
-  parseIssuesPage,
-} from './parse.ts'
+import { countNativeBlockers, encodeProjectPath, parseIssuesPage } from './parse.ts'
 
 describe('GitLab 工单解析', () => {
   it('把一页 issue 映射成 ref、状态与标签', () => {
@@ -61,16 +55,6 @@ describe('GitLab 工单解析', () => {
     ])
 
     expect(countNativeBlockers(output)).toBe(1)
-  })
-
-  it('从描述前言统计 Blocked by，忽略 Comments 里的引用', () => {
-    const states = new Map<number, TicketState>([
-      [15, 'open'],
-      [9, 'closed'],
-    ])
-
-    expect(countDescriptionBlockers('# 票\nBlocked by: #15, #9, #99', states)).toBe(2)
-    expect(countDescriptionBlockers('# 票\n\n## Comments\n\nBlocked by: #15\n', states)).toBe(0)
   })
 
   it('嵌套 group 的项目路径编码成单个路径段', () => {

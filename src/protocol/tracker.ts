@@ -61,9 +61,14 @@ export interface WorkspaceSnapshot {
   readonly backend: BackendKind
   /**
    * 后端相关的仓库显示名：GitHub 是 `owner/name`，GitLab 是含嵌套 group 的完整项目路径，
-   * 本地 Markdown 是工作区目录名。
+   * Gitea 是 `owner/name`，本地 Markdown 是工作区目录名。
    */
   readonly repository: string
+  /**
+   * 仓库所在实例的主机名：GitHub、GitLab、Gitea 是远端主机，本地 Markdown 为 null。
+   * 同时使用多个 Gitea 实例时，界面靠它区分同名仓库。
+   */
+  readonly repositoryHost: string | null
   /** 快照生成时间（毫秒时间戳），界面用它显示“多久之前”。 */
   readonly fetchedAt: number
   /** 本次实际加载到的票数。 */
@@ -96,14 +101,16 @@ export interface RpcRequest<M extends RpcMethod = RpcMethod> {
 }
 
 /**
- * 错误码。前五个是工单读取的业务错误，其余是协议层错误。
- * 客户端按错误码给出可操作的提示（装 gh / glab、登录、检查 `.scratch` 权限）。
+ * 错误码。工单读取的业务错误在前，其余是协议层错误。
+ * 客户端按错误码给出可操作的提示（装 gh / glab / tea、登录、检查 `.scratch` 权限）。
  */
 export const ERROR_CODES = {
   ghMissing: 'gh-missing',
   ghUnauthenticated: 'gh-unauthenticated',
   glabMissing: 'glab-missing',
   glabUnauthenticated: 'glab-unauthenticated',
+  teaMissing: 'tea-missing',
+  teaUnauthenticated: 'tea-unauthenticated',
   markdownReadFailed: 'markdown-read-failed',
   fetchFailed: 'fetch-failed',
   invalidParams: 'invalid-params',

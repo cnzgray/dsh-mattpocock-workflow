@@ -9,6 +9,8 @@ export type TrackerErrorCode =
   | 'gh-unauthenticated'
   | 'glab-missing'
   | 'glab-unauthenticated'
+  | 'tea-missing'
+  | 'tea-unauthenticated'
   | 'markdown-read-failed'
   | 'fetch-failed'
 

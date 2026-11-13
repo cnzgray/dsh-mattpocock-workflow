@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
+import {
+  GITEA_DEPENDENCIES,
+  GITEA_ISSUES,
+  GITEA_ISSUES_OUTPUT,
+  GITEA_LOGINS_OUTPUT,
+  GITEA_REMOTES_OUTPUT,
+  apiCall,
+  failedApiCall,
+  type RecordedApiCall,
+} from '../adapters/gitea/fixtures.ts'
 import { GH_ISSUES_OUTPUT, GIT_REMOTES_OUTPUT } from '../adapters/github/fixtures.ts'
 import { GITLAB_ISSUES_OUTPUT, GITLAB_REMOTES_OUTPUT } from '../adapters/gitlab/fixtures.ts'
 import type { WorkspaceFiles } from '../adapters/markdown/files.ts'
@@ -18,6 +28,9 @@ interface HostOptions {
   readonly gh?: () => string
   readonly issues?: () => string
   readonly links?: () => string
+  readonly teaLogins?: () => string
+  readonly teaIssues?: (page: number) => RecordedApiCall
+  readonly teaDependencies?: (index: number) => RecordedApiCall
 }
 
 interface HostRunner {
@@ -40,6 +53,30 @@ function hostRunner(options: HostOptions = {}): HostRunner {
         stdout: (options.gh ?? (() => GH_ISSUES_OUTPUT))(),
         stderr: '',
       })
+    }
+    if (command === 'tea') {
+      if (args[0] === 'logins') {
+        return Promise.resolve({
+          stdout: (options.teaLogins ?? (() => GITEA_LOGINS_OUTPUT))(),
+          stderr: '',
+        })
+      }
+      const teaEndpoint = args[2] ?? ''
+      const dependency = /\/issues\/(\d+)\/dependencies/.exec(teaEndpoint)
+      if (dependency !== null) {
+        const index = Number.parseInt(dependency[1] ?? '', 10)
+        const page = /[?&]page=(\d+)/.exec(teaEndpoint)
+        const recorded =
+          page !== null && Number.parseInt(page[1] ?? '1', 10) > 1
+            ? undefined
+            : (options.teaDependencies ?? ((value) => GITEA_DEPENDENCIES.get(value)))(index)
+        return Promise.resolve({ stdout: recorded?.stdout ?? '[]', stderr: recorded?.stderr ?? '' })
+      }
+      const teaPage = /[?&]page=(\d+)/.exec(teaEndpoint)
+      const recorded = (options.teaIssues ?? (() => GITEA_ISSUES_OUTPUT))(
+        teaPage === null ? 1 : Number.parseInt(teaPage[1] ?? '1', 10),
+      )
+      return Promise.resolve({ stdout: recorded.stdout, stderr: recorded.stderr })
     }
 
     const endpoint = args[1] ?? ''
@@ -81,12 +118,14 @@ function serviceWith(run: CommandRunner, files: WorkspaceFiles = EMPTY_FILES): S
 function ok(result: RpcResult<WorkspaceSnapshot>): {
   readonly backend: string
   readonly repository: string
+  readonly host: string | null
   readonly refs: readonly string[]
 } {
   if (!result.ok) throw new Error(result.error.message)
   return {
     backend: result.result.backend,
     repository: result.result.repository,
+    host: result.result.repositoryHost,
     refs: result.result.tickets.map((ticket) => ticket.ref),
   }
 }
@@ -100,6 +139,7 @@ describe('宿主后端选择', () => {
     expect(ok(result)).toEqual({
       backend: 'github',
       repository: 'cnzgray/dsh-mattpocock-workflow',
+      host: 'github.com',
       refs: ['#15', '#16', '#12', '#9', '#7'],
     })
   })
@@ -112,6 +152,7 @@ describe('宿主后端选择', () => {
     expect(ok(result)).toEqual({
       backend: 'gitlab',
       repository: 'cnzgray/platform/dsh-workflow',
+      host: 'gitlab.com',
       refs: ['#15', '#16', '#9'],
     })
   })
@@ -132,6 +173,7 @@ describe('宿主后端选择', () => {
     expect(ok(result)).toMatchObject({
       backend: 'gitlab',
       repository: 'group/sub/repo',
+      host: 'gitlab.example.com',
     })
   })
 
@@ -143,7 +185,91 @@ describe('宿主后端选择', () => {
 
     const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
 
-    expect(ok(result)).toEqual({ backend: 'markdown', repository: 'repo', refs: [] })
+    expect(ok(result)).toEqual({
+      backend: 'markdown',
+      repository: 'repo',
+      host: null,
+      refs: [],
+    })
+  })
+
+  it('origin 是 tea 已登录的实例时走 Gitea，并带实例主机', async () => {
+    const { run } = hostRunner({ git: () => GITEA_REMOTES_OUTPUT })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(ok(result)).toEqual({
+      backend: 'gitea',
+      repository: 'cnzgray/dsh-workflow',
+      host: 'gitea.example.com',
+      refs: ['#15', '#16', '#9'],
+    })
+  })
+
+  it('同一主机在 glab 与 tea 都登录时以 GitLab 为准', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      auth: () => '  ✓ Logged in to gitea.example.com as someone',
+    })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(ok(result).backend).toBe('gitlab')
+  })
+
+  it('自建主机没在 tea 登录时回退本地 Markdown', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      teaLogins: () => JSON.stringify([{ name: 'other', url: 'https://other.example.com' }]),
+    })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(ok(result)).toEqual({
+      backend: 'markdown',
+      repository: 'repo',
+      host: null,
+      refs: [],
+    })
+  })
+
+  it('本机没有 tea 时回退本地 Markdown', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      auth: () => GITLAB_AUTH,
+      teaLogins: () => {
+        throw new CommandError('not-found', '找不到 tea')
+      },
+    })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(ok(result).backend).toBe('markdown')
+  })
+
+  it('tea 令牌失效时返回 tea-unauthenticated', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      teaIssues: () => failedApiCall(401, 'token is expired'),
+    })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'tea-unauthenticated' } })
+  })
+
+  it('Gitea 快照的工单来自 tea api，分页按总条数拿全', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      teaIssues: (page) =>
+        page === 1
+          ? apiCall(GITEA_ISSUES.slice(0, 2), GITEA_ISSUES.length)
+          : apiCall(GITEA_ISSUES.slice(2), GITEA_ISSUES.length),
+    })
+
+    const result = await serviceWith(run).handle('snapshot.get', { workspaceRoot: '/repo' })
+
+    expect(ok(result).refs).toEqual(['#15', '#16', '#9'])
   })
 
   it('gitlab.com 但本机没有 glab 时返回 glab-missing，不回退', async () => {
@@ -210,6 +336,7 @@ describe('宿主后端选择', () => {
     expect(ok(result)).toEqual({
       backend: 'markdown',
       repository: 'ws',
+      host: null,
       refs: ['.scratch/login/issues/01-token.md'],
     })
   })

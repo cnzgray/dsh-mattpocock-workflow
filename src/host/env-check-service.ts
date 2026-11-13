@@ -238,7 +238,9 @@ async function probeCommands(
 ): Promise<CommandFacts> {
   const none: CommandFacts = { cli: undefined, auth: undefined, repository: undefined }
   const outcome = backend.outcome
-  if (outcome.status !== 'pass' || outcome.choice.kind === 'markdown') return none
+  if (outcome.status !== 'pass') return none
+  // Gitea 与本地 Markdown 没有命令行探测：前者尚未接入，后者本来就不需要。
+  if (outcome.choice.kind === 'markdown' || outcome.choice.kind === 'gitea') return none
 
   const probe = outcome.choice.kind === 'github' ? deps.github : deps.gitlab
   const remote = backend.remote

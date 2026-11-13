@@ -98,6 +98,25 @@ describe('命令执行器', () => {
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/glab', 'auth', 'status'])
   })
 
+  it('PATH 找不到 tea 时回退到 Homebrew 的绝对路径', async () => {
+    const { subprocess, lookups, specs } = fakeSubprocess({
+      resolve: (command) => (command === '/opt/homebrew/bin/tea' ? command : undefined),
+      stdout: '[]',
+    })
+    const { timer } = fakeTimer()
+    const run = createCommandRunner(subprocess, timer)
+
+    await expect(
+      run('tea', ['logins', 'list', '--output', 'json'], { cwd: '/repo' }),
+    ).resolves.toEqual({
+      stdout: '[]',
+      stderr: '',
+      executable: '/opt/homebrew/bin/tea',
+    })
+    expect(lookups).toEqual(['tea', '/opt/homebrew/bin/tea'])
+    expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/tea', 'logins', 'list', '--output', 'json'])
+  })
+
   it('命令非零退出时抛带标准错误的 CommandError', async () => {
     const { subprocess } = fakeSubprocess({
       resolve: () => '/usr/bin/gh',

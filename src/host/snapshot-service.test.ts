@@ -69,8 +69,8 @@ function fakeResolver(
     return Promise.resolve({
       kind,
       tracker,
-      choice: { kind, source: 'remote' },
-      address: undefined,
+      choice: { kind, source: kind === 'markdown' ? 'no-remote' : 'remote' },
+      address: kind === 'markdown' ? undefined : { host: 'github.com', path: 'cnzgray/repo' },
     })
   }
   return { resolve, calls }
@@ -262,6 +262,7 @@ describe('快照服务', () => {
       resolve: () =>
         Promise.resolve({
           kind: 'gitlab',
+          host: 'gitlab.com',
           tracker: {
             fetchSnapshot: () => Promise.reject(new TrackerError('fetch-failed', '超时')),
           },

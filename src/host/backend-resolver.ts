@@ -1,10 +1,11 @@
 /**
- * 宿主内部的后端解析器：读 `git remote -v`，必要时读 `glab auth status`，
- * 调 core 的纯函数选择后端，再按结果构造对应 Tracker。
+ * 宿主内部的后端解析器：读 `git remote -v`，必要时读 `glab auth status`
+ * 与 `tea logins list`，调 core 的纯函数选择后端，再按结果构造对应 Tracker。
  *
- * 解析结果按工作区根目录缓存：刷新不会反复探测 `glab`；解析失败时不缓存，
- * 装好 `glab` 后可以直接重试。日志里只记后端类型，不记命令输出。
+ * 解析结果按工作区根目录缓存：刷新不会反复探测命令行工具；解析失败时不缓存，
+ * 装好工具后可以直接重试。日志里只记后端类型，不记命令输出。
  */
+import { createGiteaTracker } from '../adapters/gitea/tracker.ts'
 import { createGithubTracker } from '../adapters/github/tracker.ts'
 import { createGitlabTracker } from '../adapters/gitlab/tracker.ts'
 import { createNodeWorkspaceFiles, type WorkspaceFiles } from '../adapters/markdown/files.ts'
@@ -14,6 +15,7 @@ import {
   GITHUB_HOST,
   GITLAB_HOST,
   parseLoggedInHosts,
+  parseTeaLoginHosts,
   type BackendChoice,
 } from '../core/backend.ts'
 import { parseRemotes, pickRemoteAddress, type RepositoryAddress } from '../core/remote.ts'
@@ -47,8 +49,8 @@ export interface BackendResolverDeps {
   readonly cache?: boolean
 }
 
-/** `glab auth status` 的探测结果。 */
-interface GlabAuth {
+/** 一套命令行登录状态的探测结果。 */
+interface CliLogins {
   readonly installed: boolean
   readonly hosts: readonly string[]
 }
@@ -86,42 +88,27 @@ async function resolveBackend(
   const address = await readAddress(deps.run, workspaceRoot)
 
   if (address !== undefined) {
-    // GitHub 不需要探测 glab；其余主机先确认 glab 是否安装、登录了哪些实例。
-    const auth =
+    // GitHub 不需要探测登录；其余主机先确认 glab 是否安装、登录了哪些实例。
+    const glab =
       address.host === GITHUB_HOST ? undefined : await readGlabAuth(deps.run, workspaceRoot)
 
     // gitlab.com 上缺 glab 时不回退：明确告诉用户该装什么。
-    if (auth !== undefined && !auth.installed && address.host === GITLAB_HOST) {
+    if (glab !== undefined && !glab.installed && address.host === GITLAB_HOST) {
       throw new TrackerError(
         'glab-missing',
         '未找到 glab 命令，请先安装 GitLab CLI（https://gitlab.com/gitlab-org/cli）。',
       )
     }
 
-    const choice = chooseBackend(address, auth?.hosts ?? [])
-    switch (choice.kind) {
-      case 'github':
-        return {
-          kind: 'github',
-          tracker: createGithubTracker({ run: deps.run, now: deps.now }),
-          choice,
-          address,
-        }
-      case 'gitlab':
-        return {
-          kind: 'gitlab',
-          tracker: createGitlabTracker({ run: deps.run, now: deps.now }),
-          choice,
-          address,
-        }
-      case 'markdown':
-        return {
-          kind: 'markdown',
-          tracker: createMarkdownTracker({ files, now: deps.now }),
-          choice,
-          address,
-        }
-    }
+    const glabHosts = glab?.hosts ?? []
+
+    // 主机名或 glab 登录能直接定案时不必探测 tea。
+    const direct = chooseBackend(address, glabHosts)
+    if (direct.kind !== 'markdown') return resolved(direct)
+
+    // GitLab 判定完之后才探测 tea：只装了一种 CLI 的工作区不会被多叫一次。
+    const tea = await readTeaLogins(deps.run, workspaceRoot)
+    return resolved(chooseBackend(address, glabHosts, tea.hosts))
   }
 
   return {
@@ -129,6 +116,27 @@ async function resolveBackend(
     tracker: createMarkdownTracker({ files, now: deps.now }),
     choice: { kind: 'markdown', source: 'no-remote' },
     address: undefined,
+  }
+
+  function resolved(choice: BackendChoice): ResolvedBackend {
+    return { kind: choice.kind, choice, address, tracker: createTracker(choice.kind, deps, files) }
+  }
+}
+
+function createTracker(
+  kind: BackendKind,
+  deps: BackendResolverDeps,
+  files: WorkspaceFiles,
+): Tracker {
+  switch (kind) {
+    case 'github':
+      return createGithubTracker({ run: deps.run, now: deps.now })
+    case 'gitlab':
+      return createGitlabTracker({ run: deps.run, now: deps.now })
+    case 'gitea':
+      return createGiteaTracker({ run: deps.run, now: deps.now })
+    case 'markdown':
+      return createMarkdownTracker({ files, now: deps.now })
   }
 }
 
@@ -145,7 +153,7 @@ async function readAddress(
   }
 }
 
-async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<GlabAuth> {
+async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<CliLogins> {
   try {
     const output = await run('glab', ['auth', 'status'], { cwd: workspaceRoot })
     // glab 把文本报告写在标准错误上；不同版本也可能写标准输出，两边都认。
@@ -158,6 +166,21 @@ async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<
       if (error.kind === 'not-found') return { installed: false, hosts: [] }
       // 部分主机未登录时 glab 以非零退出；标准错误里仍可能有已登录主机。
       return { installed: true, hosts: parseLoggedInHosts(error.stderr) }
+    }
+    return { installed: true, hosts: [] }
+  }
+}
+
+async function readTeaLogins(run: CommandRunner, workspaceRoot: string): Promise<CliLogins> {
+  try {
+    const output = await run('tea', ['logins', 'list', '--output', 'json'], {
+      cwd: workspaceRoot,
+    })
+    return { installed: true, hosts: parseTeaLoginHosts(output.stdout) }
+  } catch (error) {
+    // 没装 tea 与配置读不出来都当作“没有匹配的登录”，交给本地 Markdown。
+    if (error instanceof CommandError && error.kind === 'not-found') {
+      return { installed: false, hosts: [] }
     }
     return { installed: true, hosts: [] }
   }

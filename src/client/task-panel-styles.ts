@@ -59,11 +59,23 @@ export const REPO_NAME_STYLE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-/** 后端徽标：GitHub / GitLab / 本地。 */
+/** 后端徽标：GitHub / GitLab / Gitea / 本地。 */
 export const BACKEND_LABELS: Record<BackendKind, string> = {
   github: 'GitHub',
   gitlab: 'GitLab',
+  gitea: 'Gitea',
   markdown: '本地',
+}
+
+/** 实例主机：只在 Gitea 后端显示，用来区分多个自建实例。 */
+export const REPO_HOST_STYLE: CSSProperties = {
+  color: COLORS.tertiary,
+  fontSize: 11,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  minWidth: 0,
+  maxWidth: '35%',
 }
 
 export const BACKEND_BADGE_STYLE: CSSProperties = {

@@ -82,6 +82,7 @@ async function fetchAndCache(
     const snapshot: WorkspaceSnapshot = {
       backend: resolved.kind,
       repository: raw.repository,
+      repositoryHost: resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null),
       fetchedAt: raw.fetchedAt,
       loaded: tickets.length,
       total: raw.total,
