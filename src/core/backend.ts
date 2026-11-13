@@ -15,12 +15,7 @@ export const GITHUB_HOST = 'github.com'
 export const GITLAB_HOST = 'gitlab.com'
 
 /** 判定一个工作区用哪个后端时所依据的事实。 */
-export type BackendSource =
-  | 'remote'
-  | 'glab-auth'
-  | 'tea-auth'
-  | 'no-remote'
-  | 'unsupported-remote'
+export type BackendSource = 'remote' | 'glab-auth' | 'tea-auth' | 'no-remote' | 'unsupported-remote'
 
 /** 后端判定结果：选中的后端与依据。 */
 export interface BackendChoice {

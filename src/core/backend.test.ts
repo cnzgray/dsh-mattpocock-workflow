@@ -52,11 +52,7 @@ describe('后端选择', () => {
 
   it('自建主机出现在 tea 已登录列表里时走 Gitea', () => {
     expect(
-      chooseBackend(
-        { host: 'gitea.example.com', path: 'owner/repo' },
-        [],
-        ['gitea.example.com'],
-      ),
+      chooseBackend({ host: 'gitea.example.com', path: 'owner/repo' }, [], ['gitea.example.com']),
     ).toEqual({ kind: 'gitea', source: 'tea-auth' })
   })
 

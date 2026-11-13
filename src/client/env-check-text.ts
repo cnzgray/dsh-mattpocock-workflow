@@ -8,6 +8,7 @@ import type { CapabilityDiagnostic, EnvCheckItem, SuggestionCode } from '../prot
 const CLI_TITLES: Readonly<Record<string, { readonly cli: string; readonly auth: string }>> = {
   github: { cli: 'GitHub CLI (gh) 已安装', auth: 'gh 已登录' },
   gitlab: { cli: 'GitLab CLI (glab) 已安装', auth: 'glab 已登录远端实例' },
+  gitea: { cli: 'Gitea CLI (tea) 已安装', auth: 'tea 已登录远端实例' },
 }
 
 /**
@@ -28,6 +29,7 @@ export function envCheckTitle(item: EnvCheckItem): string {
     case 'repository':
       if (item.subject === 'github') return 'GitHub 仓库可达'
       if (item.subject === 'gitlab') return 'GitLab 仓库可达'
+      if (item.subject === 'gitea') return 'Gitea 仓库可达'
       return '仓库可达'
     case 'workspace':
       return '工作区已初始化'

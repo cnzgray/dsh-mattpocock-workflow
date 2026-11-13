@@ -336,8 +336,8 @@ describe('环境检查服务', () => {
 
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
 
-    expect((github as FakeProbe).calls).toEqual([])
-    expect((gitlab as FakeProbe).calls).toEqual([])
+    expect(github.calls).toEqual([])
+    expect(gitlab.calls).toEqual([])
     for (const id of ['cli', 'auth', 'repository'] as const) {
       expect(item(result.items, id, 'gitea')).toMatchObject({
         status: 'skipped',
