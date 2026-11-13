@@ -1,0 +1,62 @@
+# Product
+
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
+## Users
+
+主要用户是公开插件的外部使用者：任何在 DSH 里运行 mattpocock/skills 工作流的开发者，通过 npm 安装本插件。
+他们在 DSH 右侧栏打开“MattWorkflow”页签，一边和 agent 对话，一边看当前工作区的工单、挑下一张可接工单，
+并把“新建需求”“+ bug”“处理工单”的预设提示词填进会话输入框。设计按陌生用户的标准：第一次安装、
+环境可能还没配好、不一定熟悉 triage 标签与技能。
+
+## Product Purpose
+
+让开发者不离开 DSH 会话就能看清工单全貌并开始下一步工作。成功有两条，同等重要：
+
+- 列表视图里几秒内找到下一张可接工单，并把对应提示词填进输入框；
+- 首次使用或环境出问题时，靠环境检查与降级提示自助配通（CLI 安装、登录、仓库、工作区初始化、技能安装）。
+
+## Positioning
+
+一个面板统一四种工单后端（GitHub / GitLab / Gitea / 本地 Markdown），按 `origin` 远端自动选择，
+共用同一套“可接 / 阻塞 / 已关闭 / 其他开放”判定、统计、过滤排序与提示词注入；判定语义直接对齐
+mattpocock/skills 的 triage 标签与 `Blocked by:` 约定。
+
+## Operating Context
+
+- 运行在 DSH（`>= 0.2.0-rc.2`）右侧栏页签里，和会话并排使用；
+- 两个视图：列表（工单、统计、过滤、排序、提示词按钮）与环境检查（逐项检查、跳过前置失败项、折叠的能力诊断）；
+- 数据来自 `gh` / `glab` / `tea` CLI 或 `.scratch/<feature>/issues/*.md`；GitLab 阻塞信息首屏后补齐；
+- 业务术语以根目录 `GLOSSARY.md` 为准。
+
+## Capabilities and Constraints
+
+- 只读：不修改工单、不安装、不登录、不改文件，提示词只填入不自动发送；
+- 宿主服务缺失时降级：仍能看工单，注入按钮不可用；
+- 客户端是 React，样式为 TS 中的 inline style 常量（如 `src/client/task-panel-styles.ts`）；
+- 界面文案目前是简体中文；是否做 i18n 未决定。
+
+## Brand Commitments
+
+- 融入 DSH 宿主，不自带品牌：颜色全部走 `--dsw-*` 主题变量（缺变量时用中性色兜底），深浅色跟随宿主；
+- 窄侧栏优先：右侧栏宽度是主要使用尺寸。
+
+## Evidence on Hand
+
+- 功能与后端说明：`README.md`；术语：`GLOSSARY.md`；DSH 插件实践调研：`docs/research/`；
+- 没有用户反馈、使用数据或截图基线，后续工作不得虚构。
+
+## Product Principles
+
+1. 下一步要一眼可见：可接工单与开始它的动作是列表的重心。
+2. 出错时给出路：每个失败或降级状态都说明原因和修复动作，指向环境检查。
+3. 只读而诚实：不替用户执行任何改动，状态（数据多久之前拉取、阻塞是否已定稿、当前后端）如实显示。
+4. 像宿主的一部分：遵循 DSH 的主题与交互习惯，不另起一套视觉语言。
+
+## Accessibility & Inclusion
+
+有明确的无障碍要求，具体标准（如 WCAG 2.2 AA、键盘全程可达、读屏标注）尚未写定——待确认。

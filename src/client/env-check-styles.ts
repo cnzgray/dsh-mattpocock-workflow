@@ -21,10 +21,8 @@ export const ENV_SUMMARY_STYLE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-export const ENV_BACKEND_STYLE: CSSProperties = {
-  ...BACKEND_BADGE_STYLE,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-}
+/** 与列表视图头部的后端徽标同一样式。 */
+export const ENV_BACKEND_STYLE: CSSProperties = BACKEND_BADGE_STYLE
 
 export const ENV_BODY_STYLE: CSSProperties = {
   display: 'flex',
@@ -174,10 +172,4 @@ export const CAPABILITY_IMPACT_STYLE: CSSProperties = {
   fontSize: 12,
   overflowWrap: 'anywhere',
   paddingBottom: 2,
-}
-
-export const VIEW_SWITCH_STYLE: CSSProperties = {
-  display: 'flex',
-  gap: 6,
-  padding: '10px 12px 8px',
 }

@@ -205,6 +205,27 @@ describe('工单列表的阻塞补齐', () => {
     expect(screen.getByTestId('stat-ready').textContent).toContain('2')
   })
 
+  it('取消选中的卡片恢复为默认边框色，不残留黑框', async () => {
+    const fake = fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+    // 默认只显示未关闭工单；放开筛选后才能拿到第三张做对照。
+    fireEvent.click(screen.getByTestId('filter-all'))
+    const [first, second, untouched] = await screen.findAllByTestId('ticket-row')
+    if (first === undefined || second === undefined || untouched === undefined) {
+      throw new Error('至少需要三张工单')
+    }
+
+    fireEvent.click(first)
+    fireEvent.click(second)
+
+    expect(first.getAttribute('aria-pressed')).toBe('false')
+    expect(untouched.style.borderColor).not.toBe('')
+    expect(first.style.borderColor).toBe(untouched.style.borderColor)
+  })
+
   it('补齐不重置过滤、排序与选中项', async () => {
     const resolvePending = deferred<RpcResult<WorkspaceSnapshot>>()
     const fake = fakeClient({ ok: true, result: phaseOne() }, () => resolvePending.promise)
@@ -399,5 +420,34 @@ describe('视图偏好', () => {
       if (descriptor === undefined) Reflect.deleteProperty(window, 'localStorage')
       else Object.defineProperty(window, 'localStorage', descriptor)
     }
+  })
+})
+
+describe('空列表的提示', () => {
+  it('仓库本来没有工单时，不说成被筛选条件过滤掉', async () => {
+    const empty = { ...FINAL, tickets: [], loaded: 0, total: 0 }
+    const { client } = fakeClient({ ok: true, result: empty }, () =>
+      Promise.resolve({ ok: true, result: empty }),
+    )
+    renderView(client)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('empty').textContent).toBe('这个仓库还没有工单。')
+    })
+  })
+
+  it('筛选后没有结果时说明是被筛选条件过滤掉', async () => {
+    const onlyOpen = { ...FINAL, tickets: TICKETS.filter((ticket) => ticket.state === 'open') }
+    const { client } = fakeClient({ ok: true, result: onlyOpen }, () =>
+      Promise.resolve({ ok: true, result: onlyOpen }),
+    )
+    renderView(client)
+    await waitFor(() => {
+      expect(screen.getAllByTestId('ticket-row')).toHaveLength(2)
+    })
+
+    fireEvent.click(screen.getByTestId('filter-closed'))
+
+    expect(screen.getByTestId('empty').textContent).toBe('没有符合筛选条件的工单。')
   })
 })

@@ -214,7 +214,7 @@ describe('环境检查视图', () => {
     await screen.findByTestId('env-items')
     expect(fake.calls).toEqual(['/repo'])
     expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 4/7')
-    expect(screen.getByTestId('env-backend').textContent).toBe('github')
+    expect(screen.getByTestId('env-backend').textContent).toBe('GitHub')
   })
 
   it('显示通过、失败与跳过三种状态，跳过项写明挡住它的检查项', async () => {

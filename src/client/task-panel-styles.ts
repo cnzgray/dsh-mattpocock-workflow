@@ -11,11 +11,16 @@ import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 export const COLORS = {
   text: 'var(--dsw-alias-label-primary, #1f2328)',
   secondary: 'var(--dsw-alias-label-secondary, #57606a)',
-  tertiary: 'var(--dsw-alias-label-tertiary, #8c959f)',
+  // 兜底灰在白底上要到 4.5:1，编号和“已加载”这类小字才可读。
+  tertiary: 'var(--dsw-alias-label-tertiary, #6e7781)',
   border: 'var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25))',
   borderStrong: 'var(--dsw-alias-border-l4, rgba(128, 128, 128, 0.4))',
   surface: 'var(--dsw-alias-bg-layer-1, transparent)',
   surfaceActive: 'var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.18))',
+  /** 分段控件里被选中那一段的底色：跟随宿主面板底色，宿主缺变量时用系统 Canvas 色兜底。 */
+  surfaceRaised: 'var(--dsw-alias-bg-layer-1, Canvas)',
+  /** 分段控件的槽底色。 */
+  track: 'rgba(128, 128, 128, 0.12)',
   accent: 'var(--dsw-alias-state-business-primary, #0969da)',
   success: 'var(--dsw-alias-state-success-primary, #1a7f37)',
   warn: 'var(--dsw-alias-state-warn-primary, #9a6700)',
@@ -37,7 +42,7 @@ export const HEADER_STYLE: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 8,
-  padding: '10px 12px 8px',
+  padding: '12px 12px 4px',
 }
 
 export const REPO_CHIP_STYLE: CSSProperties = {
@@ -45,12 +50,9 @@ export const REPO_CHIP_STYLE: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   minWidth: 0,
-  maxWidth: '65%',
-  border: `1px solid ${COLORS.borderStrong}`,
-  borderRadius: 6,
-  padding: '2px 8px',
   color: COLORS.text,
-  fontSize: 12,
+  fontSize: 13,
+  fontWeight: 600,
 }
 
 export const REPO_NAME_STYLE: CSSProperties = {
@@ -95,17 +97,36 @@ export const AGE_STYLE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
+/** 仓库行右侧的刷新：轻量按钮，悬停才出底色。 */
+export const REFRESH_BUTTON_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  border: 'none',
+  borderRadius: 6,
+  padding: '3px 6px',
+  color: COLORS.secondary,
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 12,
+  whiteSpace: 'nowrap',
+}
+
+/** 统计与新建按钮同一行：左边是数字，右边是动作，窄面板时换行。 */
 export const ACTION_BAR_STYLE: CSSProperties = {
   display: 'flex',
+  flexWrap: 'wrap',
   alignItems: 'center',
-  justifyContent: 'flex-end',
-  gap: 8,
-  padding: '0 12px 8px',
+  justifyContent: 'space-between',
+  columnGap: 12,
+  rowGap: 8,
+  padding: '8px 12px 10px',
 }
 
 export const BUTTON_STYLE: CSSProperties = {
-  border: `1px solid ${COLORS.border}`,
-  background: 'transparent',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   color: COLORS.text,
   borderRadius: 6,
   padding: '4px 8px',
@@ -118,45 +139,91 @@ const ACTION_BUTTON_STYLE: CSSProperties = {
   ...BUTTON_STYLE,
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 5,
+  gap: 4,
+  padding: '4px 10px 4px 8px',
   fontSize: 12,
+  fontWeight: 500,
+  lineHeight: '18px',
 }
 
+/** 新建需求是本面板的主操作：实心强调色。 */
 export const FEATURE_ACTION_STYLE: CSSProperties = {
   ...ACTION_BUTTON_STYLE,
   borderColor: COLORS.accent,
-  color: COLORS.accent,
+  background: COLORS.accent,
+  color: '#fff',
 }
 
+/** 报 bug 是次操作：中性描边，只让图标和文字带错误色。 */
 export const BUG_ACTION_STYLE: CSSProperties = {
   ...ACTION_BUTTON_STYLE,
-  borderColor: COLORS.error,
+  borderColor: COLORS.borderStrong,
   color: COLORS.error,
 }
 
+/** 分段控件里的一段；未选中时透明，悬停底色由面板样式表提供。 */
 export const CHIP_STYLE: CSSProperties = {
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 999,
-  background: 'transparent',
+  border: 'none',
+  borderRadius: 6,
   color: COLORS.secondary,
   padding: '2px 10px',
   cursor: 'pointer',
   font: 'inherit',
   fontSize: 12,
+  lineHeight: '20px',
   whiteSpace: 'nowrap',
 }
 
 export const CHIP_ACTIVE_STYLE: CSSProperties = {
-  borderColor: COLORS.accent,
   color: COLORS.text,
-  background: COLORS.surfaceActive,
+  fontWeight: 500,
+  background: COLORS.surfaceRaised,
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.08)',
+}
+
+/** 分段控件的槽。 */
+export const SEGMENTED_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 2,
+  padding: 2,
+  borderRadius: 8,
+  background: COLORS.track,
+}
+
+/** 视图页签：导航层级，用下划线而不是分段控件，和下面的筛选区分开。 */
+export const VIEW_TABS_STYLE: CSSProperties = {
+  display: 'flex',
+  gap: 16,
+  padding: '0 12px',
+  borderBottom: `1px solid ${COLORS.border}`,
+}
+
+export const VIEW_TAB_STYLE: CSSProperties = {
+  position: 'relative',
+  borderWidth: '0 0 2px',
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  marginBottom: -1,
+  padding: '9px 0 7px',
+  color: COLORS.secondary,
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 13,
+  whiteSpace: 'nowrap',
+}
+
+export const VIEW_TAB_ACTIVE_STYLE: CSSProperties = {
+  borderColor: `transparent transparent ${COLORS.accent}`,
+  color: COLORS.text,
+  fontWeight: 600,
 }
 
 export const STATS_STYLE: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 14,
-  padding: '2px 12px 8px',
 }
 
 export const STAT_STYLE: CSSProperties = {
@@ -169,39 +236,29 @@ export const STAT_STYLE: CSSProperties = {
 
 export const STAT_VALUE_STYLE: CSSProperties = {
   color: COLORS.text,
-  fontSize: 13,
+  fontSize: 14,
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
 }
 
 export const TOOLBAR_STYLE: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
-  gap: 6,
-  padding: '0 12px 8px',
-}
-
-export const TOOLBAR_GROUP_STYLE: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 5,
-  alignItems: 'center',
-}
-
-export const DIVIDER_STYLE: CSSProperties = {
-  width: 1,
-  height: 18,
-  background: COLORS.border,
-  margin: '0 4px',
+  gap: 8,
+  padding: '0 12px 6px',
 }
 
 export const LOADED_STYLE: CSSProperties = {
-  padding: '0 12px 8px',
+  padding: '2px 12px 8px',
   color: COLORS.tertiary,
-  fontSize: 12,
+  fontSize: 11,
+  fontVariantNumeric: 'tabular-nums',
 }
 
+/** 加载与空状态的提示：左边与列表、工具栏同在 12px 页边距上。 */
 export const EMPTY_STYLE: CSSProperties = {
-  padding: 16,
+  padding: '16px 12px',
   color: COLORS.secondary,
 }
 
@@ -219,34 +276,38 @@ export const CARD_STYLE: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'auto minmax(0, 1fr) auto',
   gridTemplateRows: 'auto auto',
-  columnGap: 10,
-  rowGap: 6,
+  columnGap: 8,
+  // 行距放在分类徽标上：没有分类的卡片不留空的第二行。
+  rowGap: 0,
   alignItems: 'center',
   width: '100%',
-  padding: '9px 12px',
-  border: `1px solid ${COLORS.border}`,
+  padding: '10px 12px',
+  // 用边框长属性：选中态只改 borderColor，取消选中时 React 会把它恢复成这里的值，
+  // 若写成 border 简写，取消选中会清空颜色、退回 currentColor（黑框）。
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: COLORS.border,
   borderRadius: 10,
-  background: COLORS.surface,
   color: COLORS.text,
   cursor: 'pointer',
   font: 'inherit',
   textAlign: 'left',
-  minHeight: 58,
 }
 
 export const CARD_SELECTED_STYLE: CSSProperties = {
   borderColor: COLORS.accent,
-  boxShadow: `0 0 0 1px ${COLORS.accent}`,
+  background: `color-mix(in srgb, ${COLORS.accent} 7%, transparent)`,
 }
 
 export const NUMBER_BADGE_STYLE: CSSProperties = {
   gridColumn: '1',
   gridRow: '1',
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 6,
-  padding: '0 6px',
-  color: COLORS.secondary,
+  alignSelf: 'start',
+  // 两位数编号刚好放下，标题在常见编号下对齐；更长的编号自然撑开。
+  minWidth: '3ch',
+  color: COLORS.tertiary,
   fontSize: 12,
+  fontVariantNumeric: 'tabular-nums',
   lineHeight: '20px',
   whiteSpace: 'nowrap',
 }
@@ -255,6 +316,8 @@ export const CARD_TITLE_STYLE: CSSProperties = {
   gridColumn: '2',
   gridRow: '1',
   minWidth: 0,
+  fontWeight: 500,
+  lineHeight: '20px',
   overflowWrap: 'anywhere',
 }
 
@@ -262,11 +325,13 @@ export const CARD_CATEGORY_STYLE: CSSProperties = {
   gridColumn: '2',
   gridRow: '2',
   justifySelf: 'start',
+  marginTop: 6,
 }
 
 export const CARD_STATUS_STYLE: CSSProperties = {
   gridColumn: '3',
   gridRow: '1',
+  alignSelf: 'start',
   justifySelf: 'end',
 }
 
@@ -303,10 +368,44 @@ export const STATUS_DOT_STYLE: CSSProperties = {
   background: 'currentColor',
 }
 
-export const CATEGORY_BADGES: Record<'bug' | 'enhancement', CSSProperties> = {
-  bug: { ...BADGE_STYLE, color: COLORS.error },
-  enhancement: { ...BADGE_STYLE, color: COLORS.accent },
+/** 分类是次要信息：浅色底、无描边，和状态徽标区分开。 */
+const CATEGORY_BADGE_STYLE: CSSProperties = {
+  ...BADGE_STYLE,
+  border: 'none',
+  borderRadius: 4,
+  padding: '0 6px',
+  lineHeight: '18px',
 }
+
+export const CATEGORY_BADGES: Record<'bug' | 'enhancement', CSSProperties> = {
+  bug: {
+    ...CATEGORY_BADGE_STYLE,
+    color: COLORS.error,
+    background: `color-mix(in srgb, ${COLORS.error} 10%, transparent)`,
+  },
+  enhancement: {
+    ...CATEGORY_BADGE_STYLE,
+    color: COLORS.accent,
+    background: `color-mix(in srgb, ${COLORS.accent} 10%, transparent)`,
+  },
+}
+
+/**
+ * 内联样式写不了伪类，这里集中放悬停、焦点和过渡。只作用于面板根节点之内；
+ * 按钮的默认底色也放在这里，这样内联的选中态底色能覆盖它，悬停又能覆盖默认值。
+ */
+export const PANEL_SHEET = `
+[data-anvil-panel] button { background: transparent; transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out; }
+[data-anvil-panel] button:disabled { cursor: default; }
+[data-anvil-panel] button:focus { outline: none; }
+[data-anvil-panel] button:focus-visible { outline: 2px solid ${COLORS.accent}; outline-offset: 1px; }
+[data-anvil-panel] [data-hover="soft"]:not(:disabled):not([aria-pressed="true"]):hover { background: ${COLORS.surfaceActive}; color: ${COLORS.text}; }
+[data-anvil-panel] [data-hover="tab"]:not([aria-pressed="true"]):hover { color: ${COLORS.text}; }
+[data-anvil-panel] [data-hover="card"]:not([aria-pressed="true"]):hover { border-color: ${COLORS.borderStrong}; background: rgba(128, 128, 128, 0.06); }
+[data-anvil-panel] [data-hover="primary"]:not(:disabled):hover { filter: brightness(1.08); }
+[data-anvil-panel] [data-hover="secondary"]:not(:disabled):hover { background: color-mix(in srgb, ${COLORS.error} 8%, transparent); }
+@media (prefers-reduced-motion: reduce) { [data-anvil-panel] button { transition: none; } }
+`
 
 export const ERROR_STYLE: CSSProperties = {
   margin: '0 12px 8px',

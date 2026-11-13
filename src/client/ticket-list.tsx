@@ -22,6 +22,8 @@ import {
 /** 工单列表依赖。 */
 export interface TicketListProps {
   readonly tickets: readonly TicketSnapshot[]
+  /** 列表为空时的提示：区分仓库本来没有工单和被筛选条件过滤掉。 */
+  readonly emptyText: string
   /** 当前选中的工单 `ref`。 */
   readonly selected: string | null
   readonly onPick: (ticket: TicketSnapshot) => void
@@ -39,7 +41,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
   if (props.tickets.length === 0) {
     return (
       <div data-testid="empty" style={EMPTY_STYLE}>
-        没有符合筛选条件的工单。
+        {props.emptyText}
       </div>
     )
   }
@@ -73,6 +75,7 @@ function TicketRow(props: {
         data-testid="ticket-row"
         data-ref={ticket.ref}
         aria-pressed={props.selected}
+        data-hover="card"
         onClick={() => {
           props.onPick(ticket)
         }}

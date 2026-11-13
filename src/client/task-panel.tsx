@@ -6,9 +6,14 @@ import * as React from 'react'
 
 import type { CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { EnvCheckView } from './env-check-view.tsx'
-import { VIEW_SWITCH_STYLE } from './env-check-styles.ts'
 import type { PanelClient } from './rpc.ts'
-import { CHIP_ACTIVE_STYLE, CHIP_STYLE, PANEL_STYLE } from './task-panel-styles.ts'
+import {
+  PANEL_SHEET,
+  PANEL_STYLE,
+  VIEW_TAB_ACTIVE_STYLE,
+  VIEW_TAB_STYLE,
+  VIEW_TABS_STYLE,
+} from './task-panel-styles.ts'
 import { TicketsView } from './tickets-view.tsx'
 
 /** 面板依赖。 */
@@ -36,8 +41,9 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   const clientCapabilities = props.clientCapabilities ?? NO_CAPABILITIES
 
   return (
-    <div data-testid="task-panel" style={PANEL_STYLE}>
-      <div role="group" aria-label="视图" style={VIEW_SWITCH_STYLE}>
+    <div data-testid="task-panel" data-anvil-panel="" style={PANEL_STYLE}>
+      <style>{PANEL_SHEET}</style>
+      <div role="group" aria-label="视图" style={VIEW_TABS_STYLE}>
         <ViewChip
           testId="view-tickets"
           label="列表"
@@ -91,7 +97,8 @@ function ViewChip(props: {
       data-testid={props.testId}
       aria-pressed={props.active}
       onClick={props.onClick}
-      style={{ ...CHIP_STYLE, ...(props.active ? CHIP_ACTIVE_STYLE : undefined) }}
+      data-hover="tab"
+      style={{ ...VIEW_TAB_STYLE, ...(props.active ? VIEW_TAB_ACTIVE_STYLE : undefined) }}
     >
       {props.label}
     </button>

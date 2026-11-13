@@ -11,6 +11,7 @@ import {
   type TicketSnapshot,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketList } from './ticket-list.tsx'
@@ -24,13 +25,13 @@ import {
   CHIP_ACTIVE_STYLE,
   CHIP_STYLE,
   COLORS,
-  DIVIDER_STYLE,
   EMPTY_STYLE,
   ERROR_STYLE,
   FEATURE_ACTION_STYLE,
   FILTERS,
   HEADER_STYLE,
   LOADED_STYLE,
+  REFRESH_BUTTON_STYLE,
   REPO_CHIP_STYLE,
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
@@ -38,7 +39,7 @@ import {
   STATS_STYLE,
   STAT_STYLE,
   STAT_VALUE_STYLE,
-  TOOLBAR_GROUP_STYLE,
+  SEGMENTED_STYLE,
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
 import {
@@ -124,6 +125,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         onRefresh={refresh}
       />
       <ActionBar
+        counts={snapshot === null ? null : counts}
         canInject={props.canInject}
         onNewFeature={() => {
           inject(NEW_FEATURE_PROMPT)
@@ -135,7 +137,6 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
       {snapshot !== null ? (
         <>
-          <StatsRow counts={counts} />
           <Toolbar
             filter={preference.filter}
             sortKey={preference.sortKey}
@@ -146,7 +147,12 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
           <div data-testid="loaded-total" style={LOADED_STYLE}>
             已加载 {snapshot.loaded} / 共 {snapshot.total}
           </div>
-          <TicketList tickets={visible} selected={selected} onPick={onPick} />
+          <TicketList
+            tickets={visible}
+            emptyText={tickets.length === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
+            selected={selected}
+            onPick={onPick}
+          />
         </>
       ) : phase === 'loading' ? (
         <div data-testid="loading" style={EMPTY_STYLE}>
@@ -261,10 +267,14 @@ function Header(props: {
 }): React.ReactElement {
   return (
     <header style={HEADER_STYLE}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <div style={REPO_CHIP_STYLE}>
           <FolderIcon />
-          <span data-testid="repo-name" style={REPO_NAME_STYLE}>
+          <span
+            data-testid="repo-name"
+            style={REPO_NAME_STYLE}
+            {...(props.snapshot === null ? {} : { title: props.snapshot.repository })}
+          >
             {props.snapshot?.repository ?? (props.loading ? '正在识别仓库…' : '未识别到仓库')}
           </span>
         </div>
@@ -284,51 +294,59 @@ function Header(props: {
           </span>
         ) : null}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          type="button"
-          data-testid="refresh"
-          disabled={props.busy}
-          onClick={props.onRefresh}
-          style={BUTTON_STYLE}
-        >
-          {props.busy ? '刷新中…' : '刷新'}
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none' }}>
         <span data-testid="snapshot-age" style={AGE_STYLE}>
           {props.snapshot === null ? '尚无快照' : formatAge(props.snapshot.fetchedAt, props.now)}
         </span>
+        <button
+          type="button"
+          data-testid="refresh"
+          data-hover="soft"
+          disabled={props.busy}
+          onClick={props.onRefresh}
+          style={{ ...REFRESH_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
+        >
+          <RefreshIcon />
+          {props.busy ? '刷新中…' : '刷新'}
+        </button>
       </div>
     </header>
   )
 }
 
 function ActionBar(props: {
+  readonly counts: TicketCounts | null
   readonly canInject: boolean
   readonly onNewFeature: () => void
   readonly onNewBug: () => void
 }): React.ReactElement {
-  const disabledStyle = { ...FEATURE_ACTION_STYLE, opacity: props.canInject ? 1 : 0.45 }
+  const opacity = props.canInject ? 1 : 0.45
 
   return (
     <div style={ACTION_BAR_STYLE}>
-      <div style={{ display: 'flex', gap: 6 }}>
+      {props.counts === null ? <span /> : <StatsRow counts={props.counts} />}
+      <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
         <button
           type="button"
           data-testid="new-feature"
+          data-hover="primary"
           disabled={!props.canInject}
           onClick={props.onNewFeature}
-          style={disabledStyle}
+          style={{ ...FEATURE_ACTION_STYLE, opacity }}
         >
-          + 新建需求
+          <PlusIcon />
+          新建需求
         </button>
         <button
           type="button"
           data-testid="new-bug"
+          data-hover="secondary"
           disabled={!props.canInject}
           onClick={props.onNewBug}
-          style={{ ...BUG_ACTION_STYLE, opacity: props.canInject ? 1 : 0.45 }}
+          style={{ ...BUG_ACTION_STYLE, opacity }}
         >
-          + bug
+          <PlusIcon />
+          bug
         </button>
       </div>
     </div>
@@ -359,12 +377,8 @@ function Stat(props: {
   return (
     <div data-testid={props.testId} style={STAT_STYLE}>
       <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          border: `1.5px solid ${props.color}`,
-        }}
+        aria-hidden="true"
+        style={{ width: 7, height: 7, borderRadius: '50%', background: props.color, flex: 'none' }}
       />
       <strong style={STAT_VALUE_STYLE}>{props.value}</strong>
       <span>{props.label}</span>
@@ -381,7 +395,7 @@ function Toolbar(props: {
 }): React.ReactElement {
   return (
     <div style={TOOLBAR_STYLE}>
-      <div role="group" aria-label="状态过滤" style={TOOLBAR_GROUP_STYLE}>
+      <div role="group" aria-label="状态过滤" style={SEGMENTED_STYLE}>
         {FILTERS.map((item) => (
           <Chip
             key={item.value}
@@ -394,8 +408,7 @@ function Toolbar(props: {
           />
         ))}
       </div>
-      <span style={DIVIDER_STYLE} />
-      <div role="group" aria-label="排序" style={TOOLBAR_GROUP_STYLE}>
+      <div role="group" aria-label="排序" style={SEGMENTED_STYLE}>
         {SORT_OPTIONS.map((item) => (
           <Chip
             key={item.value}
@@ -425,6 +438,7 @@ function Chip(props: {
       type="button"
       data-testid={props.testId}
       aria-pressed={props.active}
+      data-hover="soft"
       onClick={props.onClick}
       style={{ ...CHIP_STYLE, ...(props.active ? CHIP_ACTIVE_STYLE : undefined) }}
     >
@@ -475,6 +489,7 @@ function ErrorBanner(props: {
         <button
           type="button"
           data-testid="open-env-check"
+          data-hover="soft"
           onClick={props.onOpenEnvCheck}
           style={{ ...BUTTON_STYLE, marginTop: 6 }}
         >
@@ -482,26 +497,6 @@ function ErrorBanner(props: {
         </button>
       ) : null}
     </div>
-  )
-}
-
-function FolderIcon(): React.ReactElement {
-  return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-      style={{ flex: 'none' }}
-    >
-      <path
-        d="M1.8 4.2A1.2 1.2 0 0 1 3 3h3.1l1.4 1.5H13a1.2 1.2 0 0 1 1.2 1.2v6.1A1.2 1.2 0 0 1 13 13H3a1.2 1.2 0 0 1-1.2-1.2V4.2Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }
 

@@ -30,7 +30,7 @@ import {
 import { envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
 import type { PanelClient } from './rpc.ts'
-import { BUTTON_STYLE, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
+import { BACKEND_LABELS, BUTTON_STYLE, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
 
 /** 环境检查视图依赖。 */
 export interface EnvCheckViewProps {
@@ -81,13 +81,14 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
           {report?.items.length ?? 0}
         </span>
         <span data-testid="env-backend" style={ENV_BACKEND_STYLE}>
-          {report?.backend ?? '未判定'}
+          {report?.backend == null ? '未判定' : BACKEND_LABELS[report.backend]}
         </span>
         <button
           type="button"
           data-testid="env-recheck"
           disabled={busy}
           onClick={recheck}
+          data-hover="soft"
           style={BUTTON_STYLE}
         >
           {busy ? '检查中…' : '重新检查'}
