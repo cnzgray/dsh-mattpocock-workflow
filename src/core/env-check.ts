@@ -30,6 +30,9 @@ export type ProbeFailureReason =
   | 'workspace-uninitialized'
   | 'skill-missing'
   | 'backend-unavailable'
+  | 'local-issues-missing'
+  | 'local-issues-empty'
+  | 'local-issues-invalid'
 
 /** 一次探测的结果。依据文本只写结论，不回显命令原始输出。 */
 export type ProbeOutcome =
@@ -52,9 +55,20 @@ export type BackendProbeOutcome =
       readonly status: 'fail'
       readonly detail: string
       readonly reason: ProbeFailureReason
-      /** 判定阶段就缺少该后端的 CLI；解决据此点名后端。 */
+      /** 判定阶段就卡在这个后端上；解决据此点名后端。 */
       readonly backend?: EnvCliBackend
     }
+
+/**
+ * 本地工单目录的探测事实：适配器只报告看到了什么，依据文本由判定层生成。
+ * `found` 与 `unparsable` 携带相对工作区的路径。
+ */
+export type LocalIssuesFact =
+  | { readonly status: 'found'; readonly files: readonly string[] }
+  | { readonly status: 'no-scratch' }
+  | { readonly status: 'no-files' }
+  | { readonly status: 'unparsable'; readonly files: readonly string[] }
+  | { readonly status: 'probe-failed' }
 
 /** 一项技能的探测事实；主目录不可解析时 outcome 缺省。 */
 export interface SkillProbeFact {
@@ -67,6 +81,8 @@ export interface EnvCheckFacts {
   readonly home: ProbeOutcome
   readonly backend: BackendProbeOutcome
   readonly workspace: ProbeOutcome
+  /** 本地工单目录的探测事实；与后端判定无关，任何后端都会检查。 */
+  readonly localIssues: LocalIssuesFact
   /** 以下三项在前置项未通过时不会探测，为 undefined。 */
   readonly cli: ProbeOutcome | undefined
   readonly auth: ProbeOutcome | undefined
@@ -80,11 +96,11 @@ export interface EnvCheckFacts {
 }
 
 /**
- * 后端命令行探测能力。GitHub 和 GitLab 各实现一份，互不依赖。
+ * 后端命令行探测能力。GitHub、GitLab 与 Gitea 各实现一份，互不依赖。
  * 所有方法都不抛错：命令失败被翻译成 {@link ProbeOutcome}。
  */
 export interface EnvCommandProbe {
-  readonly kind: 'github' | 'gitlab'
+  readonly kind: EnvCliBackend
   /** 可执行文件是否可用；依据写找到的路径。 */
   cli(workspaceRoot: string): Promise<ProbeOutcome>
   /** 是否已登录当前远端对应的实例。 */
@@ -109,7 +125,7 @@ interface RemedyFacts {
 /**
  * 产出固定顺序的检查项。
  * @param facts - 各项探测结果。
- * @returns 顺序为：主目录、后端、命令行、登录、仓库可达、工作区、技能。
+ * @returns 顺序为：主目录、后端、命令行、登录、仓库可达、工作区、本地工单目录、技能。
  */
 export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[] {
   const items: EnvCheckItem[] = []
@@ -131,37 +147,66 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
   }
 
   const home = place('home', null, facts.home, null)
-  const backend = place('backend', null, toProbeOutcome(facts.backend), null)
+  // 判定失败但已锁定后端时，subject 让标题和后继跳过项都点名那个后端。
+  const candidate = facts.backend.status === 'fail' ? (facts.backend.backend ?? null) : null
+  const backend = place('backend', candidate, toProbeOutcome(facts.backend), null)
 
-  if (facts.backend.status === 'pass' && facts.backend.choice.kind === 'gitea') {
-    // Gitea 的 CLI 检查还没接入：如实标成跳过，不冒用 gh / glab 的结论。
-    for (const id of ['cli', 'auth', 'repository'] as const) {
-      items.push({
-        id,
-        subject: 'gitea',
-        status: 'skipped',
-        detail: '暂不支持 Gitea 后端的环境检查',
-        remedy: null,
-        blockedBy: null,
-      })
-    }
-  } else if (facts.backend.status === 'pass' && facts.backend.choice.kind !== 'markdown') {
+  if (facts.backend.status === 'pass' && facts.backend.choice.kind !== 'markdown') {
     const backendKind = facts.backend.choice.kind
     const cli = place('cli', backendKind, facts.cli, backend)
     const auth = place('auth', backendKind, facts.auth, cli)
     place('repository', backendKind, facts.repository, auth)
-  } else if (backend.item.status !== 'pass') {
-    const cli = place('cli', null, undefined, backend)
-    const auth = place('auth', null, undefined, cli)
-    place('repository', null, undefined, auth)
+  } else if (facts.backend.status !== 'pass') {
+    const cli = place('cli', candidate, undefined, backend)
+    const auth = place('auth', candidate, undefined, cli)
+    place('repository', candidate, undefined, auth)
   }
 
   place('workspace', null, facts.workspace, null)
+  place('local-issues', null, localIssuesOutcome(facts.localIssues), null)
   for (const skill of facts.skills) {
     place('skill', skill.name, skill.outcome, home)
   }
 
   return items
+}
+
+const LISTED_PATHS = 5
+
+function localIssuesOutcome(fact: LocalIssuesFact): ProbeOutcome {
+  switch (fact.status) {
+    case 'found':
+      return {
+        status: 'pass',
+        detail: `找到 ${String(fact.files.length)} 张本地工单：${pathList(fact.files)}`,
+      }
+    case 'no-scratch':
+      return {
+        status: 'fail',
+        detail: '工作区里没有 .scratch 目录',
+        reason: 'local-issues-missing',
+      }
+    case 'no-files':
+      return {
+        status: 'fail',
+        detail: '.scratch 下没有工单文件，工单应放在 .scratch/<feature>/issues/ 下',
+        reason: 'local-issues-empty',
+      }
+    case 'unparsable':
+      return {
+        status: 'fail',
+        detail: `工单文件缺少可解析的 Status: 行：${pathList(fact.files)}`,
+        reason: 'local-issues-invalid',
+      }
+    case 'probe-failed':
+      return { status: 'fail', detail: '本地工单目录探测失败', reason: 'probe-failed' }
+  }
+}
+
+/** 最多列出几个路径；其余用数量收口，避免一条依据撑满面板。 */
+function pathList(files: readonly string[]): string {
+  const shown = files.slice(0, LISTED_PATHS).join('、')
+  return files.length > LISTED_PATHS ? `${shown} 等 ${String(files.length)} 个` : shown
 }
 
 function placeItem(
@@ -231,7 +276,7 @@ function placeItem(
  * 按失败原因与已知上下文选一条解决。
  * @param item - 失败项自身，给出默认可用的 subject。
  * @param outcome - 失败的探测结果。
- * @param context - 初始化技能的状态。
+ * @param remedyFacts - 初始化技能的状态。
  * @returns 解决码与对象；不含文案。
  */
 function remedyFor(
@@ -260,6 +305,10 @@ function remedyFor(
       return { code: 'check-remote-address', subject: null }
     case 'repository-network':
       return { code: 'check-network', subject: null }
+    case 'local-issues-missing':
+    case 'local-issues-empty':
+    case 'local-issues-invalid':
+      return { code: 'place-local-issues', subject: null }
     case 'timeout':
     case 'probe-failed':
       return { code: 'retry', subject: null }

@@ -12,16 +12,20 @@
 import { join } from 'node:path'
 
 import type { EnvFiles } from '../adapters/fs/env-files.ts'
+import type { LocalIssuesProbe } from '../adapters/markdown/env.ts'
 import type {
   BackendProbeOutcome,
   EnvCheckFacts,
   EnvCommandProbe,
+  LocalIssuesFact,
   ProbeOutcome,
   SkillProbeFact,
 } from '../core/env-check.ts'
 import { buildEnvCheckItems } from '../core/env-check.ts'
+import type { BackendChoice } from '../core/backend.ts'
 import type { RepositoryAddress } from '../core/remote.ts'
 import { TrackerError } from '../core/tracker-error.ts'
+import type { BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
 import {
   PANEL_SKILLS,
@@ -29,7 +33,13 @@ import {
   type CapabilityDiagnostic,
   type EnvCheckReport,
 } from '../protocol/env-check.ts'
-import { ERROR_CODES, RPC_METHODS, type ErrorCode, type RpcResult } from '../protocol/tracker.ts'
+import {
+  ERROR_BACKENDS,
+  ERROR_CODES,
+  RPC_METHODS,
+  type ErrorCode,
+  type RpcResult,
+} from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
 import type { LogSink } from './log.ts'
 import type { ProbeDeadline } from './probe-deadline.ts'
@@ -52,7 +62,10 @@ export interface EnvCheckServiceDeps {
   readonly resolve: BackendResolver
   readonly github: EnvCommandProbe
   readonly gitlab: EnvCommandProbe
+  readonly gitea: EnvCommandProbe
   readonly files: EnvFiles
+  /** 本地工单目录探测；与后端无关。 */
+  readonly localIssues: LocalIssuesProbe
   /** DSH 技能清单；服务不可用时为 undefined，降级为只查磁盘。 */
   readonly skills: SkillCatalog | undefined
   /** 宿主服务是否可用，每次检查时读取。 */
@@ -157,10 +170,11 @@ async function collectFacts(
       ? { status: 'fail', detail: '无法解析用户主目录', reason: 'home-unresolved' }
       : { status: 'pass', detail: home }
 
-  // 主目录、后端、工作区与技能四项互不依赖，并发探测；命令行链等后端结果。
-  const [backend, workspace, skills] = await Promise.all([
+  // 主目录、后端、工作区、本地工单目录与技能互不依赖，并发探测；命令行链等后端结果。
+  const [backend, workspace, localIssues, skills] = await Promise.all([
     probeBackend(deps, workspaceRoot),
     probeWorkspace(deps.files, workspaceRoot),
+    probeLocalIssues(deps, workspaceRoot),
     home === undefined ? Promise.resolve(unprobedSkills()) : probeSkills(deps, workspaceRoot, home),
   ])
   const commands = await probeCommands(deps, workspaceRoot, backend)
@@ -171,6 +185,7 @@ async function collectFacts(
       home: homeOutcome,
       backend: backend.outcome,
       workspace,
+      localIssues,
       cli: commands.cli,
       auth: commands.auth,
       repository: commands.repository,
@@ -178,6 +193,18 @@ async function collectFacts(
       setupSkill: PANEL_SKILLS.setup,
     },
     repository: decided === null || decided === 'markdown' ? null : (backend.remote?.path ?? null),
+  }
+}
+
+async function probeLocalIssues(
+  deps: EnvCheckServiceDeps,
+  workspaceRoot: string,
+): Promise<LocalIssuesFact> {
+  try {
+    const result = await deps.deadline(deps.localIssues(workspaceRoot))
+    return result.ok ? result.value : { status: 'probe-failed' }
+  } catch {
+    return { status: 'probe-failed' }
   }
 }
 
@@ -200,38 +227,55 @@ async function probeBackend(
     }
 
     const resolved = result.value
+    // 只能回退本地、但差一步就能用上托管后端：判定项点名候选后端与原因。
+    if (resolved.choice.kind === 'markdown' && resolved.candidate !== undefined) {
+      return {
+        outcome: {
+          status: 'fail',
+          detail: resolved.candidate.detail,
+          reason: resolved.candidate.reason,
+          backend: resolved.candidate.kind,
+        },
+        remote: resolved.address,
+      }
+    }
+
     return {
       outcome: {
         status: 'pass',
         choice: resolved.choice,
-        detail: `${resolved.choice.source}:${resolved.choice.kind}`,
+        detail: backendDetail(resolved.choice, resolved.address),
       },
       remote: resolved.address,
     }
   } catch (error) {
     if (error instanceof TrackerError) {
-      if (error.code === 'glab-missing') {
+      const backend = ERROR_BACKENDS[error.code]
+      if (backend !== undefined) {
+        // 环境类错误码的 message 是写好的说明，可以直接进报告；码尾区分缺工具与未登录。
         return {
           outcome: {
             status: 'fail',
-            detail: '未找到 glab，GitLab 后端不可用',
-            reason: 'cli-missing',
-            backend: 'gitlab',
+            detail: error.message,
+            reason: error.code.endsWith('-unauthenticated') ? 'cli-unauthenticated' : 'cli-missing',
+            backend,
           },
           remote: undefined,
         }
       }
-      // 原始错误信息可能带命令输出，不进入报告；解决由 core 按原因选择。
-      return {
-        outcome: { status: 'fail', detail: '无法判定工单后端', reason: 'backend-unavailable' },
-        remote: undefined,
-      }
     }
+    // 其余错误可能带命令输出，不进入报告；解决由 core 按原因选择。
     return {
       outcome: { status: 'fail', detail: '无法判定工单后端', reason: 'backend-unavailable' },
       remote: undefined,
     }
   }
+}
+
+function backendDetail(choice: BackendChoice, address: RepositoryAddress | undefined): string {
+  const basis = `${choice.source}:${choice.kind}`
+  // 判定来源之后补上远端主机：自建实例同名仓库很多，用户要能核对认的是哪一台。
+  return address === undefined ? basis : `${basis}（${address.host}）`
 }
 
 async function probeWorkspace(files: EnvFiles, workspaceRoot: string): Promise<ProbeOutcome> {
@@ -255,10 +299,10 @@ async function probeCommands(
   const none: CommandFacts = { cli: undefined, auth: undefined, repository: undefined }
   const outcome = backend.outcome
   if (outcome.status !== 'pass') return none
-  // Gitea 与本地 Markdown 没有命令行探测：前者尚未接入，后者本来就不需要。
-  if (outcome.choice.kind === 'markdown' || outcome.choice.kind === 'gitea') return none
+  // 本地 Markdown 没有命令行探测；其余后端各用自己注入的探测。
+  if (outcome.choice.kind === 'markdown') return none
 
-  const probe = outcome.choice.kind === 'github' ? deps.github : deps.gitlab
+  const probe = probeFor(deps, outcome.choice.kind)
   const remote = backend.remote
 
   const cli = await guarded(deps, probe.cli(workspaceRoot), '命令行检查失败')
@@ -269,6 +313,20 @@ async function probeCommands(
 
   const repository = await guarded(deps, probe.repository(workspaceRoot, remote), '仓库检查失败')
   return { cli, auth, repository }
+}
+
+function probeFor(
+  deps: EnvCheckServiceDeps,
+  kind: Exclude<BackendKind, 'markdown'>,
+): EnvCommandProbe {
+  switch (kind) {
+    case 'github':
+      return deps.github
+    case 'gitlab':
+      return deps.gitlab
+    case 'gitea':
+      return deps.gitea
+  }
 }
 
 async function guarded(

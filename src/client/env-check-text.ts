@@ -2,12 +2,20 @@
  * 环境检查的中文文案。宿主只送 id、后端、subject 和解决码，标题、能力说明
  * 都在这里拼，文案只维护一处。主题相关的样式不在这里。
  */
+import type { BackendKind } from '../protocol/backend.ts'
 import type {
   CapabilityDiagnostic,
   EnvCheckItem,
   HostCapabilityId,
   UiCapabilityId,
 } from '../protocol/env-check.ts'
+import { BACKEND_LABELS } from './backend-label.ts'
+
+/** 环境检查顶部的后端标记；本地后端写全名，避免与“没有后端”混淆。 */
+export function envBackendLabel(backend: BackendKind | null): string {
+  if (backend === null) return '未判定'
+  return backend === 'markdown' ? '本地 Markdown' : (BACKEND_LABELS[backend] ?? backend)
+}
 
 /** 后端名到标题前缀的映射。 */
 const CLI_TITLES: Readonly<Record<string, { readonly cli: string; readonly auth: string }>> = {
@@ -26,7 +34,10 @@ export function envCheckTitle(item: EnvCheckItem): string {
     case 'home':
       return '用户主目录可解析'
     case 'backend':
-      return '已选择工单后端'
+      // 带候选后端时点名它：用户一眼看出插件认的是哪个后端、缺的是哪一步。
+      return item.subject === null
+        ? '已选择工单后端'
+        : `已选择工单后端（${BACKEND_LABELS[item.subject] ?? item.subject}）`
     case 'cli':
       return CLI_TITLES[item.subject ?? '']?.cli ?? '命令行工具已安装'
     case 'auth':
@@ -38,6 +49,8 @@ export function envCheckTitle(item: EnvCheckItem): string {
       return '仓库可达'
     case 'workspace':
       return '工作区已初始化'
+    case 'local-issues':
+      return '本地工单目录可用'
     case 'skill':
       return `技能 ${item.subject ?? ''} 已安装`
   }

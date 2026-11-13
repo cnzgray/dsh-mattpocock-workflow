@@ -4,6 +4,7 @@
  */
 import * as React from 'react'
 
+import type { BackendKind } from '../protocol/backend.ts'
 import type {
   CapabilityDiagnostic,
   EnvCheckItem,
@@ -27,10 +28,10 @@ import {
   ENV_SUMMARY_STYLE,
   ENV_TITLE_STYLE,
 } from './env-check-styles.ts'
-import { envCheckTitle } from './env-check-text.ts'
+import { envBackendLabel, envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
 import type { PanelClient } from './rpc.ts'
-import { BACKEND_LABELS, BUTTON_STYLE, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
+import { BUTTON_STYLE, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
 
 /** 环境检查视图依赖。 */
 export interface EnvCheckViewProps {
@@ -42,6 +43,8 @@ export interface EnvCheckViewProps {
   readonly injectDraft: (text: string) => boolean
   /** 界面扩展点探测结果；由插件入口在服务就绪后更新。 */
   readonly clientCapabilities: () => readonly CapabilityDiagnostic[]
+  /** 从工单列表跳转过来时，要定位到哪个后端的失败项。 */
+  readonly focusBackend?: Exclude<BackendKind, 'markdown'> | null
 }
 
 type Phase = 'loading' | 'ready' | 'refreshing' | 'error'
@@ -63,6 +66,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
   const busy = phase === 'loading' || phase === 'refreshing'
   const capabilities = [...(report?.capabilities ?? []), ...props.clientCapabilities()]
   const { highlighted, registerCard, jumpTo } = useRootCauseJump()
+  useFocusBackend(report, props.focusBackend ?? null, jumpTo)
   const handlers: RemedyHandlers = {
     canInject: props.canInject,
     injectDraft: props.injectDraft,
@@ -81,7 +85,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
           {report?.items.length ?? 0}
         </span>
         <span data-testid="env-backend" style={ENV_BACKEND_STYLE}>
-          {report?.backend == null ? '未判定' : BACKEND_LABELS[report.backend]}
+          {envBackendLabel(report?.backend ?? null)}
         </span>
         <button
           type="button"
@@ -176,13 +180,29 @@ function useEnvCheckRequest(client: PanelClient, workspaceRoot: string | undefin
   return { report, error, phase, recheck }
 }
 
+/**
+ * 从工单列表跳过来时，定位到该后端第一个失败项：滚动、聚焦并高亮，
+ * 与跳过项跳根因共用同一套动作。
+ */
+function useFocusBackend(
+  report: EnvCheckReport | null,
+  backend: Exclude<BackendKind, 'markdown'> | null,
+  jumpTo: (target: EnvCheckRef) => void,
+): void {
+  React.useEffect(() => {
+    if (report === null || backend === null) return
+    const target = report.items.find((item) => item.status === 'fail' && item.subject === backend)
+    if (target !== undefined) jumpTo(target)
+  }, [report, backend, jumpTo])
+}
+
 interface RootCauseJump {
   readonly highlighted: string | null
   readonly registerCard: (key: string, node: HTMLDivElement | null) => void
   readonly jumpTo: (target: EnvCheckRef) => void
 }
 
-/** 跳过项跳到根因：滚动到卡片、聚焦并短暂高亮。 */
+/** 跳到目标项：滚动到卡片、聚焦并短暂高亮。 */
 function useRootCauseJump(): RootCauseJump {
   const cards = React.useRef(new Map<string, HTMLDivElement>())
   const [highlighted, setHighlighted] = React.useState<string | null>(null)

@@ -423,6 +423,50 @@ describe('宿主后端选择', () => {
     remote = ''
     await expect(fresh('/repo')).resolves.toMatchObject({ kind: 'markdown' })
   })
+
+  it('自建主机没装 tea 时回退本地，但带出 Gitea 候选与工具缺失原因', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      teaLogins: () => {
+        throw new CommandError('not-found', '找不到 tea')
+      },
+    })
+    const resolve = createBackendResolver({ run, now: () => NOW, cache: false })
+
+    const resolved = await resolve('/repo')
+
+    expect(resolved.choice).toEqual({ kind: 'markdown', source: 'unsupported-remote' })
+    expect(resolved.candidate).toMatchObject({
+      kind: 'gitea',
+      reason: 'cli-missing',
+    })
+    expect(resolved.candidate?.detail).toContain('gitea.example.com')
+  })
+
+  it('自建主机装了 tea 但没登录该实例时带出未登录原因', async () => {
+    const { run } = hostRunner({
+      git: () => GITEA_REMOTES_OUTPUT,
+      teaLogins: () => JSON.stringify([{ name: 'other', url: 'https://other.example.com' }]),
+    })
+    const resolve = createBackendResolver({ run, now: () => NOW, cache: false })
+
+    const resolved = await resolve('/repo')
+
+    expect(resolved.choice).toEqual({ kind: 'markdown', source: 'unsupported-remote' })
+    expect(resolved.candidate).toMatchObject({
+      kind: 'gitea',
+      reason: 'cli-unauthenticated',
+    })
+    expect(resolved.candidate?.detail).toContain('gitea.example.com')
+  })
+
+  it('能判定出托管后端时不带候选诊断', async () => {
+    const { run } = hostRunner()
+
+    await expect(
+      createBackendResolver({ run, now: () => NOW, cache: false })('/repo'),
+    ).resolves.not.toHaveProperty('candidate')
+  })
 })
 
 function markdownFiles(): WorkspaceFiles {

@@ -11,6 +11,7 @@ import {
   type TicketSnapshot,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { BACKEND_LABELS } from './backend-label.ts'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
@@ -19,7 +20,6 @@ import {
   ACTION_BAR_STYLE,
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
-  BACKEND_LABELS,
   BUG_ACTION_STYLE,
   BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
@@ -60,8 +60,8 @@ export interface TicketsViewProps {
   readonly canInject: boolean
   readonly injectDraft: (text: string) => boolean
   readonly now?: (() => number) | undefined
-  /** 环境问题导致列表失败时，跳到环境检查视图。 */
-  readonly onOpenEnvCheck: () => void
+  /** 环境问题导致列表失败时，跳到环境检查视图并带上错误码定位后端。 */
+  readonly onOpenEnvCheck: (code: ErrorCode) => void
 }
 
 type Phase = 'loading' | 'ready' | 'refreshing' | 'error'
@@ -480,7 +480,7 @@ function Footer(props: {
 
 function ErrorBanner(props: {
   readonly error: RpcErrorBody
-  readonly onOpenEnvCheck: () => void
+  readonly onOpenEnvCheck: (code: ErrorCode) => void
 }): React.ReactElement {
   return (
     <div role="alert" data-testid="error" style={ERROR_STYLE}>
@@ -490,7 +490,9 @@ function ErrorBanner(props: {
           type="button"
           data-testid="open-env-check"
           data-hover="soft"
-          onClick={props.onOpenEnvCheck}
+          onClick={() => {
+            props.onOpenEnvCheck(props.error.code)
+          }}
           style={{ ...BUTTON_STYLE, marginTop: 6 }}
         >
           查看环境检查

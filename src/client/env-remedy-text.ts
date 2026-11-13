@@ -149,6 +149,14 @@ const REMEDIES: Readonly<Record<EnvRemedyCode, (context: RemedyContext) => Remed
       prompt: `使用 ${PANEL_SKILLS.setup} 技能初始化当前工作区。环境检查项「${context.title}」未通过：${context.detail}。按技能完成初始化后告诉我，我再重新检查。`,
     },
   }),
+  'place-local-issues': (context) => ({
+    summary:
+      '把工单放进工作区的 .scratch/<feature>/issues/，每个文件开头写 Status: 行；约定见 docs/local-issues.md。',
+    action: {
+      kind: 'session',
+      prompt: `环境检查项「${context.title}」未通过：${context.detail}。按 docs/local-issues.md 的约定，在当前工作区的 .scratch/<feature>/issues/ 下补上本地工单文件（文件名以编号开头，开头写 # 标题 与 Status: 行）。放好后告诉我，我再重新检查。`,
+    },
+  }),
   'check-repository-access': (context) => ({
     summary: `核对当前账号对 ${context.repository ?? '远端仓库'} 的访问权限；命令只读，不会改动仓库。`,
     action: { kind: 'command', command: repositoryCommand(context) },

@@ -44,7 +44,7 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
   }
 
   return files.map((file) => {
-    const status = statusOf(file.content)
+    const status = parseTicketStatus(file.content)
     return {
       ref: file.path,
       number: null,
@@ -88,7 +88,13 @@ function firstHeading(content: string): string | undefined {
   return undefined
 }
 
-function statusOf(content: string): string | undefined {
+/**
+ * 从工单文件里解析 `Status:` 行的值。
+ * 环境检查用它判断一个本地工单文件是否可解析，与工单列表共用同一份规则。
+ * @param content - 文件内容。
+ * @returns 小写的状态值；没有可解析的状态行时为 undefined。
+ */
+export function parseTicketStatus(content: string): string | undefined {
   for (const line of preambleOf(content).split('\n')) {
     const match = STATUS.exec(line)
     if (match === null) continue
@@ -110,7 +116,7 @@ function countOpenBlockers(
   let count = 0
   for (const reference of referencedNumbers(line)) {
     const blocker = siblings.get(reference)
-    if (blocker === undefined || statusOf(blocker.content) !== 'resolved') count += 1
+    if (blocker === undefined || parseTicketStatus(blocker.content) !== 'resolved') count += 1
   }
   return count
 }

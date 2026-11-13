@@ -20,6 +20,7 @@ const REMOTE_LINE = /^(\S+)\s+(\S+)\s+\((?:fetch|push)\)$/
 const SCP_LIKE = /^[^@\s/]+@([^:/\s]+):(.+)$/
 const SCHEME = /^(?:ssh|git|https?):\/\/(?:[^@/\s]+@)?([^:/\s]+)(?::\d+)?\/(.+)$/
 const HOST = /^[A-Za-z0-9.-]+$/
+const REPOSITORY_SEGMENT = /^[A-Za-z0-9_.-]+$/
 
 /**
  * 解析 `git remote -v` 的输出，按出现顺序去重（fetch 与 push 是同一远端）。
@@ -92,6 +93,22 @@ export function pickRemoteAddress(remotes: readonly RemoteEntry[]): RepositoryAd
  */
 export function normalizeHost(host: string): string {
   return host.trim().toLowerCase().replace(/:\d+$/, '')
+}
+
+/**
+ * 把远端路径收窄成 `owner/name`。GitHub 与 Gitea 的仓库地址都恰好两段；
+ * 嵌套 group 属于 GitLab，不能用它拼接口路径。
+ * @param remote - 远端地址。
+ * @returns `owner/name`，或不是合法两段路径时的 undefined。
+ */
+export function repositorySlug(remote: RepositoryAddress | undefined): string | undefined {
+  if (remote === undefined) return undefined
+  const segments = remote.path.split('/')
+  if (segments.length !== 2) return undefined
+  const [owner, name] = segments
+  if (owner === undefined || name === undefined) return undefined
+  if (!REPOSITORY_SEGMENT.test(owner) || !REPOSITORY_SEGMENT.test(name)) return undefined
+  return `${owner}/${name}`
 }
 
 function buildAddress(

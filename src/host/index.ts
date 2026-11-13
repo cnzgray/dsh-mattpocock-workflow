@@ -6,8 +6,11 @@
  * 插件降级并记日志，而不是抛错让整个客户端加载失败。
  */
 import { createNodeEnvFiles } from '../adapters/fs/env-files.ts'
+import { createGiteaEnvProbe } from '../adapters/gitea/env.ts'
 import { createGithubEnvProbe } from '../adapters/github/env.ts'
 import { createGitlabEnvProbe } from '../adapters/gitlab/env.ts'
+import { createLocalIssuesProbe } from '../adapters/markdown/env.ts'
+import { createNodeWorkspaceFiles } from '../adapters/markdown/files.ts'
 import type { CommandRunner } from '../core/ticket.ts'
 import { HOST_CAPABILITY_IDS, type CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
@@ -98,16 +101,19 @@ function createRpcHandler(
   log: LogSink,
 ): RpcHandler {
   const now = (): number => Date.now()
-  const resolve = createBackendResolver({ run, now })
-  // 环境检查每次都重新探测后端：刚装好 glab 或刚加上远端时要能马上看到变化。
-  const resolveFresh = createBackendResolver({ run, now, cache: false })
+  const workspaceFiles = createNodeWorkspaceFiles()
+  const resolve = createBackendResolver({ run, now, files: workspaceFiles })
+  // 环境检查每次都重新探测后端：刚装好 glab / tea 或刚加上远端时要能马上看到变化。
+  const resolveFresh = createBackendResolver({ run, now, files: workspaceFiles, cache: false })
 
   const snapshot = createSnapshotService({ resolve, now, labels: TRACKER_LABELS, log })
   const envCheck = createEnvCheckService({
     resolve: resolveFresh,
     github: createGithubEnvProbe({ run }),
     gitlab: createGitlabEnvProbe({ run }),
+    gitea: createGiteaEnvProbe({ run }),
     files: createNodeEnvFiles(),
+    localIssues: createLocalIssuesProbe({ files: workspaceFiles }),
     skills: createSkillCatalog(scope),
     capabilities: () => readHostCapabilities(scope),
     now,

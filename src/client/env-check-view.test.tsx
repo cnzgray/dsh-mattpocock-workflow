@@ -2,129 +2,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 
-import type { CapabilityDiagnostic, EnvCheckReport } from '../protocol/env-check.ts'
+import type { BackendKind } from '../protocol/backend.ts'
+import type { EnvCheckReport } from '../protocol/env-check.ts'
 import type { RpcResult } from '../protocol/tracker.ts'
 import { EnvCheckView } from './env-check-view.tsx'
+import {
+  CANDIDATE_REPORT,
+  CLIENT_CAPABILITIES,
+  FIXED_REPORT,
+  GITEA_REPORT,
+  REPORT,
+  RETRY_REPORT,
+  WORKSPACE_FAIL,
+} from './env-check-view-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 
 afterEach(() => {
   cleanup()
   Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
 })
-
-const CLIENT_CAPABILITIES: readonly CapabilityDiagnostic[] = [
-  { id: 'slots', category: 'ui-extension', status: 'present' },
-  { id: 'sessions', category: 'ui-extension', status: 'missing' },
-]
-
-const REPORT: EnvCheckReport = {
-  checkedAt: 1,
-  backend: 'github',
-  repository: 'owner/repo',
-  items: [
-    {
-      id: 'home',
-      subject: null,
-      status: 'pass',
-      detail: '/home/dev',
-      remedy: null,
-      blockedBy: null,
-    },
-    {
-      id: 'backend',
-      subject: null,
-      status: 'pass',
-      detail: 'remote:github',
-      remedy: null,
-      blockedBy: null,
-    },
-    {
-      id: 'cli',
-      subject: 'github',
-      status: 'fail',
-      detail: '未找到 gh 可执行文件',
-      remedy: { code: 'install-cli', subject: 'github' },
-      blockedBy: null,
-    },
-    {
-      id: 'auth',
-      subject: 'github',
-      status: 'skipped',
-      detail: '未执行检查',
-      remedy: null,
-      blockedBy: { id: 'cli', subject: 'github' },
-    },
-    {
-      id: 'repository',
-      subject: 'github',
-      status: 'skipped',
-      detail: '未执行检查',
-      remedy: null,
-      blockedBy: { id: 'cli', subject: 'github' },
-    },
-    {
-      id: 'workspace',
-      subject: null,
-      status: 'pass',
-      detail: 'docs/agents/issue-tracker.md 存在',
-      remedy: null,
-      blockedBy: null,
-    },
-    {
-      id: 'skill',
-      subject: 'to-spec',
-      status: 'pass',
-      detail: 'DSH 技能清单已收录',
-      remedy: null,
-      blockedBy: null,
-    },
-  ],
-  capabilities: [
-    { id: 'subprocess', category: 'host-service', status: 'present' },
-    { id: 'timer', category: 'host-service', status: 'missing' },
-  ],
-}
-
-const WORKSPACE_FAIL: EnvCheckReport = {
-  ...REPORT,
-  items: REPORT.items.map((item) =>
-    item.id === 'workspace'
-      ? {
-          ...item,
-          status: 'fail',
-          detail: '未找到 docs/agents/issue-tracker.md',
-          remedy: { code: 'init-workspace', subject: null },
-        }
-      : item,
-  ),
-}
-
-const FIXED_REPORT: EnvCheckReport = {
-  ...REPORT,
-  items: REPORT.items.map((item) => ({
-    ...item,
-    status: 'pass',
-    remedy: null,
-    blockedBy: null,
-  })),
-}
-
-const RETRY_REPORT: EnvCheckReport = {
-  ...REPORT,
-  items: REPORT.items.map((item) =>
-    item.id === 'repository'
-      ? {
-          ...item,
-          status: 'fail',
-          detail: '网络不可达或请求超时',
-          remedy: { code: 'check-network', subject: null },
-          blockedBy: null,
-        }
-      : item.id === 'auth'
-        ? { ...item, status: 'pass', detail: '已登录', blockedBy: null }
-        : item,
-  ),
-}
 
 interface FakeClient {
   readonly client: PanelClient
@@ -151,6 +47,7 @@ function renderView(
     readonly workspaceRoot?: string | undefined
     readonly canInject?: boolean | undefined
     readonly injectDraft?: ((text: string) => boolean) | undefined
+    readonly focusBackend?: Exclude<BackendKind, 'markdown'> | null
   } = {},
 ): FakeClient {
   const fake = fakeClient(envCheck)
@@ -161,6 +58,7 @@ function renderView(
       canInject={options.canInject ?? true}
       injectDraft={options.injectDraft ?? (() => true)}
       clientCapabilities={() => CLIENT_CAPABILITIES}
+      focusBackend={options.focusBackend ?? null}
     />,
   )
   return fake
@@ -225,6 +123,43 @@ describe('环境检查视图', () => {
     expect(itemCard('cli', 'github').dataset.status).toBe('fail')
     expect(itemCard('auth', 'github').dataset.status).toBe('skipped')
     expect(itemCard('auth', 'github').textContent).toContain('因为「GitHub CLI (gh) 已安装」未通过')
+  })
+
+  it('Gitea 后端显示 tea 口径的三项与安装命令，本地工单目录独立失败', async () => {
+    renderView(() => okResponse(GITEA_REPORT))
+    await screen.findByTestId('env-items')
+
+    expect(screen.getByTestId('env-backend').textContent).toBe('Gitea')
+    expect(itemCard('cli', 'gitea').textContent).toContain('Gitea CLI (tea) 已安装')
+    expect(remedyCard('cli', 'gitea').textContent).toContain('brew install tea')
+    expect(itemCard('auth', 'gitea').textContent).toContain('tea 已登录远端实例')
+    expect(itemCard('repository', 'gitea').textContent).toContain('Gitea 仓库可达')
+    expect(itemCard('auth', 'gitea').textContent).toContain('因为「Gitea CLI (tea) 已安装」未通过')
+    expect(itemCard('local-issues', '').textContent).toContain('本地工单目录可用')
+    expect(remedyCard('local-issues', '').textContent).toContain('.scratch/<feature>/issues/')
+  })
+
+  it('判定项带候选 Gitea 时标题点名后端，解决给 tea 的登录命令', async () => {
+    renderView(() => okResponse(CANDIDATE_REPORT))
+    await screen.findByTestId('env-items')
+
+    expect(screen.getByTestId('env-backend').textContent).toBe('未判定')
+    expect(itemCard('backend', 'gitea').textContent).toContain('已选择工单后端（Gitea）')
+    expect(remedyCard('backend', 'gitea').textContent).toContain('tea login add')
+    expect(itemCard('cli', 'gitea').textContent).toContain('因为「已选择工单后端（Gitea）」未通过')
+  })
+
+  it('从工单列表跳转时定位到该后端第一个失败项', async () => {
+    renderView(() => okResponse(GITEA_REPORT), { focusBackend: 'gitea' })
+    await screen.findByTestId('env-items')
+
+    const cli = itemCard('cli', 'gitea')
+    await waitFor(() => {
+      expect(cli.dataset.highlighted).toBe('true')
+    })
+    expect(document.activeElement).toBe(cli)
+    expect(itemCard('repository', 'gitea').dataset.highlighted).toBeUndefined()
+    expect(itemCard('local-issues', '').dataset.highlighted).toBeUndefined()
   })
 
   it('失败卡片在依据下面显示解决区，通过项与跳过项没有', async () => {

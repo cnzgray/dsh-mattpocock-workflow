@@ -19,6 +19,8 @@ export const ENV_CHECK_IDS = {
   repository: 'repository',
   /** 工作区已用 `setup-matt-pocock-skills` 初始化。 */
   workspace: 'workspace',
+  /** 工作区里的本地工单目录可读；与后端无关。 */
+  localIssues: 'local-issues',
   /** 一项必需技能已安装；subject 是技能名。 */
   skill: 'skill',
 } as const
@@ -41,6 +43,8 @@ export const ENV_REMEDY_CODES = {
   installCli: 'install-cli',
   /** 登录后端对应的命令行工具。 */
   loginCli: 'login-cli',
+  /** 本地工单目录缺失或不可读；按 `docs/local-issues.md` 放好工单文件。 */
+  placeLocalIssues: 'place-local-issues',
   /** 安装一项必需技能；subject 是技能名。 */
   installSkill: 'install-skill',
   /** 用初始化技能初始化当前工作区。 */

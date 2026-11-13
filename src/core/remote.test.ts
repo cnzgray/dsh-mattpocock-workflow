@@ -5,6 +5,7 @@ import {
   parseRemoteUrl,
   pickRemote,
   pickRemoteAddress,
+  repositorySlug,
   type RemoteEntry,
 } from './remote.ts'
 
@@ -87,5 +88,21 @@ describe('远端选择', () => {
         { name: 'upstream', url: 'git@github.com:someone/other.git' },
       ]),
     ).toBeUndefined()
+  })
+})
+
+describe('仓库路径收窄', () => {
+  it('两段路径拼成 owner/name', () => {
+    expect(repositorySlug({ host: 'github.com', path: 'owner/repo' })).toBe('owner/repo')
+    expect(repositorySlug({ host: 'gitea.example.com', path: 'cnzgray/dsh-workflow' })).toBe(
+      'cnzgray/dsh-workflow',
+    )
+  })
+
+  it('嵌套路径与非法片段返回 undefined', () => {
+    expect(repositorySlug({ host: 'gitea.example.com', path: 'group/sub/repo' })).toBeUndefined()
+    expect(repositorySlug({ host: 'gitea.example.com', path: 'owner' })).toBeUndefined()
+    expect(repositorySlug({ host: 'gitea.example.com', path: 'owner/re po' })).toBeUndefined()
+    expect(repositorySlug(undefined)).toBeUndefined()
   })
 })

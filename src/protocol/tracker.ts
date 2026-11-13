@@ -132,15 +132,27 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
 
 /**
+ * 环境问题错误码对应的后端。列表据此显示入口，环境检查据此定位失败项；
+ * 新增后端只在这一张表里登记错误码到后端的对应关系。
+ */
+export const ERROR_BACKENDS: Readonly<
+  Partial<Record<ErrorCode, Exclude<BackendKind, 'markdown'>>>
+> = {
+  [ERROR_CODES.ghMissing]: 'github',
+  [ERROR_CODES.ghUnauthenticated]: 'github',
+  [ERROR_CODES.glabMissing]: 'gitlab',
+  [ERROR_CODES.glabUnauthenticated]: 'gitlab',
+  [ERROR_CODES.teaMissing]: 'gitea',
+  [ERROR_CODES.teaUnauthenticated]: 'gitea',
+}
+
+/**
  * 属于环境问题的快照错误码。列表视图据此在错误提示里给出「查看环境检查」入口：
  * 这几类失败都能在环境检查里定位到具体检查项。
  */
-export const ENV_ISSUE_ERROR_CODES: readonly ErrorCode[] = [
-  ERROR_CODES.ghMissing,
-  ERROR_CODES.ghUnauthenticated,
-  ERROR_CODES.glabMissing,
-  ERROR_CODES.glabUnauthenticated,
-]
+export const ENV_ISSUE_ERROR_CODES: readonly ErrorCode[] = Object.keys(
+  ERROR_BACKENDS,
+) as readonly ErrorCode[]
 
 /** 失败的响应体。 */
 export interface RpcErrorBody {

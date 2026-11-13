@@ -17,6 +17,7 @@ const KINDS: Readonly<Record<EnvRemedyCode, RemedyAction['kind']>> = {
   'login-cli': 'command',
   'install-skill': 'session',
   'init-workspace': 'session',
+  'place-local-issues': 'session',
   'check-repository-access': 'command',
   'check-remote-address': 'command',
   'check-network': 'retry',
@@ -83,6 +84,22 @@ describe('解决文案表', () => {
     expect(content.action.prompt).toContain('setup-matt-pocock-skills')
     expect(content.action.prompt).toContain('docs/agents/issue-tracker.md')
     expect(content.action.prompt).toContain('工作区已初始化')
+  })
+
+  it('本地工单目录的会话提示词写明位置、状态行与约定文档', () => {
+    const content = remedyContent('place-local-issues', {
+      ...CONTEXT,
+      subject: null,
+      title: '本地工单目录可用',
+      detail: '工作区里没有 .scratch 目录',
+    })
+
+    expect(content.summary).toContain('.scratch/<feature>/issues/')
+    expect(content.summary).toContain('docs/local-issues.md')
+    if (content.action.kind !== 'session') throw new Error('动作类型不符')
+    expect(content.action.prompt).toContain('.scratch/<feature>/issues/')
+    expect(content.action.prompt).toContain('Status:')
+    expect(content.action.prompt).toContain('docs/local-issues.md')
   })
 
   it('仓库权限命令点名具体仓库，远端核对命令直接可复制', () => {

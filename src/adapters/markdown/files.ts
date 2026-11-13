@@ -4,6 +4,8 @@
  */
 import { readFile, readdir, stat } from 'node:fs/promises'
 
+import type { MarkdownTicketFile } from '../../core/markdown.ts'
+
 /** 目录项类型。 */
 export type DirectoryEntryKind = 'file' | 'directory'
 
@@ -60,6 +62,62 @@ export function createNodeWorkspaceFiles(): WorkspaceFiles {
       }
     },
   }
+}
+
+/**
+ * 扫描 `<workspaceRoot>/.scratch/<feature>/issues/*.md`。工单列表与环境检查共用，
+ * 两边对“哪里有工单文件”的认定不会分叉。
+ * @param files - 文件读取能力。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 按 feature 与文件名排序的工单文件；`.scratch` 不存在时为 undefined。
+ */
+export async function readLocalTicketFiles(
+  files: WorkspaceFiles,
+  workspaceRoot: string,
+): Promise<readonly MarkdownTicketFile[] | undefined> {
+  const scratch = joinPath(workspaceRoot, '.scratch')
+  const features = await files.listDirectory(scratch)
+  if (features === undefined) return undefined
+
+  const tickets: MarkdownTicketFile[] = []
+  for (const feature of sortEntries(features)) {
+    if (feature.kind !== 'directory') continue
+
+    const issuesDirectory = joinPath(scratch, feature.name, 'issues')
+    const entries = await files.listDirectory(issuesDirectory)
+    if (entries === undefined) continue
+
+    for (const entry of sortEntries(entries)) {
+      if (entry.kind !== 'file' || !entry.name.endsWith('.md')) continue
+
+      const path = joinPath(issuesDirectory, entry.name)
+      const [content, timestamps] = await Promise.all([
+        files.readTextFile(path),
+        files.statFile(path),
+      ])
+      tickets.push({
+        path: `.scratch/${feature.name}/issues/${entry.name}`,
+        feature: feature.name,
+        name: entry.name,
+        content,
+        createdAt: new Date(timestamps.createdAt).toISOString(),
+        updatedAt: new Date(timestamps.updatedAt).toISOString(),
+      })
+    }
+  }
+
+  return tickets
+}
+
+function sortEntries(entries: readonly DirectoryEntry[]): DirectoryEntry[] {
+  return [...entries].sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  )
+}
+
+function joinPath(base: string, ...segments: readonly string[]): string {
+  const root = base.replace(/[\\/]+$/, '')
+  return [root, ...segments].join('/')
 }
 
 function isMissing(error: unknown): boolean {

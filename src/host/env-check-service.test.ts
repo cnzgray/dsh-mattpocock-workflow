@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createGithubEnvProbe } from '../adapters/github/env.ts'
 import type { CommandRunner } from '../core/ticket.ts'
-import { CommandError } from '../core/tracker-error.ts'
+import { CommandError, TrackerError } from '../core/tracker-error.ts'
 import { REQUIRED_SKILLS, type CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
 import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
@@ -10,6 +10,7 @@ import { createEnvCheckService } from './env-check-service.ts'
 import {
   CATALOG,
   DISK_FILES,
+  FOUND_LOCAL_ISSUES,
   HOME,
   NO_DEADLINE,
   ROOT,
@@ -35,9 +36,81 @@ describe('环境检查服务', () => {
     )
 
     expect(result.backend).toBe('github')
+    expect(result.repository).toBe('owner/repo')
     expect(result.items.every((entry) => entry.status === 'pass')).toBe(true)
-    expect(item(result.items, 'backend', null).detail).toBe('remote:github')
+    expect(item(result.items, 'backend', null).detail).toBe('remote:github（github.com）')
     expect(result.capabilities).toEqual(capabilities)
+  })
+
+  it('CLI 未安装时不再探测登录与仓库，并标为跳过', async () => {
+    const github = fakeProbe('github', {
+      cli: { status: 'fail', detail: '未找到 gh', reason: 'cli-missing' },
+    })
+    const { service } = harness({ github, skills: CATALOG })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'cli', 'github').remedy).toEqual({
+      code: 'install-cli',
+      subject: 'github',
+    })
+    expect(item(result.items, 'auth', 'github')).toMatchObject({
+      status: 'skipped',
+      blockedBy: { id: 'cli', subject: 'github' },
+    })
+    expect(github.calls).not.toContain('auth')
+    expect(github.calls).not.toContain('repository')
+  })
+
+  it('未登录时不再探测仓库可达，解决回到登录命令', async () => {
+    const github = fakeProbe('github', {
+      auth: { status: 'fail', detail: '未登录', reason: 'cli-unauthenticated' },
+    })
+    const { service } = harness({ github, skills: CATALOG })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'auth', 'github').remedy).toEqual({
+      code: 'login-cli',
+      subject: 'github',
+    })
+    expect(item(result.items, 'repository', 'github')).toMatchObject({
+      status: 'skipped',
+      blockedBy: { id: 'auth', subject: 'github' },
+    })
+    expect(github.calls).not.toContain('repository')
+  })
+
+  it('仓库不存在、无权限与网络失败给出三种不同的解决', async () => {
+    const cases = [
+      ['repository-not-found', 'check-remote-address'],
+      ['repository-forbidden', 'check-repository-access'],
+      ['repository-network', 'check-network'],
+    ] as const
+
+    for (const [reason, code] of cases) {
+      const github = fakeProbe('github', {
+        repository: { status: 'fail', detail: '读取仓库失败', reason },
+      })
+      const { service } = harness({ github, skills: CATALOG })
+
+      const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+      expect(item(result.items, 'repository', 'github').remedy).toEqual({ code, subject: null })
+    }
+  })
+
+  it('探测自身抛错时给出重试，而不是指向网络', async () => {
+    const broken = fakeProbe('github', {})
+    const throwing = {
+      ...broken,
+      cli: () => Promise.reject(new Error('探测实现坏了')),
+    }
+    const { service } = harness({ github: throwing, skills: CATALOG })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'cli', 'github')).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'cli', 'github').remedy).toEqual({ code: 'retry', subject: null })
   })
 
   it('技能探测与后端探测并发开始，不必等命令行链结束', async () => {
@@ -47,7 +120,9 @@ describe('环境检查服务', () => {
       resolve: () => pending.promise,
       github: fakeProbe('github', {}),
       gitlab: fakeProbe('gitlab', {}),
+      gitea: fakeProbe('gitea', {}),
       files: fakeFiles({ home: HOME, files: ['/workspace/docs/agents/issue-tracker.md'] }),
+      localIssues: () => Promise.resolve(FOUND_LOCAL_ISSUES),
       skills: {
         names: () => {
           catalogCalled = true
@@ -67,24 +142,44 @@ describe('环境检查服务', () => {
     await running
   })
 
-  it('Gitea 后端不调用 gh / glab 探测，CLI 三项标为跳过', async () => {
-    const github = fakeProbe('github', {})
-    const gitlab = fakeProbe('gitlab', {})
-    const { service } = harness({ kind: 'gitea', source: 'tea-auth', github, gitlab })
+  it('后端判定失败但错误码不在环境类范围时不带出原始命令输出', async () => {
+    const { service } = harness({
+      resolveError: new TrackerError('fetch-failed', '读取 git 远端失败：dial tcp 10.0.0.1'),
+      skills: CATALOG,
+    })
 
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
 
-    expect(github.calls).toEqual([])
-    expect(gitlab.calls).toEqual([])
-    for (const id of ['cli', 'auth', 'repository'] as const) {
-      expect(item(result.items, id, 'gitea')).toMatchObject({
-        status: 'skipped',
-        detail: '暂不支持 Gitea 后端的环境检查',
-      })
-    }
+    expect(item(result.items, 'backend', null)).toMatchObject({
+      status: 'fail',
+      detail: '无法判定工单后端',
+    })
+    expect(item(result.items, 'backend', null).remedy).toEqual({
+      code: 'fix-backend',
+      subject: null,
+    })
   })
 
-  it('GitLab 后端换成 glab 探测，依据写判定来源', async () => {
+  it('本地 Markdown 后端不产生命令行相关检查', async () => {
+    const { service } = harness({ kind: 'markdown', source: 'no-remote', skills: CATALOG })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(result.repository).toBeNull()
+    expect(result.items.map((entry) => entry.id)).toEqual([
+      'home',
+      'backend',
+      'workspace',
+      'local-issues',
+      'skill',
+      'skill',
+      'skill',
+      'skill',
+      'skill',
+    ])
+  })
+
+  it('GitLab 后端换成 glab 探测，依据写判定来源与实例主机', async () => {
     const gitlab = fakeProbe('gitlab', {})
     const github = fakeProbe('github', {})
     const { service } = harness({
@@ -98,26 +193,26 @@ describe('环境检查服务', () => {
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
 
     expect(result.backend).toBe('gitlab')
-    expect(item(result.items, 'backend', null).detail).toBe('glab-auth:gitlab')
+    expect(item(result.items, 'backend', null).detail).toBe(
+      'glab-auth:gitlab（gitlab.example.com）',
+    )
     expect(gitlab.calls).toEqual(['cli', 'auth', 'repository'])
     expect(github.calls).toEqual([])
   })
 
-  it('本地 Markdown 后端不产生命令行相关检查', async () => {
-    const { service } = harness({ kind: 'markdown', source: 'no-remote', skills: CATALOG })
+  it('工作区未初始化时给出初始化工作区的解决', async () => {
+    const { service } = harness({
+      skills: CATALOG,
+      files: fakeFiles({ home: HOME, files: [] }),
+    })
 
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
 
-    expect(result.items.map((entry) => entry.id)).toEqual([
-      'home',
-      'backend',
-      'workspace',
-      'skill',
-      'skill',
-      'skill',
-      'skill',
-      'skill',
-    ])
+    expect(item(result.items, 'workspace', null)).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'workspace', null).remedy).toEqual({
+      code: 'init-workspace',
+      subject: null,
+    })
   })
 
   it('技能优先按 DSH 技能清单判定', async () => {
@@ -158,6 +253,55 @@ describe('环境检查服务', () => {
     }
   })
 
+  it('两处都没有的技能失败并点名要装的技能', async () => {
+    const { service } = harness({
+      skills: { names: () => Promise.resolve([]) },
+      files: fakeFiles({ home: HOME, files: ['/workspace/docs/agents/issue-tracker.md'] }),
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'skill', 'to-spec')).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'skill', 'to-spec').remedy).toEqual({
+      code: 'install-skill',
+      subject: 'to-spec',
+    })
+  })
+
+  it('主目录不可解析时技能检查跳过', async () => {
+    const { service } = harness({
+      skills: CATALOG,
+      files: fakeFiles({ home: undefined, files: ['/workspace/docs/agents/issue-tracker.md'] }),
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'home', null)).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'home', null).remedy).toEqual({ code: 'check-home', subject: null })
+    expect(item(result.items, 'skill', 'to-spec')).toMatchObject({
+      status: 'skipped',
+      blockedBy: { id: 'home', subject: null },
+    })
+  })
+
+  it('探测超时按失败处理，解决是重新检查', async () => {
+    const { service } = harness({
+      skills: CATALOG,
+      deadline: () => Promise.resolve({ ok: false }),
+    })
+
+    const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
+
+    expect(item(result.items, 'backend', null)).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'backend', null).remedy).toEqual({ code: 'retry', subject: null })
+    expect(item(result.items, 'cli', null)).toMatchObject({ status: 'skipped' })
+    expect(item(result.items, 'local-issues', null)).toMatchObject({ status: 'fail' })
+    expect(item(result.items, 'local-issues', null).remedy).toEqual({
+      code: 'retry',
+      subject: null,
+    })
+  })
+
   it('同一工作区的并发请求复用同一次检查', async () => {
     const pending = Promise.withResolvers<ResolvedBackend>()
     const calls: string[] = []
@@ -169,7 +313,9 @@ describe('环境检查服务', () => {
       resolve,
       github: fakeProbe('github', {}),
       gitlab: fakeProbe('gitlab', {}),
+      gitea: fakeProbe('gitea', {}),
       files: fakeFiles({ home: HOME, files: ['/workspace/docs/agents/issue-tracker.md'] }),
+      localIssues: () => Promise.resolve(FOUND_LOCAL_ISSUES),
       skills: CATALOG,
       capabilities: () => [],
       now: () => 1,
@@ -207,7 +353,7 @@ describe('环境检查服务', () => {
     expect(logs[0]?.event).toBe(LOG_EVENTS.envCheck)
     expect(logs[0]?.fields).toMatchObject({
       backend: 'github',
-      passed: 8,
+      passed: 9,
       failed: 1,
       skipped: 2,
       level: 'info',

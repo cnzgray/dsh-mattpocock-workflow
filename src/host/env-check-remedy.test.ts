@@ -113,7 +113,7 @@ describe('环境检查的解决', () => {
     })
   })
 
-  it('后端判定失败时三项后端相关检查全部跳过', async () => {
+  it('后端判定失败时三项后端相关检查全部跳过，并点名缺工具的后端', async () => {
     const github = fakeProbe('github', {})
     const gitlab = fakeProbe('gitlab', {})
     const { service, logs } = harness({
@@ -126,14 +126,14 @@ describe('环境检查的解决', () => {
     const result = report(await service.handle('env.check', { workspaceRoot: ROOT }))
 
     expect(result.backend).toBeNull()
-    expect(item(result.items, 'backend', null)).toMatchObject({
+    expect(item(result.items, 'backend', 'gitlab')).toMatchObject({
       status: 'fail',
       remedy: { code: 'install-cli', subject: 'gitlab' },
     })
     for (const id of ['cli', 'auth', 'repository']) {
-      expect(item(result.items, id, null)).toMatchObject({
+      expect(item(result.items, id, 'gitlab')).toMatchObject({
         status: 'skipped',
-        blockedBy: { id: 'backend', subject: null },
+        blockedBy: { id: 'backend', subject: 'gitlab' },
       })
     }
     expect(github.calls).toEqual([])

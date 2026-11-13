@@ -34,6 +34,7 @@ function facts(overrides: Partial<EnvCheckFacts> = {}): EnvCheckFacts {
       detail: 'remote:github',
     },
     workspace: pass('docs/agents/issue-tracker.md 存在'),
+    localIssues: { status: 'found', files: ['.scratch/login/issues/01-token.md'] },
     cli: pass('/opt/homebrew/bin/gh'),
     auth: pass('已登录'),
     repository: pass('可访问 owner/repo'),
@@ -73,6 +74,7 @@ describe('环境检查判定', () => {
       'auth:github',
       'repository:github',
       'workspace:null',
+      'local-issues:null',
       'skill:to-spec',
       'skill:triage',
     ])
@@ -88,7 +90,7 @@ describe('环境检查判定', () => {
     }
   })
 
-  it('Gitea 后端的 CLI 三项标为跳过，不冒用其他后端的结论', () => {
+  it('Gitea 后端与其他托管后端一样产出命令行三项', () => {
     const items = buildEnvCheckItems(
       facts({
         backend: {
@@ -96,22 +98,71 @@ describe('环境检查判定', () => {
           choice: { kind: 'gitea', source: 'tea-auth' },
           detail: 'tea-auth:gitea',
         },
+        cli: pass('/opt/homebrew/bin/tea'),
+        auth: pass('已登录 gitea.example.com'),
+        repository: pass('可访问 owner/repo'),
+      }),
+    )
+
+    expect(item(items, 'cli', 'gitea')).toMatchObject({
+      status: 'pass',
+      detail: '/opt/homebrew/bin/tea',
+    })
+    expect(item(items, 'auth', 'gitea')).toMatchObject({
+      status: 'pass',
+      detail: '已登录 gitea.example.com',
+    })
+    expect(item(items, 'repository', 'gitea')).toMatchObject({
+      status: 'pass',
+      detail: '可访问 owner/repo',
+    })
+  })
+
+  it('判定失败但已锁定候选 Gitea 时，判定项与跳过项都点名 Gitea', () => {
+    const backend: BackendProbeOutcome = {
+      status: 'fail',
+      detail: '未找到 tea，远端 gitea.example.com 需要 tea 才能识别为 Gitea',
+      reason: 'cli-missing',
+      backend: 'gitea',
+    }
+    const items = buildEnvCheckItems(
+      facts({ backend, cli: undefined, auth: undefined, repository: undefined }),
+    )
+
+    expect(item(items, 'backend', 'gitea')).toMatchObject({ status: 'fail' })
+    expect(remedyOf(items, 'backend', 'gitea')).toEqual({
+      code: 'install-cli',
+      subject: 'gitea',
+    })
+    for (const id of ['cli', 'auth', 'repository'] as const) {
+      expect(item(items, id, 'gitea')).toMatchObject({
+        status: 'skipped',
+        remedy: null,
+        blockedBy: { id: 'backend', subject: 'gitea' },
+      })
+    }
+  })
+
+  it('候选后端未登录时给出登录解决，跳过项仍指向判定项', () => {
+    const items = buildEnvCheckItems(
+      facts({
+        backend: {
+          status: 'fail',
+          detail: 'tea 未登录 gitea.example.com',
+          reason: 'cli-unauthenticated',
+          backend: 'gitea',
+        },
         cli: undefined,
         auth: undefined,
         repository: undefined,
       }),
     )
 
-    for (const id of ['cli', 'auth', 'repository'] as const) {
-      expect(item(items, id, 'gitea')).toEqual({
-        id,
-        subject: 'gitea',
-        status: 'skipped',
-        detail: '暂不支持 Gitea 后端的环境检查',
-        remedy: null,
-        blockedBy: null,
-      })
-    }
+    expect(remedyOf(items, 'backend', 'gitea')).toEqual({ code: 'login-cli', subject: 'gitea' })
+    expect(item(items, 'repository', 'gitea')).toMatchObject({
+      status: 'skipped',
+      blockedBy: { id: 'backend', subject: 'gitea' },
+    })
   })
 
   it('CLI 未安装时给出该后端的安装解决，登录与仓库可达跳过且没有解决', () => {
@@ -158,15 +209,15 @@ describe('环境检查判定', () => {
       facts({ backend, cli: undefined, auth: undefined, repository: undefined }),
     )
 
-    expect(remedyOf(items, 'backend', null)).toEqual({
+    expect(remedyOf(items, 'backend', 'gitlab')).toEqual({
       code: 'install-cli',
       subject: 'gitlab',
     })
     for (const id of ['cli', 'auth', 'repository'] as const) {
-      expect(item(items, id, null)).toMatchObject({
+      expect(item(items, id, 'gitlab')).toMatchObject({
         status: 'skipped',
         remedy: null,
-        blockedBy: { id: 'backend', subject: null },
+        blockedBy: { id: 'backend', subject: 'gitlab' },
       })
     }
   })
@@ -198,7 +249,60 @@ describe('环境检查判定', () => {
       }),
     )
 
-    expect(items.map((entry) => entry.id)).toEqual(['home', 'backend', 'workspace', 'skill'])
+    expect(items.map((entry) => entry.id)).toEqual([
+      'home',
+      'backend',
+      'workspace',
+      'local-issues',
+      'skill',
+    ])
+  })
+
+  it.each([
+    ['找到工单文件', { status: 'found', files: ['.scratch/login/issues/01-token.md'] } as const],
+    ['没有 .scratch', { status: 'no-scratch' } as const],
+    ['没有工单文件', { status: 'no-files' } as const],
+    ['缺少状态行', { status: 'unparsable', files: ['.scratch/login/issues/01-token.md'] } as const],
+  ])('本地工单目录：%s', (_label, localIssues) => {
+    const items = buildEnvCheckItems(facts({ localIssues }))
+    const entry = item(items, 'local-issues', null)
+    const remedy = entry.remedy
+
+    if (localIssues.status === 'found') {
+      expect(entry.status).toBe('pass')
+      expect(remedy).toBeNull()
+      expect(entry.detail).toContain('.scratch/login/issues/01-token.md')
+      return
+    }
+    expect(entry.status).toBe('fail')
+    expect(remedy).toEqual({ code: 'place-local-issues', subject: null })
+  })
+
+  it('本地工单目录探测失败时按重试处理', () => {
+    const items = buildEnvCheckItems(facts({ localIssues: { status: 'probe-failed' } }))
+
+    expect(item(items, 'local-issues', null)).toMatchObject({ status: 'fail' })
+    expect(remedyOf(items, 'local-issues', null)).toEqual({ code: 'retry', subject: null })
+  })
+
+  it('本地工单目录在任何后端下都出现，不受判定结果影响', () => {
+    for (const backend of [
+      {
+        status: 'pass',
+        choice: { kind: 'markdown', source: 'no-remote' },
+        detail: 'no-remote:markdown',
+      },
+      {
+        status: 'fail',
+        detail: '无法判定工单后端',
+        reason: 'backend-unavailable',
+      },
+    ] as const) {
+      const items = buildEnvCheckItems(
+        facts({ backend, cli: undefined, auth: undefined, repository: undefined }),
+      )
+      expect(item(items, 'local-issues', null).status).toBe('pass')
+    }
   })
 
   it('仓库无权限、不存在与网络失败给出三种不同的解决', () => {

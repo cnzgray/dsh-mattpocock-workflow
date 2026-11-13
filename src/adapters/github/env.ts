@@ -4,7 +4,7 @@
  */
 import { GITHUB_HOST, parseLoggedInHosts } from '../../core/backend.ts'
 import type { EnvCommandProbe, ProbeOutcome } from '../../core/env-check.ts'
-import { normalizeHost, type RepositoryAddress } from '../../core/remote.ts'
+import { normalizeHost, repositorySlug } from '../../core/remote.ts'
 import type { CommandRunner } from '../../core/ticket.ts'
 import { CommandError, isCommandNotFound, isNetworkFailure } from '../../core/tracker-error.ts'
 
@@ -13,8 +13,6 @@ const AUTH_FAILURE =
 
 /** 仓库不存在（GitHub 对无权限的私有仓库也返回 404）。 */
 const NOT_FOUND = /HTTP 404|Not Found|could not resolve to a repository|repository not found/i
-
-const SEGMENT = /^[A-Za-z0-9_.-]+$/
 
 /** GitHub 环境探测依赖。 */
 export interface GithubEnvProbeDeps {
@@ -65,7 +63,7 @@ export function createGithubEnvProbe(deps: GithubEnvProbeDeps): EnvCommandProbe 
       }
     },
     async repository(workspaceRoot, remote) {
-      const repository = readRepository(remote)
+      const repository = repositorySlug(remote)
       if (repository === undefined) {
         return {
           status: 'fail',
@@ -82,16 +80,6 @@ export function createGithubEnvProbe(deps: GithubEnvProbeDeps): EnvCommandProbe 
       }
     },
   }
-}
-
-function readRepository(remote: RepositoryAddress | undefined): string | undefined {
-  if (remote === undefined) return undefined
-  const segments = remote.path.split('/')
-  if (segments.length !== 2) return undefined
-  const [owner, name] = segments
-  if (owner === undefined || name === undefined) return undefined
-  if (!SEGMENT.test(owner) || !SEGMENT.test(name)) return undefined
-  return `${owner}/${name}`
 }
 
 function repositoryFailure(error: unknown): ProbeOutcome {

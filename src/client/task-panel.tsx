@@ -4,7 +4,9 @@
  */
 import * as React from 'react'
 
+import type { BackendKind } from '../protocol/backend.ts'
 import type { CapabilityDiagnostic } from '../protocol/env-check.ts'
+import { ERROR_BACKENDS } from '../protocol/tracker.ts'
 import { EnvCheckView } from './env-check-view.tsx'
 import type { PanelClient } from './rpc.ts'
 import {
@@ -38,6 +40,7 @@ const NO_CAPABILITIES = (): readonly CapabilityDiagnostic[] => []
  */
 export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   const [view, setView] = React.useState<View>('tickets')
+  const [focusBackend, setFocusBackend] = React.useState<FocusBackend>(null)
   const clientCapabilities = props.clientCapabilities ?? NO_CAPABILITIES
 
   return (
@@ -57,6 +60,7 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
           label="环境检查"
           active={view === 'env'}
           onClick={() => {
+            setFocusBackend(null)
             setView('env')
           }}
         />
@@ -68,7 +72,8 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
           canInject={props.canInject}
           injectDraft={props.injectDraft}
           now={props.now}
-          onOpenEnvCheck={() => {
+          onOpenEnvCheck={(code) => {
+            setFocusBackend(ERROR_BACKENDS[code] ?? null)
             setView('env')
           }}
         />
@@ -79,11 +84,15 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
           canInject={props.canInject}
           injectDraft={props.injectDraft}
           clientCapabilities={clientCapabilities}
+          focusBackend={focusBackend}
         />
       )}
     </div>
   )
 }
+
+/** 从列表错误跳到环境检查时，要落到的后端。 */
+type FocusBackend = Exclude<BackendKind, 'markdown'> | null
 
 function ViewChip(props: {
   readonly testId: string

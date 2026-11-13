@@ -10,7 +10,7 @@ import {
 } from '../../core/markdown.ts'
 import type { Tracker, TrackerSnapshot } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
-import type { DirectoryEntry, WorkspaceFiles } from './files.ts'
+import { readLocalTicketFiles, type WorkspaceFiles } from './files.ts'
 
 /** 本地 Markdown 后端依赖。 */
 export interface MarkdownTrackerDeps {
@@ -29,7 +29,7 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
       let tickets: readonly MarkdownTicketFile[]
 
       try {
-        tickets = await scan(deps.files, workspaceRoot)
+        tickets = (await readLocalTicketFiles(deps.files, workspaceRoot)) ?? []
       } catch (error) {
         throw new TrackerError(
           'markdown-read-failed',
@@ -48,53 +48,4 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
       }
     },
   }
-}
-
-async function scan(
-  files: WorkspaceFiles,
-  workspaceRoot: string,
-): Promise<readonly MarkdownTicketFile[]> {
-  const scratch = joinPath(workspaceRoot, '.scratch')
-  const features = await files.listDirectory(scratch)
-  if (features === undefined) return []
-
-  const tickets: MarkdownTicketFile[] = []
-  for (const feature of sortEntries(features)) {
-    if (feature.kind !== 'directory') continue
-
-    const issuesDirectory = joinPath(scratch, feature.name, 'issues')
-    const entries = await files.listDirectory(issuesDirectory)
-    if (entries === undefined) continue
-
-    for (const entry of sortEntries(entries)) {
-      if (entry.kind !== 'file' || !entry.name.endsWith('.md')) continue
-
-      const path = joinPath(issuesDirectory, entry.name)
-      const [content, timestamps] = await Promise.all([
-        files.readTextFile(path),
-        files.statFile(path),
-      ])
-      tickets.push({
-        path: `.scratch/${feature.name}/issues/${entry.name}`,
-        feature: feature.name,
-        name: entry.name,
-        content,
-        createdAt: new Date(timestamps.createdAt).toISOString(),
-        updatedAt: new Date(timestamps.updatedAt).toISOString(),
-      })
-    }
-  }
-
-  return tickets
-}
-
-function sortEntries(entries: readonly DirectoryEntry[]): DirectoryEntry[] {
-  return [...entries].sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-  )
-}
-
-function joinPath(base: string, ...segments: readonly string[]): string {
-  const root = base.replace(/[\\/]+$/, '')
-  return [root, ...segments].join('/')
 }

@@ -20,7 +20,7 @@ import {
 } from '../core/backend.ts'
 import { parseRemotes, pickRemoteAddress, type RepositoryAddress } from '../core/remote.ts'
 import type { CommandRunner, Tracker } from '../core/ticket.ts'
-import { CommandError, TrackerError } from '../core/tracker-error.ts'
+import { CommandError, TrackerError, isCommandNotFound } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
 
 /** 一个工作区解析出的后端。 */
@@ -31,6 +31,8 @@ export interface ResolvedBackend {
   readonly choice: BackendChoice
   /** 选中的远端地址；本地 Markdown 且没有可用远端时为 undefined。 */
   readonly address: RepositoryAddress | undefined
+  /** 只能回退本地时，指出装上哪个 CLI 并登录后可用候选后端。 */
+  readonly candidate?: BackendCandidate
 }
 
 /** 按工作区根目录解析后端；失败时抛 {@link TrackerError}。 */
@@ -50,9 +52,19 @@ export interface BackendResolverDeps {
 }
 
 /** 一套命令行登录状态的探测结果。 */
-interface CliLogins {
+interface CliLoginState {
   readonly installed: boolean
   readonly hosts: readonly string[]
+}
+
+/**
+ * 远端无法判定为托管后端时，差哪一步才能用上候选后端。
+ * 环境检查据此点名具体工具与主机，而不是只说“不支持的远端”。
+ */
+export interface BackendCandidate {
+  readonly kind: Exclude<BackendKind, 'markdown'>
+  readonly reason: 'cli-missing' | 'cli-unauthenticated'
+  readonly detail: string
 }
 
 /**
@@ -107,8 +119,13 @@ async function resolveBackend(
     if (direct.kind !== 'markdown') return resolved(direct)
 
     // GitLab 判定完之后才探测 tea：只装了一种 CLI 的工作区不会被多叫一次。
-    const teaHosts = await readTeaLogins(deps.run, workspaceRoot)
-    return resolved(chooseBackend(address, glabHosts, teaHosts))
+    const tea = await readTeaLogins(deps.run, workspaceRoot)
+    const choice = chooseBackend(address, glabHosts, tea.hosts)
+    // 工单列表仍然回退本地；环境检查据此指出装 tea / 登录实例就能用上 Gitea。
+    if (choice.source === 'unsupported-remote') {
+      return resolved(choice, giteaCandidate(address.host, tea))
+    }
+    return resolved(choice)
   }
 
   return {
@@ -118,9 +135,29 @@ async function resolveBackend(
     address: undefined,
   }
 
-  function resolved(choice: BackendChoice): ResolvedBackend {
-    return { kind: choice.kind, choice, address, tracker: createTracker(choice.kind, deps, files) }
+  function resolved(choice: BackendChoice, candidate?: BackendCandidate): ResolvedBackend {
+    const base: ResolvedBackend = {
+      kind: choice.kind,
+      choice,
+      address,
+      tracker: createTracker(choice.kind, deps, files),
+    }
+    return candidate === undefined ? base : { ...base, candidate }
   }
+}
+
+function giteaCandidate(host: string, tea: CliLoginState): BackendCandidate {
+  return tea.installed
+    ? {
+        kind: 'gitea',
+        reason: 'cli-unauthenticated',
+        detail: `tea 未登录 ${host}`,
+      }
+    : {
+        kind: 'gitea',
+        reason: 'cli-missing',
+        detail: `未找到 tea，远端 ${host} 需要 tea 才能识别为 Gitea`,
+      }
 }
 
 function createTracker(
@@ -153,7 +190,7 @@ async function readAddress(
   }
 }
 
-async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<CliLogins> {
+async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<CliLoginState> {
   try {
     const output = await run('glab', ['auth', 'status'], { cwd: workspaceRoot })
     // glab 把文本报告写在标准错误上；不同版本也可能写标准输出，两边都认。
@@ -171,15 +208,16 @@ async function readGlabAuth(run: CommandRunner, workspaceRoot: string): Promise<
   }
 }
 
-async function readTeaLogins(run: CommandRunner, workspaceRoot: string): Promise<string[]> {
+async function readTeaLogins(run: CommandRunner, workspaceRoot: string): Promise<CliLoginState> {
   try {
     const output = await run('tea', ['logins', 'list', '--output', 'json'], {
       cwd: workspaceRoot,
     })
-    return parseTeaLoginHosts(output.stdout)
-  } catch {
-    // 没装 tea 与配置读不出来都当作“没有匹配的登录”，交给本地 Markdown。
-    // tea 是否安装只影响能否探测到登录，不影响已经解析出的后端是否可用。
-    return []
+    return { installed: true, hosts: parseTeaLoginHosts(output.stdout) }
+  } catch (error) {
+    // 没装 tea 时不能匹配任何实例，但“没装”与“没登录”要给用户不同建议。
+    if (isCommandNotFound(error)) return { installed: false, hosts: [] }
+    // 配置读不出来按未登录处理：重新登录是可执行的下一步。
+    return { installed: true, hosts: [] }
   }
 }

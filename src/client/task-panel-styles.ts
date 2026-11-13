@@ -4,7 +4,6 @@
  */
 import type { CSSProperties } from 'react'
 
-import type { BackendKind } from '../protocol/backend.ts'
 import type { TicketStatus } from '../protocol/tracker.ts'
 import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 
@@ -59,14 +58,6 @@ export const REPO_NAME_STYLE: CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-}
-
-/** 后端徽标：GitHub / GitLab / Gitea / 本地。 */
-export const BACKEND_LABELS: Record<BackendKind, string> = {
-  github: 'GitHub',
-  gitlab: 'GitLab',
-  gitea: 'Gitea',
-  markdown: '本地',
 }
 
 /** 实例主机：只在 Gitea 后端显示，用来区分多个自建实例。 */

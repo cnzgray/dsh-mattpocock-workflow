@@ -98,6 +98,31 @@ const ENV_REPORT: EnvCheckReport = {
   capabilities: [],
 }
 
+const GITEA_ENV_REPORT: EnvCheckReport = {
+  checkedAt: NOW,
+  backend: 'gitea',
+  repository: 'cnzgray/dsh-mattpocock-workflow',
+  items: [
+    {
+      id: 'backend',
+      subject: null,
+      status: 'pass',
+      detail: 'tea-auth:gitea（gitea.example.com）',
+      remedy: null,
+      blockedBy: null,
+    },
+    {
+      id: 'auth',
+      subject: 'gitea',
+      status: 'fail',
+      detail: '未登录 gitea.example.com',
+      remedy: { code: 'login-cli', subject: 'gitea' },
+      blockedBy: null,
+    },
+  ],
+  capabilities: [],
+}
+
 const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
@@ -473,6 +498,29 @@ describe('任务面板', () => {
 
     await screen.findByTestId('env-items')
     expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/2')
+  })
+
+  it('列表因 Gitea 环境问题失败时也提供「查看环境检查」入口', async () => {
+    const client: PanelClient = {
+      get: () =>
+        Promise.resolve({ ok: false, error: { code: 'tea-missing', message: '未找到 tea' } }),
+      refresh: () =>
+        Promise.resolve({ ok: false, error: { code: 'tea-missing', message: '未找到 tea' } }),
+      resolveBlockers: UNUSED_RESOLVE,
+      envCheck: () => Promise.resolve({ ok: true, result: GITEA_ENV_REPORT }),
+    }
+    render(<TaskPanel {...panelProps({ client })} />)
+
+    await screen.findByTestId('error')
+    fireEvent.click(screen.getByTestId('open-env-check'))
+
+    await screen.findByTestId('env-items')
+    const giteaFailure = screen
+      .getAllByTestId('env-item')
+      .find((entry) => entry.dataset.subject === 'gitea' && entry.dataset.status === 'fail')
+    await waitFor(() => {
+      expect(giteaFailure?.dataset.highlighted).toBe('true')
+    })
   })
 
   it('与环境无关的错误不提供环境检查入口', async () => {
