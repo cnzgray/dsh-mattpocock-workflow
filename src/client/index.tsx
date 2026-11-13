@@ -79,6 +79,8 @@ interface ClientContextLike {
 
 interface InjectorRef {
   current: DraftInjector | undefined
+  /** 注入能力就绪或失效时通知已挂载的面板，按钮的禁用状态才会跟着变。 */
+  readonly listeners: Set<() => void>
 }
 
 /** DSH 客户端插件声明；具体扩展点在 apply 里等待服务就绪。 */
@@ -108,15 +110,15 @@ export function apply(ctx: ClientContextLike): void {
     }
 
     // sessions 与 conversation 可能比 slots 晚就绪：先挂面板，注入能力就绪后再装进 ref。
-    const injectorRef: InjectorRef = { current: undefined }
+    const injectorRef: InjectorRef = { current: undefined, listeners: new Set() }
     scope.inject(['sessions', 'conversation'], (inner) => {
       capabilities.mark('sessions', readSessions(inner.get('sessions')) !== undefined)
       capabilities.mark('conversation', readConversation(inner.get('conversation')) !== undefined)
-      injectorRef.current = createDraftInjector(inner)
+      setInjector(injectorRef, createDraftInjector(inner))
       return () => {
         capabilities.mark('sessions', false)
         capabilities.mark('conversation', false)
-        injectorRef.current = undefined
+        setInjector(injectorRef, undefined)
       }
     })
 
@@ -186,17 +188,40 @@ function createTaskTab(
       },
       [injectorRef, sessionId],
     )
+    const injectorReady = useInjectorReady(injectorRef)
 
     return (
       <TaskPanel
         client={client}
         workspaceRoot={cwd}
-        canInject={sessionId !== undefined}
+        canInject={sessionId !== undefined && injectorReady}
         injectDraft={injectDraft}
         clientCapabilities={capabilities.read}
       />
     )
   }
+}
+
+function setInjector(ref: InjectorRef, injector: DraftInjector | undefined): void {
+  ref.current = injector
+  for (const listener of ref.listeners) listener()
+}
+
+function useInjectorReady(ref: InjectorRef): boolean {
+  const [ready, setReady] = React.useState(ref.current !== undefined)
+
+  React.useEffect(() => {
+    const update = (): void => {
+      setReady(ref.current !== undefined)
+    }
+    ref.listeners.add(update)
+    update()
+    return () => {
+      ref.listeners.delete(update)
+    }
+  }, [ref])
+
+  return ready
 }
 
 function createDraftInjector(ctx: ClientContextLike): DraftInjector | undefined {

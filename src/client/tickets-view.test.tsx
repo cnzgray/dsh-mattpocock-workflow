@@ -98,7 +98,7 @@ function deferred<T>(): { readonly promise: Promise<T>; resolve: (value: T) => v
 const UNUSED_ENV_CHECK = (): Promise<RpcResult<EnvCheckReport>> =>
   Promise.resolve({
     ok: true,
-    result: { checkedAt: NOW, backend: null, items: [], capabilities: [] },
+    result: { checkedAt: NOW, backend: null, repository: null, items: [], capabilities: [] },
   })
 
 function fakeClient(

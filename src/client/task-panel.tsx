@@ -70,6 +70,8 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
         <EnvCheckView
           client={props.client}
           workspaceRoot={props.workspaceRoot}
+          canInject={props.canInject}
+          injectDraft={props.injectDraft}
           clientCapabilities={clientCapabilities}
         />
       )}

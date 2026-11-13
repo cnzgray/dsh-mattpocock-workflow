@@ -24,6 +24,7 @@ import type { RepositoryAddress } from '../core/remote.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
 import {
+  PANEL_SKILLS,
   REQUIRED_SKILLS,
   type CapabilityDiagnostic,
   type EnvCheckReport,
@@ -119,11 +120,13 @@ async function runCheck(
   const startedAt = deps.now()
 
   try {
-    const facts = await collectFacts(deps, workspaceRoot)
-    const items = buildEnvCheckItems(facts)
+    const collected = await collectFacts(deps, workspaceRoot)
+    const items = buildEnvCheckItems(collected.facts)
     const report: EnvCheckReport = {
       checkedAt: startedAt,
-      backend: facts.backend.status === 'pass' ? facts.backend.choice.kind : null,
+      backend:
+        collected.facts.backend.status === 'pass' ? collected.facts.backend.choice.kind : null,
+      repository: collected.repository,
       items,
       capabilities: deps.capabilities(),
     }
@@ -138,10 +141,16 @@ async function runCheck(
   }
 }
 
+interface CollectedFacts {
+  readonly facts: EnvCheckFacts
+  /** 后端判定出的仓库路径；本地 Markdown 或判定失败时为 null。 */
+  readonly repository: string | null
+}
+
 async function collectFacts(
   deps: EnvCheckServiceDeps,
   workspaceRoot: string,
-): Promise<EnvCheckFacts> {
+): Promise<CollectedFacts> {
   const home = deps.files.homeDirectory()
   const homeOutcome: ProbeOutcome =
     home === undefined
@@ -155,15 +164,20 @@ async function collectFacts(
     home === undefined ? Promise.resolve(unprobedSkills()) : probeSkills(deps, workspaceRoot, home),
   ])
   const commands = await probeCommands(deps, workspaceRoot, backend)
+  const decided = backend.outcome.status === 'pass' ? backend.outcome.choice.kind : null
 
   return {
-    home: homeOutcome,
-    backend: backend.outcome,
-    workspace,
-    cli: commands.cli,
-    auth: commands.auth,
-    repository: commands.repository,
-    skills,
+    facts: {
+      home: homeOutcome,
+      backend: backend.outcome,
+      workspace,
+      cli: commands.cli,
+      auth: commands.auth,
+      repository: commands.repository,
+      skills,
+      setupSkill: PANEL_SKILLS.setup,
+    },
+    repository: decided === null || decided === 'markdown' ? null : (backend.remote?.path ?? null),
   }
 }
 
@@ -201,13 +215,15 @@ async function probeBackend(
           outcome: {
             status: 'fail',
             detail: '未找到 glab，GitLab 后端不可用',
-            reason: 'backend-cli-missing',
+            reason: 'cli-missing',
+            backend: 'gitlab',
           },
           remote: undefined,
         }
       }
+      // 原始错误信息可能带命令输出，不进入报告；解决由 core 按原因选择。
       return {
-        outcome: { status: 'fail', detail: error.message, reason: 'backend-unavailable' },
+        outcome: { status: 'fail', detail: '无法判定工单后端', reason: 'backend-unavailable' },
         remote: undefined,
       }
     }

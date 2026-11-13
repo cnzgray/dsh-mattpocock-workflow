@@ -29,6 +29,8 @@
 | 检查项            | check item / `EnvCheckItem`                                | 环境检查里的一条结论，状态为通过、失败或跳过；稳定 id 由 protocol 定义，标题由界面渲染。                                                                  |
 | 前置项            | prerequisite / `blockedBy`                                 | 某个检查项依赖的另一项。前置项没通过时，后续项判为“跳过”，并记录最先失败的那一项。                                                                        |
 | 跳过              | `EnvCheckStatus.skipped`                                   | 前置项未通过而没执行，或该后端暂不支持这项检查；不当作失败，前置失败时会在报告里指出根因。                                                                |
-| 建议码            | suggestion code / `SuggestionCode`                         | 失败项对应的修复动作标识（如 `install-cli`）；具体中文文案只在界面维护。                                                                                  |
+| 解决              | remedy / `EnvRemedy`                                       | 失败项对应的可执行做法：解决码加对象（技能名或后端名）。由 core 按探测事实选择，命令、提示词与动作类型只在界面维护。                                      |
+| 会话动作          | session action                                             | 解决的一种动作：把准备好的提示词填进当前会话输入框，不自动发送；用户改完再决定是否交给 agent。                                                            |
+| 复制命令          | copy command                                               | 解决的一种动作：把只读命令放在代码块里一键复制；剪贴板不可用时命令仍完整显示，可以手动选择。                                                              |
 | 探测              | probe / `EnvCommandProbe`                                  | 环境检查里对一项前提的实际观测：跑只读命令、查文件或读 DSH 技能清单；原始输出不进入报告。                                                                 |
 | 能力诊断          | capability diagnostics / `CapabilityDiagnostic`            | 插件用到的 DSH 宿主服务与界面扩展点是否可用，默认折叠在环境检查底部。                                                                                     |

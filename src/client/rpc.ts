@@ -147,6 +147,8 @@ function isEnvCheckReport(value: unknown): value is EnvCheckReport {
   if (!('backend' in value) || !(value.backend === null || typeof value.backend === 'string')) {
     return false
   }
+  if (!('repository' in value)) return false
+  if (value.repository !== null && typeof value.repository !== 'string') return false
   if (!('items' in value) || !Array.isArray(value.items)) return false
   if (!('capabilities' in value) || !Array.isArray(value.capabilities)) return false
   return true

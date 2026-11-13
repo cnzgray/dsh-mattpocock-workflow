@@ -1,6 +1,7 @@
 /**
- * 环境检查的 RPC 契约：检查项 id、建议码、能力诊断 id 与必需技能。
- * 只放类型和常量；判定规则在 core，探测在 adapters，组装在 host。
+ * 环境检查的 RPC 契约：检查项 id、解决码、能力诊断 id 与必需技能。
+ * 只放类型和常量；判定规则在 core，探测在 adapters，组装在 host，
+ * 解决码对应的文案与动作类型只在界面维护。
  */
 import type { BackendKind } from './backend.ts'
 
@@ -28,22 +29,50 @@ export type EnvCheckId = (typeof ENV_CHECK_IDS)[keyof typeof ENV_CHECK_IDS]
 /** 检查项的三种状态。 */
 export type EnvCheckStatus = 'pass' | 'fail' | 'skipped'
 
-/** 失败时给出的建议码；具体文案在界面。 */
-export const ENV_SUGGESTIONS = {
+/** 有命令行工具的后端；安装与登录的解决按它选对应命令。 */
+export type EnvCliBackend = Exclude<BackendKind, 'markdown'>
+
+/**
+ * 失败项的解决码。每个码在界面有唯一的文案和动作类型
+ * （会话动作 / 命令 / 重试），有的还带一个次要链接。
+ */
+export const ENV_REMEDY_CODES = {
+  /** 安装后端对应的命令行工具。 */
   installCli: 'install-cli',
+  /** 登录后端对应的命令行工具。 */
   loginCli: 'login-cli',
-  checkRepositoryAccess: 'check-repository-access',
-  checkRemoteAddress: 'check-remote-address',
-  checkNetwork: 'check-network',
-  checkLogs: 'check-logs',
-  checkHome: 'check-home',
-  runSetupSkills: 'run-setup-skills',
+  /** 安装一项必需技能；subject 是技能名。 */
   installSkill: 'install-skill',
-  selectBackend: 'select-backend',
+  /** 用初始化技能初始化当前工作区。 */
+  initWorkspace: 'init-workspace',
+  /** 核对当前账号对仓库的访问权限。 */
+  checkRepositoryAccess: 'check-repository-access',
+  /** 核对 `origin` 的远端地址。 */
+  checkRemoteAddress: 'check-remote-address',
+  /** 检查网络与代理设置。 */
+  checkNetwork: 'check-network',
+  /** 检查并设置宿主进程的主目录。 */
+  checkHome: 'check-home',
+  /** 查看 DSH 日志。 */
+  checkLogs: 'check-logs',
+  /** 修复后端选择：远端地址或 CLI 登录。 */
+  fixBackend: 'fix-backend',
+  /** 重新检查一次。 */
+  retry: 'retry',
 } as const
 
-/** 建议码的联合类型。 */
-export type SuggestionCode = (typeof ENV_SUGGESTIONS)[keyof typeof ENV_SUGGESTIONS]
+/** 解决码的联合类型。 */
+export type EnvRemedyCode = (typeof ENV_REMEDY_CODES)[keyof typeof ENV_REMEDY_CODES]
+
+/**
+ * 一条解决：怎么修，而不是一句建议。
+ * 只包含解决码与对象，不含文案、命令和链接——那些都在界面。
+ */
+export interface EnvRemedy {
+  readonly code: EnvRemedyCode
+  /** 解决针对的对象：技能名或后端名；null 时沿用检查项自己的 subject。 */
+  readonly subject: string | null
+}
 
 /** 指向一个具体检查项：id 加区分同一类的 subject（后端名或技能名）。 */
 export interface EnvCheckRef {
@@ -56,8 +85,8 @@ export interface EnvCheckItem extends EnvCheckRef {
   readonly status: EnvCheckStatus
   /** 判定依据：主目录路径、可执行文件路径、来源等。 */
   readonly detail: string
-  /** 失败时的建议码；通过和跳过时为 null。 */
-  readonly suggestion: SuggestionCode | null
+  /** 失败时的解决方式；通过项与跳过项为 null。 */
+  readonly remedy: EnvRemedy | null
   /** 跳过时挡住它的根因项；其余情况为 null。 */
   readonly blockedBy: EnvCheckRef | null
 }
@@ -100,6 +129,11 @@ export interface EnvCheckReport {
   readonly checkedAt: number
   /** 判定出的后端；后端判定失败时为 null。 */
   readonly backend: BackendKind | null
+  /**
+   * 判定出的仓库标识：GitHub `owner/name`，GitLab 含嵌套 group 的完整项目路径；
+   * 本地 Markdown 或后端判定失败时为 null。解决里的命令靠它点名具体仓库。
+   */
+  readonly repository: string | null
   /** 固定顺序的检查项。 */
   readonly items: readonly EnvCheckItem[]
   /** 宿主侧能力诊断；界面会再合并自己探测到的扩展点。 */

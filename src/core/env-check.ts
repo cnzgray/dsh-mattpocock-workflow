@@ -8,12 +8,16 @@ import type {
   EnvCheckId,
   EnvCheckItem,
   EnvCheckRef,
-  SuggestionCode,
+  EnvCliBackend,
+  EnvRemedy,
 } from '../protocol/env-check.ts'
 import type { BackendChoice } from './backend.ts'
 import type { RepositoryAddress } from './remote.ts'
 
-/** 探测失败的语义原因。建议码由 {@link ADVICE} 映射，界面再渲染成中文。 */
+/**
+ * 探测失败的语义原因。解决方式由 {@link remedyFor} 按原因和上下文选择，
+ * 界面再把解决码渲染成中文文案与动作。
+ */
 export type ProbeFailureReason =
   | 'cli-missing'
   | 'cli-unauthenticated'
@@ -25,18 +29,32 @@ export type ProbeFailureReason =
   | 'home-unresolved'
   | 'workspace-uninitialized'
   | 'skill-missing'
-  | 'backend-cli-missing'
   | 'backend-unavailable'
 
 /** 一次探测的结果。依据文本只写结论，不回显命令原始输出。 */
 export type ProbeOutcome =
   | { readonly status: 'pass'; readonly detail: string }
-  | { readonly status: 'fail'; readonly detail: string; readonly reason: ProbeFailureReason }
+  | {
+      readonly status: 'fail'
+      readonly detail: string
+      readonly reason: ProbeFailureReason
+      /**
+       * 缺 CLI 时对应的后端。解决据此给出该后端自己的安装命令，
+       * 界面不需要解析依据文本。
+       */
+      readonly backend?: EnvCliBackend
+    }
 
 /** 后端判定的探测结果：成功时带上选中的后端与依据。 */
 export type BackendProbeOutcome =
   | { readonly status: 'pass'; readonly choice: BackendChoice; readonly detail: string }
-  | { readonly status: 'fail'; readonly detail: string; readonly reason: ProbeFailureReason }
+  | {
+      readonly status: 'fail'
+      readonly detail: string
+      readonly reason: ProbeFailureReason
+      /** 判定阶段就缺少该后端的 CLI；解决据此点名后端。 */
+      readonly backend?: EnvCliBackend
+    }
 
 /** 一项技能的探测事实；主目录不可解析时 outcome 缺省。 */
 export interface SkillProbeFact {
@@ -54,6 +72,11 @@ export interface EnvCheckFacts {
   readonly auth: ProbeOutcome | undefined
   readonly repository: ProbeOutcome | undefined
   readonly skills: readonly SkillProbeFact[]
+  /**
+   * 初始化工作区的技能名。工作区未初始化时，靠它判断该给「初始化工作区」
+   * 还是先「安装技能」。
+   */
+  readonly setupSkill: string
 }
 
 /**
@@ -70,26 +93,17 @@ export interface EnvCommandProbe {
   repository(workspaceRoot: string, remote: RepositoryAddress | undefined): Promise<ProbeOutcome>
 }
 
-/** 失败原因到建议码的映射。只在这里维护，避免两处文案分叉。 */
-const ADVICE: Readonly<Record<ProbeFailureReason, SuggestionCode>> = {
-  'cli-missing': 'install-cli',
-  'cli-unauthenticated': 'login-cli',
-  'repository-forbidden': 'check-repository-access',
-  'repository-not-found': 'check-remote-address',
-  'repository-network': 'check-network',
-  'probe-failed': 'check-logs',
-  timeout: 'check-network',
-  'home-unresolved': 'check-home',
-  'workspace-uninitialized': 'run-setup-skills',
-  'skill-missing': 'install-skill',
-  'backend-cli-missing': 'install-cli',
-  'backend-unavailable': 'select-backend',
-}
-
 interface Placed {
   readonly item: EnvCheckItem
   /** 跳过项要指向的根因：最先失败的那一项。 */
   readonly rootCause: EnvCheckRef | null
+}
+
+/** 选择解决方式时除失败原因外还需要的事实。 */
+interface RemedyFacts {
+  readonly setupSkill: string
+  /** 初始化技能本身是否已判定为缺失。 */
+  readonly setupMissing: boolean
 }
 
 /**
@@ -99,6 +113,11 @@ interface Placed {
  */
 export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[] {
   const items: EnvCheckItem[] = []
+  const remedyFacts: RemedyFacts = {
+    setupSkill: facts.setupSkill,
+    setupMissing:
+      facts.skills.find((skill) => skill.name === facts.setupSkill)?.outcome?.status === 'fail',
+  }
 
   const place = (
     id: EnvCheckId,
@@ -106,7 +125,7 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
     outcome: ProbeOutcome | undefined,
     prereq: Placed | null,
   ): Placed => {
-    const placed = placeItem(id, subject, outcome, prereq)
+    const placed = placeItem(id, subject, outcome, prereq, remedyFacts)
     items.push(placed.item)
     return placed
   }
@@ -122,7 +141,7 @@ export function buildEnvCheckItems(facts: EnvCheckFacts): readonly EnvCheckItem[
         subject: 'gitea',
         status: 'skipped',
         detail: '暂不支持 Gitea 后端的环境检查',
-        suggestion: null,
+        remedy: null,
         blockedBy: null,
       })
     }
@@ -150,17 +169,19 @@ function placeItem(
   subject: string | null,
   outcome: ProbeOutcome | undefined,
   prereq: Placed | null,
+  remedyFacts: RemedyFacts,
 ): Placed {
   const self: EnvCheckRef = { id, subject }
 
   if (prereq !== null && prereq.item.status !== 'pass') {
     const blockedBy = prereq.rootCause ?? refOf(prereq.item)
+    // 跳过项不产出 remedy：根因项那一条已经给出可执行的解决。
     return {
       item: {
         ...self,
         status: 'skipped',
         detail: '未执行检查',
-        suggestion: null,
+        remedy: null,
         blockedBy,
       },
       rootCause: blockedBy,
@@ -174,7 +195,7 @@ function placeItem(
         ...self,
         status: 'fail',
         detail: '探测没有返回结果',
-        suggestion: ADVICE['probe-failed'],
+        remedy: { code: 'check-logs', subject: null },
         blockedBy: null,
       },
       rootCause: self,
@@ -187,7 +208,7 @@ function placeItem(
         ...self,
         status: 'pass',
         detail: outcome.detail,
-        suggestion: null,
+        remedy: null,
         blockedBy: null,
       },
       rootCause: null,
@@ -199,17 +220,65 @@ function placeItem(
       ...self,
       status: 'fail',
       detail: outcome.detail,
-      suggestion: ADVICE[outcome.reason],
+      remedy: remedyFor(self, outcome, remedyFacts),
       blockedBy: null,
     },
     rootCause: self,
   }
 }
 
+/**
+ * 按失败原因与已知上下文选一条解决。
+ * @param item - 失败项自身，给出默认可用的 subject。
+ * @param outcome - 失败的探测结果。
+ * @param context - 初始化技能的状态。
+ * @returns 解决码与对象；不含文案。
+ */
+function remedyFor(
+  item: EnvCheckRef,
+  outcome: Extract<ProbeOutcome, { status: 'fail' }>,
+  remedyFacts: RemedyFacts,
+): EnvRemedy {
+  // 探测点名的后端优先，其次用检查项自己的 subject。
+  const subject = outcome.backend ?? item.subject
+
+  switch (outcome.reason) {
+    case 'cli-missing':
+      return { code: 'install-cli', subject }
+    case 'cli-unauthenticated':
+      return { code: 'login-cli', subject }
+    case 'skill-missing':
+      return { code: 'install-skill', subject: item.subject }
+    case 'workspace-uninitialized':
+      // 初始化技能本身缺失时先装技能，不引导用户运行一个不存在的技能。
+      return remedyFacts.setupMissing
+        ? { code: 'install-skill', subject: remedyFacts.setupSkill }
+        : { code: 'init-workspace', subject: null }
+    case 'repository-forbidden':
+      return { code: 'check-repository-access', subject: null }
+    case 'repository-not-found':
+      return { code: 'check-remote-address', subject: null }
+    case 'repository-network':
+      return { code: 'check-network', subject: null }
+    case 'timeout':
+    case 'probe-failed':
+      return { code: 'retry', subject: null }
+    case 'home-unresolved':
+      return { code: 'check-home', subject: null }
+    case 'backend-unavailable':
+      return { code: 'fix-backend', subject: null }
+  }
+}
+
 function toProbeOutcome(outcome: BackendProbeOutcome): ProbeOutcome {
   return outcome.status === 'pass'
     ? { status: 'pass', detail: outcome.detail }
-    : { status: 'fail', detail: outcome.detail, reason: outcome.reason }
+    : {
+        status: 'fail',
+        detail: outcome.detail,
+        reason: outcome.reason,
+        ...(outcome.backend === undefined ? {} : { backend: outcome.backend }),
+      }
 }
 
 function refOf(item: EnvCheckItem): EnvCheckRef {

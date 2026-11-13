@@ -26,7 +26,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}'],
+      // 测试共享夹具不是插件代码，不计入覆盖率。
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/*-test-support.ts'],
       // core 是纯逻辑，没有理由测不到；其余层先不设门槛，开发过程中再逐层加。
       thresholds: {
         'src/core/**': { lines: 80, branches: 80, functions: 80, statements: 80 },

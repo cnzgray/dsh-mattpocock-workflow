@@ -1,8 +1,13 @@
 /**
- * 环境检查的中文文案。宿主只送 id、后端和 subject，标题与建议都在这里拼，
- * 文案只维护一处。主题相关的样式不在这里。
+ * 环境检查的中文文案。宿主只送 id、后端、subject 和解决码，标题、能力说明
+ * 都在这里拼，文案只维护一处。主题相关的样式不在这里。
  */
-import type { CapabilityDiagnostic, EnvCheckItem, SuggestionCode } from '../protocol/env-check.ts'
+import type {
+  CapabilityDiagnostic,
+  EnvCheckItem,
+  HostCapabilityId,
+  UiCapabilityId,
+} from '../protocol/env-check.ts'
 
 /** 后端名到标题前缀的映射。 */
 const CLI_TITLES: Readonly<Record<string, { readonly cli: string; readonly auth: string }>> = {
@@ -38,74 +43,94 @@ export function envCheckTitle(item: EnvCheckItem): string {
   }
 }
 
-/**
- * 失败项的具体修复建议；不是失败项时没有建议。
- * @param item - 检查结果。
- * @returns 中文建议，或 null。
- */
-export function envSuggestionText(item: EnvCheckItem): string | null {
-  if (item.status !== 'fail' || item.suggestion === null) return null
-  return suggestionText(item.suggestion, item)
+type CapabilityId = HostCapabilityId | UiCapabilityId
+
+interface CapabilityContent {
+  readonly label: string
+  /** 缺失时影响什么。 */
+  readonly impact: string
+  /** 缺失时怎么补。 */
+  readonly fix: string
 }
 
-function suggestionText(code: SuggestionCode, item: EnvCheckItem): string {
-  switch (code) {
-    case 'install-cli':
-      if (item.subject === 'github') return '运行 brew install gh，或参考 https://cli.github.com'
-      if (item.subject === 'gitlab') {
-        return '运行 brew install glab，或参考 https://gitlab.com/gitlab-org/cli'
-      }
-      return '安装对应后端的命令行工具'
-    case 'login-cli':
-      if (item.subject === 'github') return '运行 gh auth login'
-      if (item.subject === 'gitlab') return '运行 glab auth login'
-      return '登录对应后端的命令行工具'
-    case 'check-repository-access':
-      return '确认当前账号对该仓库有访问权限，并核对 origin 远端地址'
-    case 'check-remote-address':
-      return '核对 origin 的远端地址（owner/name 或 GitLab 项目路径）'
-    case 'check-network':
-      return '检查网络或代理设置，确认能访问代码托管服务'
-    case 'check-logs':
-      return '重新检查一次；如果仍然失败，请查看 DSH 日志'
-    case 'check-home':
-      return '检查 HOME 环境变量是否已设置'
-    case 'run-setup-skills':
-      return '运行 /setup-matt-pocock-skills'
-    case 'install-skill':
-      return `安装 mattpocock/skills 里的 ${item.subject ?? '缺失技能'}`
-    case 'select-backend':
-      return '把 origin 指向 GitHub 仓库或已登录的 GitLab 实例'
-  }
+/** 能力诊断的显示名、影响与补法。宿主侧和界面侧的 id 在同一张表里。 */
+const CAPABILITIES: Readonly<Record<CapabilityId, CapabilityContent>> = {
+  subprocess: {
+    label: '子进程服务',
+    impact: '无法运行 git 与后端命令行，工单列表和环境检查都不可用。',
+    fix: '确认 DSH 的 subprocess 服务已启用，或升级 DSH 后重启。',
+  },
+  timer: {
+    label: '计时服务',
+    impact: '探测没有超时保护，环境检查可能长时间不返回。',
+    fix: '确认 DSH 的 timer 服务已启用，或升级 DSH 后重启。',
+  },
+  connection: {
+    label: '连接服务',
+    impact: '面板无法与宿主通信，打不开工单列表和环境检查。',
+    fix: '确认 DSH 的 connection 服务已启用，或升级 DSH 后重启。',
+  },
+  skills: {
+    label: '技能清单服务',
+    impact: '读不到 DSH 技能清单，技能检查只能按磁盘目录判定。',
+    fix: '确认 DSH 的 skills 服务已启用，或把技能装到工作区的 .claude/skills 下。',
+  },
+  slots: {
+    label: '插槽注册',
+    impact: '注册不了面板页签，右栏里看不到 MattWorkflow。',
+    fix: '升级 DSH 到提供 slots 的版本后重启。',
+  },
+  sidebarRightTabs: {
+    label: '右栏页签注册',
+    impact: '注册不了页签类型，右栏里看不到 MattWorkflow。',
+    fix: '升级 DSH 到提供 sidebarRightTabs 的版本后重启。',
+  },
+  sessions: {
+    label: '会话状态',
+    impact: '确定不了当前会话，提示词注入不可用。',
+    fix: '升级 DSH 到提供 sessions 的版本后重启。',
+  },
+  conversation: {
+    label: '对话输入',
+    impact: '访问不了输入框，提示词注入不可用。',
+    fix: '升级 DSH 到提供 conversation 的版本后重启。',
+  },
+  'sidebar.right.pane.tab': {
+    label: '页签内容插槽',
+    impact: '面板内容无处挂载，打开页签只会看到空内容。',
+    fix: '升级 DSH 到提供 sidebar.right.pane.tab 插槽的版本后重启。',
+  },
+  'sidebar.right.pane.tab.title': {
+    label: '页签标题插槽',
+    impact: '页签标题只能显示默认值。',
+    fix: '升级 DSH 到提供 sidebar.right.pane.tab.title 插槽的版本后重启。',
+  },
 }
 
-/** 能力诊断的显示名。 */
-const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
-  subprocess: '子进程服务',
-  timer: '计时服务',
-  connection: '连接服务',
-  skills: '技能清单服务',
-  slots: '插槽注册',
-  sidebarRightTabs: '右栏页签注册',
-  sessions: '会话状态',
-  conversation: '对话输入',
-  'sidebar.right.pane.tab': '页签内容插槽',
-  'sidebar.right.pane.tab.title': '页签标题插槽',
-}
+const CAPABILITY_BY_ID: ReadonlyMap<string, CapabilityContent> = new Map(
+  Object.entries(CAPABILITIES),
+)
 
 /**
  * 能力诊断的一行文案。
  * @param diagnostic - 一项能力诊断。
- * @returns 显示名与类别。
+ * @returns 显示名、类别、状态；缺失时再带影响与补法。
  */
 export function capabilityText(diagnostic: CapabilityDiagnostic): {
   readonly label: string
   readonly category: string
   readonly state: string
+  readonly impact: string | null
+  readonly fix: string | null
 } {
+  const content = CAPABILITY_BY_ID.get(diagnostic.id)
+  const missing = diagnostic.status === 'missing'
+
   return {
-    label: CAPABILITY_LABELS[diagnostic.id] ?? diagnostic.id,
+    label: content?.label ?? diagnostic.id,
     category: diagnostic.category === 'host-service' ? '宿主服务' : '界面扩展点',
-    state: diagnostic.status === 'present' ? '可用' : '缺失',
+    state: missing ? '缺失' : '可用',
+    impact: missing ? (content?.impact ?? null) : null,
+    fix: missing ? (content?.fix ?? null) : null,
   }
 }

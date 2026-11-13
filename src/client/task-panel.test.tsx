@@ -76,13 +76,22 @@ const TICKETS: readonly TicketSnapshot[] = [
 const ENV_REPORT: EnvCheckReport = {
   checkedAt: NOW,
   backend: 'github',
+  repository: 'cnzgray/dsh-mattpocock-workflow',
   items: [
     {
       id: 'home',
       subject: null,
       status: 'pass',
       detail: '/home/dev',
-      suggestion: null,
+      remedy: null,
+      blockedBy: null,
+    },
+    {
+      id: 'cli',
+      subject: 'github',
+      status: 'fail',
+      detail: '未找到 gh 可执行文件',
+      remedy: { code: 'install-cli', subject: 'github' },
       blockedBy: null,
     },
   ],
@@ -443,7 +452,8 @@ describe('任务面板', () => {
 
     await screen.findByTestId('env-items')
     expect(envCheckCalls).toEqual(['/repo'])
-    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/1')
+    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/2')
+    expect(screen.getByTestId('env-remedy').textContent).toContain('brew install gh')
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
@@ -462,7 +472,7 @@ describe('任务面板', () => {
     fireEvent.click(screen.getByTestId('open-env-check'))
 
     await screen.findByTestId('env-items')
-    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/1')
+    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 1/2')
   })
 
   it('与环境无关的错误不提供环境检查入口', async () => {

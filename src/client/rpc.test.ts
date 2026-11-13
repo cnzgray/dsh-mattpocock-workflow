@@ -7,6 +7,7 @@ import { createPanelClient, type FetchLike, type HttpResponseLike } from './rpc.
 const ENV_REPORT: EnvCheckReport = {
   checkedAt: 1,
   backend: 'github',
+  repository: 'owner/repo',
   items: [],
   capabilities: [],
 }
