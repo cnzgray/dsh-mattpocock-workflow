@@ -3,6 +3,7 @@
  * JSON 文本，这里不发起任何请求，也不执行任何命令。
  */
 import { isRecord } from '../../core/json.ts'
+import type { NativeBlockers } from '../../core/blocked-by.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
 
@@ -50,6 +51,31 @@ export function hasNativeBlockingLinks(output: string): boolean {
       typeof link.link_type === 'string' &&
       (link.link_type === 'is_blocked_by' || link.link_type === 'blocks'),
   )
+}
+
+/**
+ * 解析原生 blocking link：未关闭数与全部阻塞票编号。
+ * @param output - `/issues/:iid/links` 的响应。
+ * @returns 未关闭的 `is_blocked_by` 链接数与编号集合（不论开闭）。
+ * @throws {TrackerError} 输出不是 JSON。
+ */
+export function parseNativeBlockers(output: string): NativeBlockers {
+  const payload = parseJson(output)
+  const links = Array.isArray(payload) ? payload : readLinksField(payload)
+  if (links === undefined) throw invalid('工单链接不是数组')
+
+  let open = 0
+  const refs: number[] = []
+  for (const link of links) {
+    if (!isRecord(link)) continue
+    if (link.link_type !== 'is_blocked_by') continue
+
+    const iid = link.iid
+    if (typeof iid === 'number' && Number.isInteger(iid) && iid > 0) refs.push(iid)
+    if (link.state === 'closed') continue
+    open += 1
+  }
+  return { open, refs }
 }
 
 /**
@@ -116,6 +142,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
 
   const title = readString(value.title, `第 ${String(iid)} 张票的标题`)
   const state = readState(value.state, iid)
+  const closedAt = readClosedAt(value.closed_at, iid)
 
   return {
     ticket: {
@@ -127,6 +154,8 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       createdAt: readString(value.created_at, `第 ${String(iid)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(iid)} 张票的更新时间`),
       openBlockers: 0,
+      blockedBy: [],
+      ...(closedAt === undefined ? {} : { closedAt }),
     },
     description: typeof value.description === 'string' ? value.description : '',
     hasBlockingIssuesCount: Object.hasOwn(value, 'blocking_issues_count'),
@@ -166,12 +195,36 @@ function readString(value: unknown, field: string): string {
   return value
 }
 
+/**
+ * 关闭时间：开放票为 null，已关闭票是 ISO 字符串。
+ * @param value - API 返回的 `closed_at`。
+ * @param iid - 工单编号，用于错误信息。
+ * @returns 关闭时间；开放票缺席。
+ */
+function readClosedAt(value: unknown, iid: number): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw invalid(`第 ${String(iid)} 张票的关闭时间不合法`)
+  }
+  return value
+}
+
 function parseJson(output: string): unknown {
   try {
     return JSON.parse(output)
   } catch (error) {
     throw new TrackerError('fetch-failed', 'GitLab 返回的不是有效 JSON。', { cause: error })
   }
+}
+
+/**
+ * 读取链接响应里的 `links` 数组；旧版接口直接返回数组。
+ * @param payload - 已解析的 JSON。
+ * @returns 链接数组；响应形状不认识时为 undefined。
+ */
+function readLinksField(payload: unknown): readonly unknown[] | undefined {
+  if (!isRecord(payload)) return undefined
+  return Array.isArray(payload.links) ? payload.links : undefined
 }
 
 function invalid(message: string): TrackerError {

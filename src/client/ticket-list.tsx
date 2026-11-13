@@ -8,6 +8,7 @@ import type { TicketSnapshot } from '../protocol/tracker.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
 import {
   CARD_ACTION_BADGE_STYLE,
+  CARD_FOCUSED_STYLE,
   CARD_META_STYLE,
   CARD_ROW_STYLE,
   CARD_STYLE,
@@ -29,6 +30,8 @@ export interface TicketListProps {
   /** 最近一次把提示词填入输入框的工单 `ref`。 */
   readonly injected: string | null
   readonly canInject: boolean
+  /** 从概览跳过来要定位的工单 `ref`；只高亮，不改其他状态。 */
+  readonly focused?: string | null | undefined
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot) => void
 }
@@ -58,6 +61,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
           ticket={ticket}
           injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
           canInject={props.canInject}
+          focused={ticket.ref === props.focused}
           onPick={props.onPick}
           onSkillAction={props.onSkillAction}
         />
@@ -70,6 +74,7 @@ function TicketRow(props: {
   readonly ticket: TicketSnapshot
   readonly injected: boolean
   readonly canInject: boolean
+  readonly focused: boolean
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot) => void
 }): React.ReactElement {
@@ -85,9 +90,15 @@ function TicketRow(props: {
       onClick={() => {
         props.onPick(ticket)
       }}
-      style={CARD_ROW_STYLE}
+      style={{ ...CARD_ROW_STYLE, ...(props.focused ? CARD_FOCUSED_STYLE : undefined) }}
     >
-      <button type="button" data-testid="ticket-row" data-ref={ticket.ref} style={CARD_STYLE}>
+      <button
+        type="button"
+        data-testid="ticket-row"
+        data-ref={ticket.ref}
+        data-focused={props.focused ? 'true' : undefined}
+        style={CARD_STYLE}
+      >
         <span
           data-testid="ticket-ref"
           style={NUMBER_BADGE_STYLE}

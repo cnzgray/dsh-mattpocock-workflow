@@ -47,6 +47,117 @@ export type TicketCategory = 'bug' | 'enhancement' | null
  */
 export type TicketStatus = 'ready' | 'blocked' | 'closed' | 'open'
 
+/**
+ * 压力维度：规模、阻塞、时效。三个维度各自判档，总档位取最重的一维，
+ * 不合成加权总分——平均分会把一个已经爆掉的维度藏起来。
+ */
+export type PressureDimension = 'scale' | 'blocking' | 'freshness'
+
+/** 压力档位，从轻到重。 */
+export type PressureTier = 'light' | 'normal' | 'tight'
+
+/** 指标不可用的原因。界面据此解释“不可用”，不用 0 冒充。 */
+export type MetricGap =
+  /** 后端不提供工单时间戳（本地 Markdown 的文件时间不算工单时间）。 */
+  | 'no-timestamps'
+  /** 后端不提供关闭时间，关闭速率与净流入无法计算。 */
+  | 'no-closed-time'
+  /** 后端不提供阻塞依赖边，最长阻塞链无法计算。 */
+  | 'no-dependency-edges'
+
+/** 一个指标的取值；value 为 null 时 gap 说明缺的是什么数据。 */
+export interface MetricValue {
+  readonly value: number | null
+  readonly gap: MetricGap | null
+}
+
+/** 参与压力判档的指标。 */
+export type PressureMetric = 'backlog' | 'netFlow' | 'blockedRatio' | 'staleRatio' | 'stalled'
+
+/** 一个判档指标的取值。 */
+export interface PressureSignal {
+  readonly metric: PressureMetric
+  readonly value: number
+}
+
+/** 一个维度的判档结果。 */
+export interface PressureDimensionReport {
+  readonly dimension: PressureDimension
+  readonly tier: PressureTier
+  /** 参与这一维判档的指标取值。 */
+  readonly signals: readonly PressureSignal[]
+  /**
+   * 与最终档位相同的指标，也就是触发这一档的事实；轻松档为空数组，
+   * 表示所有可用指标都在轻松范围。
+   */
+  readonly triggers: readonly PressureMetric[]
+  /** 这一维缺失的数据。 */
+  readonly gaps: readonly MetricGap[]
+  /** 阻塞信息还没定稿，这一维是暂估，补齐后会重算。 */
+  readonly provisional: boolean
+}
+
+/** 三个维度的判档结果；`tier` 是其中最重的一档。 */
+export interface PressureReport {
+  readonly tier: PressureTier
+  readonly dimensions: readonly PressureDimensionReport[]
+}
+
+/** 指标覆盖的样本范围。 */
+export interface MetricsCoverage {
+  readonly loaded: number
+  readonly total: number
+  /** 总数大于已加载数：基于票集合的指标只覆盖样本，关闭类指标可能低估。 */
+  readonly truncated: boolean
+}
+
+/** 关注清单条目的入选原因。 */
+export type AttentionReason = 'untriaged-bug' | 'stale' | 'most-blocking' | 'oldest-stalled'
+
+/** 关注清单里的一张票。 */
+export interface AttentionItem {
+  readonly ref: string
+  readonly title: string
+  readonly reason: AttentionReason
+  /** 支撑数字：陈旧或停滞天数、未关闭阻塞数；不适用时为 null。 */
+  readonly evidence: number | null
+}
+
+/**
+ * 快照附带的项目指标与压力判档。所有比率都是 0–1 的小数；
+ * 给不出数据的指标 `value` 为 null 并带 `gap`，不用 0 冒充。
+ */
+export interface SnapshotMetrics {
+  /** 开放积压：开放票总数。 */
+  readonly openBacklog: number
+  /** 可接容量：可接票数。 */
+  readonly readyCapacity: number
+  /** 阻塞占比：阻塞票 ÷ 开放票；开放票为 0 时按 0 处理。 */
+  readonly blockedRatio: number
+  /** 待 triage：开放且没有分类标签的票数。 */
+  readonly needsTriage: number
+  /** 停滞票：状态为“其他开放”的票数。 */
+  readonly stalled: number
+  /** 陈旧票：创建超过 30 天的开放票数。 */
+  readonly staleCount: MetricValue
+  /** 陈旧率：陈旧票 ÷ 开放票。 */
+  readonly staleRatio: MetricValue
+  /** 最久未动天数：开放票里最大的（当前时间 − 更新时间）。 */
+  readonly oldestUpdateDays: MetricValue
+  /** 最长阻塞链深度：未关闭依赖链的最大层数；没有链时为 0。 */
+  readonly longestBlockerChain: MetricValue
+  /** 近 30 天新开：创建时间落在窗口内的票数。 */
+  readonly openedLast30Days: MetricValue
+  /** 近 30 天关闭：关闭时间落在窗口内的票数。 */
+  readonly closedLast30Days: MetricValue
+  /** 净流入：近 30 天新开 − 近 30 天关闭。 */
+  readonly netFlow: MetricValue
+  readonly coverage: MetricsCoverage
+  readonly pressure: PressureReport
+  /** 最该先看的 3–5 张票，按固定优先级挑选。 */
+  readonly attention: readonly AttentionItem[]
+}
+
 /** 快照里的一张票。 */
 export interface TicketSnapshot {
   /**
@@ -68,6 +179,13 @@ export interface TicketSnapshot {
   readonly updatedAt: string
   /** 未关闭的阻塞票数量；0 表示可以开工。 */
   readonly openBlockers: number
+  /** 关闭时间；后端给不出时省略。本地 Markdown 没有。 */
+  readonly closedAt?: string
+  /**
+   * 挡住这张票的引用集合，不论开闭。后端给不出阻塞依赖边时省略
+   * （GitHub 列表查询只给未关闭阻塞数）；宿主用它算最长阻塞链。
+   */
+  readonly blockedBy?: readonly string[]
 }
 
 /** 一个工作区的工单快照。 */
@@ -91,6 +209,11 @@ export interface WorkspaceSnapshot {
   /** 仓库里的票总数；大于 `loaded` 时列表不完整。 */
   readonly total: number
   readonly tickets: readonly TicketSnapshot[]
+  /**
+   * 项目指标与压力判档。宿主在列表返回时算一次，阻塞补齐完成后重算；
+   * 界面只渲染，不重复判定。
+   */
+  readonly metrics: SnapshotMetrics
   /**
    * 阻塞信息是否已定稿。为 false 时部分票的 `openBlockers` 来自描述回退，
    * 界面应在首屏之后请求一次 {@link RPC_METHODS.snapshotResolveBlockers}。

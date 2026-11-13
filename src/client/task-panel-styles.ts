@@ -211,6 +211,11 @@ export const VIEW_BAR_STYLE: CSSProperties = {
 export const VIEW_TABS_STYLE: CSSProperties = {
   display: 'flex',
   gap: 16,
+  padding: '0 12px',
+  borderBottom: `1px solid ${COLORS.border}`,
+  // 三个页签在窄侧栏里放不下时横向滚动，不挤压标题。
+  overflowX: 'auto',
+  flex: 'none',
 }
 
 export const VIEW_TAB_STYLE: CSSProperties = {
@@ -304,6 +309,12 @@ export const CARD_ROW_STYLE: CSSProperties = {
   borderRadius: 8,
   color: COLORS.text,
   cursor: 'pointer',
+}
+
+/** 从概览跳过来要定位的那一行：用强调色描边标出来。 */
+export const CARD_FOCUSED_STYLE: CSSProperties = {
+  borderColor: COLORS.accent,
+  background: `color-mix(in srgb, ${COLORS.accent} 7%, transparent)`,
 }
 
 /** 行按钮：编号一列，标题与元信息共用第二列，标题换行时编号仍贴着第一行。 */

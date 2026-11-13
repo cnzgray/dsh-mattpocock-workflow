@@ -18,3 +18,15 @@ RPC 方法：
 错误码里与详情相关的是 `ticket-not-found`（编号不存在或已被删除）与
 `capability-unsupported`（当前后端不提供所请求的详情、补全候选或写 / 删除能力）。
 删除时没有权限用 `fetch-failed`，消息里写明需要哪种角色。界面按错误码给出统一文案。
+
+## 快照载荷
+
+`snapshot.get`、`snapshot.refresh` 与 `snapshot.resolveBlockers` 都返回同一个 `WorkspaceSnapshot`：
+
+- 工单级：判定结果（`status`、`category`）、关闭时间（`closedAt`，能给才给）与阻塞引用（`blockedBy`，
+  能给才给；GitHub 列表查询没有依赖边）；
+- 快照级：仓库标识、后端、实例主机、拉取时间、已加载数与总数、阻塞是否定稿；
+- 指标级：`metrics`，含三个压力维度（`PressureDimension` / `PressureTier`）、关键数字、样本覆盖度
+  （`coverage`）与关注清单（`attention`）。`MetricValue` 用 `value: null` + `gap` 表示后端给不出的指标。
+
+指标由宿主在列表返回时算一次、阻塞补齐完成后重算，界面只渲染，不重复判定。阈值与判定规则在 core。

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import {
   RPC_PATH,
   type RpcResult,
@@ -25,6 +26,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   loaded: 0,
   total: 0,
   tickets: [],
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

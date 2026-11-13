@@ -44,16 +44,20 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
     byFeature.set(file.feature, numbers)
   }
 
-  return files.map((file) => ({
-    ref: file.path,
-    number: null,
-    title: titleOf(file),
-    state: markdownState(file.content),
-    labels: markdownLabels(file.content),
-    createdAt: file.createdAt,
-    updatedAt: file.updatedAt,
-    openBlockers: countOpenBlockers(file, byFeature.get(file.feature)),
-  }))
+  return files.map((file) => {
+    const blockers = blockersOf(file, byFeature.get(file.feature))
+    return {
+      ref: file.path,
+      number: null,
+      title: titleOf(file),
+      state: markdownState(file.content),
+      labels: markdownLabels(file.content),
+      createdAt: file.createdAt,
+      updatedAt: file.updatedAt,
+      openBlockers: blockers.openBlockers,
+      blockedBy: blockers.blockedBy,
+    }
+  })
 }
 
 /**
@@ -128,21 +132,30 @@ export function parseTicketStatus(content: string): string | undefined {
   return undefined
 }
 
-function countOpenBlockers(
+function blockersOf(
   file: MarkdownTicketFile,
   siblings: ReadonlyMap<number, MarkdownTicketFile> | undefined,
-): number {
-  if (siblings === undefined) return 0
+): { readonly openBlockers: number; readonly blockedBy: readonly string[] } {
+  const empty = { openBlockers: 0, blockedBy: [] }
+  if (siblings === undefined) return empty
 
   const line = blockedByLine(file.content)
-  if (line === undefined) return 0
+  if (line === undefined) return empty
 
-  let count = 0
+  let openBlockers = 0
+  const blockedBy: string[] = []
+  const seen = new Set<number>()
   for (const reference of referencedNumbers(line)) {
+    if (seen.has(reference)) continue
+    seen.add(reference)
+
     const blocker = siblings.get(reference)
-    if (blocker === undefined || parseTicketStatus(blocker.content) !== 'resolved') count += 1
+    if (blocker === undefined || parseTicketStatus(blocker.content) !== 'resolved')
+      openBlockers += 1
+    // 只有同一 feature 下能找到的票才有引用；链深度也只沿已知的票走。
+    if (blocker !== undefined) blockedBy.push(blocker.path)
   }
-  return count
+  return { openBlockers, blockedBy }
 }
 
 function blockedByLine(content: string): string | undefined {

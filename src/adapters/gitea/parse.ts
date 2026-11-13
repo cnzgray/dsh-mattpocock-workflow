@@ -61,12 +61,14 @@ export interface DependencyPage {
   readonly received: number
   /** 其中未关闭的票数。 */
   readonly open: number
+  /** 依赖票的编号；没有编号的条目（无权限）不进入引用集合。 */
+  readonly refs: readonly number[]
 }
 
 /**
  * 统计一页依赖列表。
  * @param body - `/issues/:index/dependencies` 的响应。
- * @returns 条目数与未关闭的依赖票数。
+ * @returns 条目数、未关闭的依赖票数与依赖票编号。
  * @throws {TrackerError} 响应不是 JSON 数组。
  */
 export function parseDependencies(body: string): DependencyPage {
@@ -74,13 +76,16 @@ export function parseDependencies(body: string): DependencyPage {
   if (!Array.isArray(payload)) throw invalid('工单依赖不是数组')
 
   let open = 0
+  const refs: number[] = []
   for (const dependency of payload) {
     if (!isRecord(dependency)) continue
+    const number = dependency.number
+    if (typeof number === 'number' && Number.isInteger(number) && number > 0) refs.push(number)
     // 只读得到标题的依赖（无权限）没有 state，按未关闭处理。
     if (dependency.state === 'closed') continue
     open += 1
   }
-  return { received: payload.length, open }
+  return { received: payload.length, open, refs }
 }
 
 function readStatus(stderr: string): number {
@@ -107,6 +112,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
 
   const title = readString(value.title, `第 ${String(number)} 张票的标题`)
   const state = readState(value.state, number)
+  const closedAt = readClosedAt(value.closed_at, number)
 
   return {
     ticket: {
@@ -118,6 +124,8 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       createdAt: readString(value.created_at, `第 ${String(number)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(number)} 张票的更新时间`),
       openBlockers: 0,
+      blockedBy: [],
+      ...(closedAt === undefined ? {} : { closedAt }),
     },
     body: typeof value.body === 'string' ? value.body : '',
   }
@@ -143,6 +151,20 @@ function readLabels(value: unknown): readonly string[] {
 function readString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw invalid(`${field} 不是非空字符串`)
+  }
+  return value
+}
+
+/**
+ * 关闭时间：开放票为 null，已关闭票是 ISO 字符串。
+ * @param value - API 返回的 `closed_at`。
+ * @param number - 工单编号，用于错误信息。
+ * @returns 关闭时间；开放票缺席。
+ */
+function readClosedAt(value: unknown, number: number): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw invalid(`第 ${String(number)} 张票的关闭时间不合法`)
   }
   return value
 }

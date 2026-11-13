@@ -35,26 +35,26 @@ describe('Blocked by 行', () => {
 })
 
 describe('远端工单的阻塞数', () => {
-  it('原生依赖有未关闭的票时以它为准', () => {
+  it('原生依赖有未关闭的票时以它为准，引用取原生依赖的全部编号', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'open', number: 16 },
-        nativeBlockers: 2,
+        nativeBlockers: { open: 2, refs: [15, 9] },
         text: 'Blocked by: #15',
         states: STATES,
       }),
-    ).toBe(2)
+    ).toEqual({ openBlockers: 2, blockedBy: ['#15', '#9'] })
   })
 
   it('原生依赖为空时退回正文的 Blocked by 行', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'open', number: 16 },
-        nativeBlockers: 0,
+        nativeBlockers: { open: 0, refs: [] },
         text: 'Blocked by: #15, #9',
         states: STATES,
       }),
-    ).toBe(1)
+    ).toEqual({ openBlockers: 1, blockedBy: ['#15', '#9'] })
   })
 
   it('依赖功能不可用（undefined）时同样读正文', () => {
@@ -65,25 +65,25 @@ describe('远端工单的阻塞数', () => {
         text: 'Blocked by: #15',
         states: STATES,
       }),
-    ).toBe(1)
+    ).toEqual({ openBlockers: 1, blockedBy: ['#15'] })
   })
 
-  it('已关闭或没有编号的票没有阻塞数', () => {
+  it('已关闭或没有编号的票没有阻塞数与引用', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'closed', number: 9 },
-        nativeBlockers: 3,
+        nativeBlockers: { open: 3, refs: [15] },
         text: 'Blocked by: #15',
         states: STATES,
       }),
-    ).toBe(0)
+    ).toEqual({ openBlockers: 0, blockedBy: [] })
     expect(
       resolveOpenBlockers({
         ticket: { state: 'open', number: null },
-        nativeBlockers: 1,
+        nativeBlockers: { open: 1, refs: [15] },
         text: '',
         states: STATES,
       }),
-    ).toBe(0)
+    ).toEqual({ openBlockers: 0, blockedBy: [] })
   })
 })

@@ -23,6 +23,13 @@ export interface Ticket {
    * Gitea 的 issue 依赖、本地 Markdown 的 `Blocked by:` 行。
    */
   readonly openBlockers: number
+  /** 关闭时间；后端给不出时省略。本地 Markdown 没有。 */
+  readonly closedAt?: string
+  /**
+   * 挡住这张票的引用集合（`Ticket.ref`），不论开闭。后端给不出依赖边时省略；
+   * 引用不在已加载列表里时，链深度只按已知的未关闭票计算。
+   */
+  readonly blockedBy?: readonly string[]
 }
 
 /** 后端返回的一次拉取结果。 */
@@ -110,17 +117,17 @@ export interface Tracker {
   /** 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。 */
   fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot>
   /**
-   * 可选能力：读取开放票的未关闭原生阻塞数。
+   * 可选能力：读取开放票的未关闭原生阻塞数与阻塞引用。
    *
    * 列表阶段只能拿到描述回退结果；实现该能力的后端在首屏之后补齐原生计数，
-   * 返回 `ref → 未关闭阻塞数`。没有原生数据的票可以不出现在结果里，宿主会保留
+   * 返回未关闭阻塞数与全部阻塞票引用。没有原生数据的票可以不出现在结果里，宿主会保留
    * 描述回退值。不实现该能力的后端视为阻塞信息已定稿；业务失败时抛
    * {@link TrackerError}，宿主会保留阶段一结果。
    */
   resolveBlockers?: (
     workspaceRoot: string,
     tickets: readonly TicketReference[],
-  ) => Promise<ReadonlyMap<string, number>>
+  ) => Promise<BlockerResolution>
   /**
    * 可选能力：读取单张工单的详情（正文、评论、标签、分配人、链接与时间）。
    * 不实现该能力的后端没有「工单详情」；业务失败抛 {@link TrackerError}。
@@ -153,6 +160,16 @@ export interface Tracker {
    * 业务失败（含没有权限）抛 {@link TrackerError}。
    */
   deleteTicket?: (workspaceRoot: string, reference: TicketReference) => Promise<void>
+}
+
+/**
+ * 原生阻塞补齐的结果。`open` 只带未关闭阻塞数，`blockedBy` 带全部阻塞票引用
+ * （不论开闭，宿主用它算链深度）。没有原生数据的票可以不出现在结果里，
+ * 宿主会保留列表阶段的描述回退值。
+ */
+export interface BlockerResolution {
+  readonly open: ReadonlyMap<string, number>
+  readonly blockedBy: ReadonlyMap<string, readonly string[]>
 }
 
 /** 一次命令的标准输出与标准错误。 */

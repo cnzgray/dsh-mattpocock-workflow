@@ -30,6 +30,7 @@ const ISSUE_QUERY = `query ($owner: String!, $name: String!, $limit: Int!) {
         state
         createdAt
         updatedAt
+        closedAt
         labels(first: 50) { nodes { name } }
         issueDependenciesSummary { blockedBy }
       }

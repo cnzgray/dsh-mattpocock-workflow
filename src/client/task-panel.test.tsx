@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import * as React from 'react'
 
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { gestures } from './prompt-test-support.ts'
 import {
@@ -142,6 +143,7 @@ describe('任务面板', () => {
       fetchedAt: NOW - 5_000,
       loaded: 1,
       total: 1,
+      metrics: emptyMetrics(),
       blockersFinalized: true,
       tickets: [
         {
@@ -330,6 +332,50 @@ describe('任务面板', () => {
       expect(screen.getByTestId('repo-name').textContent).toBe('/two/repo')
     })
     expect(fake.getCalls).toEqual(['/one', '/two'])
+  })
+
+  it('默认仍是列表，切换概览后显示指标与关注清单', async () => {
+    const overview: WorkspaceSnapshot = {
+      ...SNAPSHOT,
+      metrics: emptyMetrics({
+        attention: [{ ref: '#1', title: 'Bravo', reason: 'most-blocking', evidence: 2 }],
+      }),
+    }
+    const client = fakeClient({ ok: true, result: overview }).client
+    render(<TaskPanel {...panelProps({ client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('view-tickets').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByTestId('view-overview'))
+
+    expect(await screen.findByTestId('overview-view')).toBeTruthy()
+    expect(screen.getByTestId('metric-grid')).toBeTruthy()
+    expect(screen.getByTestId('attention-item').textContent).toContain('Bravo')
+    expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
+  })
+
+  it('点击关注清单跳到列表并定位该票，不写入提示词', async () => {
+    const injectDraft = vi.fn(() => true)
+    const overview: WorkspaceSnapshot = {
+      ...SNAPSHOT,
+      metrics: emptyMetrics({
+        attention: [{ ref: '#1', title: 'Bravo', reason: 'most-blocking', evidence: 2 }],
+      }),
+    }
+    const client = fakeClient({ ok: true, result: overview }).client
+    render(<TaskPanel {...panelProps({ client, injectDraft })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('view-overview'))
+    fireEvent.click(await screen.findByTestId('attention-item'))
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('view-tickets').getAttribute('aria-pressed')).toBe('true')
+    const located = screen
+      .getAllByTestId('ticket-row')
+      .find((row) => row.getAttribute('data-ref') === '#1')
+    expect(located?.getAttribute('data-focused')).toBe('true')
+    expect(injectDraft).not.toHaveBeenCalled()
   })
 
   it('点击「环境检查」切换视图并自动检查当前工作区', async () => {

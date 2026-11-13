@@ -185,6 +185,9 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
   if (!value.tickets.every(hasSkillAction)) return false
+  if (!('metrics' in value) || typeof value.metrics !== 'object' || value.metrics === null) {
+    return false
+  }
   if (!('blockersFinalized' in value) || typeof value.blockersFinalized !== 'boolean') return false
   return true
 }

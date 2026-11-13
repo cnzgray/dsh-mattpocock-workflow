@@ -8,7 +8,7 @@
  *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行；
  * - 详情与变更在 `detail.ts`，只在打开详情或提交变更时执行。
  */
-import { resolveOpenBlockers } from '../../core/blocked-by.ts'
+import { resolveOpenBlockers, type NativeBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 import type {
   CommandRunner,
@@ -69,7 +69,7 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
       )
       const tickets = issues.items.map((issue) => ({
         ...issue.ticket,
-        openBlockers: resolveOpenBlockers({
+        ...resolveOpenBlockers({
           ticket: issue.ticket,
           nativeBlockers: native?.get(issue.ticket.number ?? -1),
           text: issue.body,
@@ -136,7 +136,7 @@ async function readNativeBlockers(
   issues: readonly ParsedIssue[],
   pageSize: number,
   concurrency: number,
-): Promise<ReadonlyMap<number, number> | undefined> {
+): Promise<ReadonlyMap<number, NativeBlockers> | undefined> {
   const open = issues.filter(
     (issue): issue is ParsedIssue & { readonly ticket: Ticket & { readonly number: number } } =>
       issue.ticket.state === 'open' && issue.ticket.number !== null,
@@ -146,7 +146,7 @@ async function readNativeBlockers(
   try {
     const counts = await mapWithConcurrency(open, concurrency, async (issue) => ({
       number: issue.ticket.number,
-      openBlockers: await readDependencies(
+      blockedBy: await readDependencies(
         deps,
         workspaceRoot,
         repository,
@@ -155,7 +155,7 @@ async function readNativeBlockers(
       ),
     }))
 
-    return new Map(counts.map((entry) => [entry.number, entry.openBlockers]))
+    return new Map(counts.map((entry) => [entry.number, entry.blockedBy]))
   } catch (error) {
     if (error instanceof DependenciesUnavailable) return undefined
     throw error
@@ -168,10 +168,11 @@ async function readDependencies(
   repository: GiteaRepository,
   index: number,
   pageSize: number,
-): Promise<number> {
+): Promise<NativeBlockers> {
   let open = 0
   let received = 0
   let total: number | undefined
+  const refs: number[] = []
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const response = await callGiteaApi(
@@ -186,13 +187,14 @@ async function readDependencies(
     const parsed = parseDependencies(response.body)
     open += parsed.open
     received += parsed.received
+    refs.push(...parsed.refs)
     total ??= response.total
 
     if (total !== undefined && received >= total) break
     if (parsed.received === 0) break
   }
 
-  return open
+  return { open, refs }
 }
 
 /** 依赖功能未启用。只用于在读取阶段区分 404，不向外暴露。 */

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
@@ -123,6 +124,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: TICKETS.length,
   tickets: TICKETS,
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

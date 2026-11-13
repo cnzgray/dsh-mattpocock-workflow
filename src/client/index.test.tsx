@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
 import { apply } from './index.tsx'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 
 afterEach(() => {
   cleanup()
@@ -17,6 +18,7 @@ const SNAPSHOT = {
   loaded: 0,
   total: 0,
   tickets: [],
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

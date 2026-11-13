@@ -56,6 +56,7 @@ const RECORDED_ISSUES = {
             state: 'CLOSED',
             createdAt: '2026-11-01T09:00:00Z',
             updatedAt: '2026-11-02T09:00:00Z',
+            closedAt: '2026-11-02T09:30:00Z',
             labels: { nodes: [{ name: 'bug' }, { name: 'ready-for-agent' }] },
             issueDependenciesSummary: { blockedBy: 2 },
           },

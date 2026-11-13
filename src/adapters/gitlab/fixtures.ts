@@ -17,6 +17,7 @@ export function gitlabIssue(overrides: {
   readonly description?: string
   readonly createdAt?: string
   readonly updatedAt?: string
+  readonly closedAt?: string
 }): Record<string, unknown> {
   return {
     iid: overrides.iid,
@@ -26,6 +27,7 @@ export function gitlabIssue(overrides: {
     description: overrides.description ?? '',
     created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
     updated_at: overrides.updatedAt ?? '2026-11-12T14:11:38Z',
+    closed_at: overrides.closedAt ?? null,
   }
 }
 
@@ -57,6 +59,7 @@ export const GITLAB_ISSUES = [
     labels: ['needs-triage'],
     createdAt: '2026-11-10T09:00:00Z',
     updatedAt: '2026-11-11T09:30:00Z',
+    closedAt: '2026-11-11T10:00:00Z',
   }),
 ]
 

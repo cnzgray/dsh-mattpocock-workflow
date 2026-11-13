@@ -12,11 +12,17 @@
  *   `200` + 空数组、`403`/`404` 或异常都判定为不支持，之后只用描述里的
  *   `Blocked by:` 回退，不再逐票试探；
  * - 支持的实例用一次批量 GraphQL 查询取回所有开放票的 `blockedByCount`，
- *   不逐票请求 links。
+ *   不逐票请求 links；阻塞引用需要票号，只对真有未关闭阻塞的票再读一次 links。
  */
-import { hasDescriptionBlockers, resolveOpenBlockers } from '../../core/blocked-by.ts'
+import {
+  hasDescriptionBlockers,
+  remoteBlockerRefs,
+  resolveOpenBlockers,
+} from '../../core/blocked-by.ts'
+import { mapWithConcurrency } from '../../core/concurrency.ts'
 import type { RepositoryAddress } from '../../core/remote.ts'
 import type {
+  BlockerResolution,
   CommandRunner,
   Ticket,
   TicketReference,
@@ -31,6 +37,7 @@ import {
   hasNativeBlockingLinks,
   parseBlockedByCounts,
   parseIssuesPage,
+  parseNativeBlockers,
   type ParsedIssue,
 } from './parse.ts'
 import { mapGlabError, projectEndpoint, readProjectAddress } from './shared.ts'
@@ -46,11 +53,14 @@ export interface GitlabTrackerDeps {
    * 同一实例上的多个工作区只探测一次；单独创建 tracker 时默认各自一份。
    */
   readonly blockerCapability?: Map<string, Promise<boolean>>
+  /** 补齐阻塞引用时逐票查询 blocking link 的并发上限。 */
+  readonly concurrency?: number
 }
 
 const DEFAULT_PAGE_SIZE = 100
 /** GraphQL 的 `first` 上限；开放票更多时分批查询。 */
 const BLOCKER_COUNT_BATCH = 100
+const DEFAULT_CONCURRENCY = 8
 
 /**
  * 创建 GitLab 工单后端。
@@ -59,6 +69,10 @@ const BLOCKER_COUNT_BATCH = 100
  */
 export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
   const pageSize = normalizePositive(deps.pageSize ?? DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE)
+  const concurrency = normalizePositive(
+    deps.concurrency ?? DEFAULT_CONCURRENCY,
+    DEFAULT_CONCURRENCY,
+  )
   const blockerCapability = deps.blockerCapability ?? new Map<string, Promise<boolean>>()
   const detailDeps = { run: deps.run, pageSize }
 
@@ -91,7 +105,7 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
       const open = targets.filter(
         (target): target is TicketReference & { readonly number: number } => target.number !== null,
       )
-      if (open.length === 0) return new Map()
+      if (open.length === 0) return emptyResolution()
 
       const hint = hints.get(workspaceRoot) ?? {
         project: await readProjectAddress(deps.run, workspaceRoot),
@@ -105,7 +119,7 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
         hint,
         open,
       )
-      if (!supported) return new Map()
+      if (!supported) return emptyResolution()
 
       const counts = await readBlockedByCounts(deps, workspaceRoot, hint.project.path, open)
       const native = new Map<string, number>()
@@ -113,7 +127,16 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
         const count = counts.get(target.number)
         if (count !== undefined) native.set(target.ref, count)
       }
-      return native
+      const blockedBy = await readBlockedByRefs(
+        deps,
+        workspaceRoot,
+        hint.project.path,
+        open,
+        native,
+        concurrency,
+      )
+
+      return { open: native, blockedBy }
     },
 
     fetchDetail: (workspaceRoot, reference) =>
@@ -128,6 +151,11 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
 
     deleteTicket: (workspaceRoot, reference) => deleteGitlabTicket(deps, workspaceRoot, reference),
   }
+}
+
+/** 空的补齐结果：后端不支持原生阻塞关系时用。 */
+function emptyResolution(): BlockerResolution {
+  return { open: new Map(), blockedBy: new Map() }
 }
 
 /** 列表阶段为补齐阶段留下的线索：项目地址、列表是否已表明支持、优先探测哪张票。 */
@@ -251,15 +279,54 @@ async function readBlockedByCounts(
   return counts
 }
 
+/**
+ * 补齐阻塞引用。批量计数只有数量、没有票号，所以对真有阻塞的票再读一次 links；
+ * 没有阻塞的票不请求，避免回到逐票查询。
+ * @param deps - 命令执行器与时钟。
+ * @param workspaceRoot - 工作区根目录。
+ * @param project - 项目路径。
+ * @param open - 开放票的引用。
+ * @param counts - 已读到的未关闭阻塞数（`ref → 数量`）。
+ * @param concurrency - 逐票请求的并发上限。
+ * @returns `ref → 阻塞票引用`。
+ */
+async function readBlockedByRefs(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  open: readonly (TicketReference & { readonly number: number })[],
+  counts: ReadonlyMap<string, number>,
+  concurrency: number,
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  const blocked = open.filter((target) => (counts.get(target.ref) ?? 0) > 0)
+  if (blocked.length === 0) return new Map()
+
+  const refs = await mapWithConcurrency(blocked, concurrency, async (target) => {
+    const endpoint = `${projectEndpoint(project)}/issues/${String(target.number)}/links`
+    try {
+      const output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
+      return [target.ref, remoteBlockerRefs(parseNativeBlockers(output).refs)] as const
+    } catch {
+      // 读不到引用只影响链深度，计数已经拿到，不让整次补齐失败。
+      return [target.ref, [] as readonly string[]] as const
+    }
+  })
+
+  return new Map(refs.filter(([, value]) => value.length > 0))
+}
+
 function withOpenBlockers(issue: ParsedIssue, states: ReadonlyMap<number, TicketState>): Ticket {
+  const resolved = resolveOpenBlockers({
+    ticket: issue.ticket,
+    nativeBlockers: undefined,
+    text: issue.description,
+    states,
+  })
+
   return {
     ...issue.ticket,
-    openBlockers: resolveOpenBlockers({
-      ticket: issue.ticket,
-      nativeBlockers: undefined,
-      text: issue.description,
-      states,
-    }),
+    openBlockers: resolved.openBlockers,
+    blockedBy: resolved.blockedBy,
   }
 }
 

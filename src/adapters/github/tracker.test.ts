@@ -594,4 +594,9 @@ describeTrackerContract('GitHub', {
     request: GH_DETAIL_REQUEST,
     canDelete: true,
   },
+  fields: {
+    closedAt: { '#7': '2026-11-02T09:30:00Z' },
+    // GitHub 列表查询只给未关闭阻塞数，拿不到依赖边。
+    blockedBy: {},
+  },
 })

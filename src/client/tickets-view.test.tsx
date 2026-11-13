@@ -16,6 +16,7 @@ import * as React from 'react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
 
@@ -76,6 +77,7 @@ const FINAL: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: 3,
   tickets: TICKETS,
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

@@ -118,6 +118,7 @@ describe('本地 Markdown 工单后端', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
       openBlockers: 0,
+      blockedBy: [],
     })
     expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 0, 1, 0])
   })
@@ -277,6 +278,19 @@ describeTrackerContract('本地 Markdown', {
       url: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
+    },
+  },
+  fields: {
+    // 本地 Markdown 没有关闭时间。
+    closedAt: {},
+    blockedBy: {
+      '.scratch/billing/issues/05-refund.md': [],
+      '.scratch/login/issues/01-token.md': [],
+      '.scratch/login/issues/02-bug.md': [
+        '.scratch/login/issues/01-token.md',
+        '.scratch/login/issues/03-session.md',
+      ],
+      '.scratch/login/issues/03-session.md': [],
     },
   },
 })

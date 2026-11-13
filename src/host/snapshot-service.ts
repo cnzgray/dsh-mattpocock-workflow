@@ -10,8 +10,14 @@
  */
 import { mergeNativeBlockers } from '../core/blockers.ts'
 import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
+import { computeMetrics } from '../core/metrics.ts'
 import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
-import type { TicketLabelNames, TicketReference, TrackerSnapshot } from '../core/ticket.ts'
+import type {
+  BlockerResolution,
+  TicketLabelNames,
+  TicketReference,
+  TrackerSnapshot,
+} from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
@@ -20,6 +26,7 @@ import {
   RPC_METHODS,
   type ErrorCode,
   type RpcResult,
+  type SnapshotMetrics,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
@@ -65,7 +72,7 @@ interface CachedWorkspace {
 type BlockerResolver = (
   workspaceRoot: string,
   tickets: readonly TicketReference[],
-) => Promise<ReadonlyMap<string, number>>
+) => Promise<BlockerResolution>
 
 /**
  * 创建按工作区根目录缓存的快照服务。
@@ -151,7 +158,8 @@ async function fetchAndCache(
     const resolver = resolved.tracker.resolveBlockers ?? null
     const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
     const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
-    const snapshot = buildSnapshot(resolved.kind, repositoryHost, raw, tickets, finalized)
+    const metrics = metricsOf(deps, resolved.kind, raw, tickets, finalized)
+    const snapshot = buildSnapshot(resolved.kind, repositoryHost, raw, tickets, finalized, metrics)
 
     cache.set(workspaceRoot, {
       kind: resolved.kind,
@@ -242,7 +250,8 @@ async function finalize(
       classifyTickets(mergeNativeBlockers(entry.raw.tickets, native), deps.labels),
       deps.labels,
     )
-    settled = buildSnapshot(entry.kind, entry.repositoryHost, entry.raw, tickets, true)
+    const metrics = metricsOf(deps, entry.kind, entry.raw, tickets, true)
+    settled = buildSnapshot(entry.kind, entry.repositoryHost, entry.raw, tickets, true, metrics)
   } catch (error) {
     // 补齐失败只影响定稿标记：保留阶段一结果，下一次刷新重新尝试。
     failure = mapError(error)
@@ -275,6 +284,7 @@ function buildSnapshot(
   raw: TrackerSnapshot,
   tickets: readonly (ClassifiedTicket & SkillActionDecision)[],
   blockersFinalized: boolean,
+  metrics: SnapshotMetrics,
 ): WorkspaceSnapshot {
   return {
     backend: kind,
@@ -284,6 +294,7 @@ function buildSnapshot(
     loaded: tickets.length,
     total: raw.total,
     blockersFinalized,
+    metrics,
     tickets: tickets.map((ticket) => ({
       ref: ticket.ref,
       number: ticket.number,
@@ -296,8 +307,31 @@ function buildSnapshot(
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
       openBlockers: ticket.openBlockers,
+      ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
+      ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
     })),
   }
+}
+
+/**
+ * 组装快照时计算指标。时钟取后端的快照时间，让指标与界面显示的“多久之前”一致。
+ * 本地 Markdown 的时间是文件创建/修改时间，不是工单时间，时效与流量指标按不可用处理。
+ */
+function metricsOf(
+  deps: SnapshotServiceDeps,
+  kind: BackendKind,
+  raw: TrackerSnapshot,
+  tickets: readonly ClassifiedTicket[],
+  blockersFinalized: boolean,
+): SnapshotMetrics {
+  return computeMetrics({
+    tickets,
+    total: raw.total,
+    now: raw.fetchedAt,
+    timestamps: kind !== 'markdown',
+    blockersFinalized,
+    labels: deps.labels,
+  })
 }
 
 function mapError(error: unknown): { readonly code: ErrorCode; readonly message: string } {

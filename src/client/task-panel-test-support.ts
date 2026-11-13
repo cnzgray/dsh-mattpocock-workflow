@@ -5,6 +5,7 @@
 import { screen } from '@testing-library/react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   RpcResult,
   TicketDetail,
@@ -142,6 +143,7 @@ export const SNAPSHOT: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: 30,
   tickets: TICKETS,
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

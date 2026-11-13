@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type {
+  BlockerResolution,
   TicketDetail,
   TicketOptions,
   TicketPatch,
@@ -48,7 +49,7 @@ export type NativeBlockersFixture =
   | {
       readonly kind: 'deferred'
       readonly request: readonly TicketReference[]
-      readonly expected: ReadonlyMap<string, number>
+      readonly expected: BlockerResolution
     }
   | { readonly kind: 'none'; readonly expected: readonly number[] }
 /** 后端实现补全候选能力时给出的工厂与期望输出。 */
@@ -93,6 +94,16 @@ export interface TrackerContractFixture {
   readonly options?: TicketOptionsFixture
   /** 后端实现可选删除能力时的目标票与权限期望；省略表示不实现。 */
   readonly delete?: TicketDeleteFixture
+  /**
+   * 后端能给出的可选字段：关闭时间与阻塞引用。未列出的票必须省略该字段，
+   * 这样“给不出”不会被伪装成一个值。
+   */
+  readonly fields?: {
+    /** ref → 期望的关闭时间。 */
+    readonly closedAt: Readonly<Record<string, string>>
+    /** ref → 期望的阻塞票引用。 */
+    readonly blockedBy: Readonly<Record<string, readonly string[]>>
+  }
 }
 
 /**
@@ -148,6 +159,18 @@ function describeListContract(fixture: TrackerContractFixture): void {
       expect(ticket.openBlockers).toBeGreaterThanOrEqual(0)
     }
   })
+
+  const fields = fixture.fields
+  if (fields !== undefined) {
+    it('给出可得的关闭时间与阻塞引用，缺数据时省略字段', async () => {
+      const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
+
+      for (const ticket of snapshot.tickets) {
+        expect(ticket.closedAt).toBe(fields.closedAt[ticket.ref])
+        expect(ticket.blockedBy).toEqual(fields.blockedBy[ticket.ref])
+      }
+    })
+  }
 }
 
 function describeBlockerContract(fixture: TrackerContractFixture): void {

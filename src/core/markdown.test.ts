@@ -43,6 +43,7 @@ describe('本地 Markdown 工单解析', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
         openBlockers: 0,
+        blockedBy: [],
       },
     ])
   })
@@ -87,6 +88,12 @@ describe('本地 Markdown 工单解析', () => {
     ])
 
     expect(tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 0, 1, 1])
+    expect(tickets[2]?.blockedBy).toEqual([
+      '.scratch/login/issues/01-open.md',
+      '.scratch/login/issues/02-resolved.md',
+    ])
+    // 引用的文件不在同一 feature 里时没有可指向的票，链深度只沿已知票走。
+    expect(tickets[3]?.blockedBy).toEqual([])
   })
 
   it('被引用文件不存在时按未关闭处理', () => {

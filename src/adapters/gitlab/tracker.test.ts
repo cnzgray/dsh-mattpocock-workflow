@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CommandRunner, TicketDetail, Tracker } from '../../core/ticket.ts'
+import type { BlockerResolution, CommandRunner, TicketDetail, Tracker } from '../../core/ticket.ts'
 import { CommandError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
 import {
@@ -116,7 +116,7 @@ function describedIssuesJson(): string {
 }
 
 /** 模拟宿主的两阶段读取：先列表，再对开放票补齐原生阻塞数。 */
-async function listThenResolve(tracker: Tracker): Promise<ReadonlyMap<string, number>> {
+async function listThenResolve(tracker: Tracker): Promise<BlockerResolution> {
   const snapshot = await tracker.fetchSnapshot('/workspace')
   const targets = snapshot.tickets
     .filter((ticket) => ticket.state === 'open')
@@ -169,7 +169,7 @@ describe('GitLab 工单后端', () => {
     expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 1, 0])
   })
 
-  it('列表带 blocking_issues_count 时补齐阶段直接判定支持，不再探测 links', async () => {
+  it('列表带 blocking_issues_count 时补齐阶段直接判定支持，不发能力探测', async () => {
     const { tracker, linkCalls, graphqlCalls } = trackerWith({
       issues: () =>
         issuesJson([
@@ -183,22 +183,25 @@ describe('GitLab 工单后端', () => {
 
     const native = await listThenResolve(tracker)
 
-    expect(linkCalls).toEqual([])
+    // 计数走批量查询；阻塞引用要票号，只对真有阻塞的票再读一次 links，
+    // 这次请求失败时只丢引用，计数仍然可用。
+    expect(linkCalls).toEqual([16])
     expect(graphqlCalls).toHaveLength(1)
-    expect(native).toEqual(
+    expect(native.open).toEqual(
       new Map([
         ['#15', 0],
         ['#16', 1],
       ]),
     )
+    expect(native.blockedBy.size).toBe(0)
   })
 
-  it('补齐阶段只发一次阻塞能力探测，不逐票请求', async () => {
+  it('补齐阶段只探测一次能力，只对真有阻塞的票读一次 links', async () => {
     const { tracker, linkCalls } = trackerWith()
 
     await listThenResolve(tracker)
 
-    expect(linkCalls).toEqual([15])
+    expect(linkCalls).toEqual([15, 16])
   })
 
   it('能力探测按实例主机缓存，重复刷新不重复探测', async () => {
@@ -207,7 +210,7 @@ describe('GitLab 工单后端', () => {
     await listThenResolve(tracker)
     await listThenResolve(tracker)
 
-    expect(linkCalls).toEqual([15])
+    expect(linkCalls).toEqual([15, 16, 16])
     expect(graphqlCalls).toHaveLength(2)
   })
 
@@ -219,12 +222,12 @@ describe('GitLab 工单后端', () => {
     await listThenResolve(first.tracker)
     await listThenResolve(second.tracker)
 
-    expect(first.linkCalls).toEqual([15])
-    expect(second.linkCalls).toEqual([])
+    expect(first.linkCalls).toEqual([15, 16])
+    expect(second.linkCalls).toEqual([16])
     expect(second.graphqlCalls).toHaveLength(1)
   })
 
-  it('原生阻塞数随一次批量查询取回，不再逐票请求 links', async () => {
+  it('原生阻塞数随一次批量查询取回，阻塞引用另读一次 links', async () => {
     const { tracker, graphqlCalls } = trackerWith()
 
     const native = await listThenResolve(tracker)
@@ -232,7 +235,8 @@ describe('GitLab 工单后端', () => {
     expect(graphqlCalls).toHaveLength(1)
     expect(graphqlCalls[0]).toContain('"15"')
     expect(graphqlCalls[0]).toContain('"16"')
-    expect(native.get('#16')).toBe(1)
+    expect(native.open.get('#16')).toBe(1)
+    expect(native.blockedBy.get('#16')).toEqual(['#15', '#7'])
   })
 
   it('探测命中 200 + 空数组时不补齐，且不再请求批量计数', async () => {
@@ -245,7 +249,7 @@ describe('GitLab 工单后端', () => {
 
     expect(linkCalls).toEqual([16])
     expect(graphqlCalls).toEqual([])
-    expect(native.size).toBe(0)
+    expect(native.open.size).toBe(0)
   })
 
   it.each([
@@ -265,7 +269,7 @@ describe('GitLab 工单后端', () => {
 
     expect(linkCalls).toEqual([16])
     expect(graphqlCalls).toEqual([])
-    expect(native.size).toBe(0)
+    expect(native.open.size).toBe(0)
   })
 
   it('探测优先选择正文里写了 Blocked by 的开放票', async () => {
@@ -273,7 +277,7 @@ describe('GitLab 工单后端', () => {
 
     await listThenResolve(tracker)
 
-    expect(linkCalls).toEqual([16])
+    expect(linkCalls).toEqual([16, 16])
   })
 
   it('没有列表线索时补齐阶段自己读远端并探测第一张票', async () => {
@@ -284,9 +288,10 @@ describe('GitLab 工单后端', () => {
       { ref: '#16', number: 16 },
     ])
 
-    expect(linkCalls).toEqual([15])
+    expect(linkCalls).toEqual([15, 16])
     expect(graphqlCalls).toHaveLength(1)
-    expect(native?.get('#16')).toBe(1)
+    expect(native?.open.get('#16')).toBe(1)
+    expect(native?.blockedBy.get('#16')).toEqual(['#15', '#7'])
   })
 
   it('批量计数失败时抛错，由宿主保留首屏的描述回退', async () => {
@@ -311,7 +316,7 @@ describe('GitLab 工单后端', () => {
 
     expect(linkCalls).toEqual([])
     expect(graphqlCalls).toEqual([])
-    expect(native.size).toBe(0)
+    expect(native.open.size).toBe(0)
   })
 
   it('只读 issue 接口，不请求 merge request', async () => {
@@ -643,10 +648,19 @@ describeTrackerContract('GitLab', {
       { ref: '#15', number: 15 },
       { ref: '#16', number: 16 },
     ],
-    expected: new Map([
-      ['#15', 0],
-      ['#16', 1],
-    ]),
+    expected: {
+      open: new Map([
+        ['#15', 0],
+        ['#16', 1],
+      ]),
+      // 只有真有未关闭阻塞的票才读一次 links，#15 没有阻塞票，没有原生引用。
+      blockedBy: new Map([['#16', ['#15', '#7']]]),
+    },
+  },
+  fields: {
+    closedAt: { '#9': '2026-11-11T10:00:00Z' },
+    // 列表阶段只有描述回退；这个 fixture 的描述里没有 Blocked by 行。
+    blockedBy: { '#15': [], '#16': [], '#9': [] },
   },
   detail: {
     createTracker: () =>

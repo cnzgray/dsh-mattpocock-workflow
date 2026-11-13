@@ -5,6 +5,7 @@
 import { render } from '@testing-library/react'
 import * as React from 'react'
 
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   RpcErrorBody,
   TicketDetail,
@@ -80,6 +81,7 @@ export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
   loaded: 0,
   total: 0,
   tickets: [],
+  metrics: emptyMetrics(),
   blockersFinalized: true,
 }
 

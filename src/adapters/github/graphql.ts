@@ -45,6 +45,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
 
   const title = readString(value.title, `第 ${String(number)} 张票的标题`)
   const state = readState(value.state, number)
+  const closedAt = readClosedAt(value.closedAt, number)
 
   return {
     ref: `#${String(number)}`,
@@ -55,6 +56,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
     createdAt: readString(value.createdAt, `第 ${String(number)} 张票的创建时间`),
     updatedAt: readString(value.updatedAt, `第 ${String(number)} 张票的更新时间`),
     openBlockers: readOpenBlockers(value.issueDependenciesSummary),
+    ...(closedAt === undefined ? {} : { closedAt }),
   }
 }
 
@@ -114,6 +116,20 @@ function readOpenBlockers(value: unknown): number {
 function readString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw invalid(`${field} 不是非空字符串`)
+  }
+  return value
+}
+
+/**
+ * 关闭时间：开放票为 null，已关闭票是 ISO 字符串。
+ * @param value - GraphQL 返回的 `closedAt`。
+ * @param number - 工单编号，用于错误信息。
+ * @returns 关闭时间；开放票缺席。
+ */
+function readClosedAt(value: unknown, number: number): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw invalid(`第 ${String(number)} 张票的关闭时间不合法`)
   }
   return value
 }

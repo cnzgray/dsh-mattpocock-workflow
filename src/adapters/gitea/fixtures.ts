@@ -72,6 +72,7 @@ export function giteaIssue(overrides: {
   readonly body?: string
   readonly createdAt?: string
   readonly updatedAt?: string
+  readonly closedAt?: string
   readonly pullRequest?: boolean
 }): Record<string, unknown> {
   const issue: Record<string, unknown> = {
@@ -87,6 +88,7 @@ export function giteaIssue(overrides: {
     body: overrides.body ?? '',
     created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
     updated_at: overrides.updatedAt ?? '2026-11-12T14:11:38Z',
+    closed_at: overrides.closedAt ?? null,
   }
   if (overrides.pullRequest === true) {
     issue.pull_request = { merged: false, merged_at: null }
@@ -117,6 +119,7 @@ export const GITEA_ISSUES = [
     labels: ['needs-triage'],
     createdAt: '2026-11-10T09:00:00Z',
     updatedAt: '2026-11-11T09:30:00Z',
+    closedAt: '2026-11-11T10:00:00Z',
   }),
 ]
 

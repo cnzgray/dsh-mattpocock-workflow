@@ -1,139 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TicketReference, Ticket, Tracker, TrackerSnapshot } from '../core/ticket.ts'
+import type { BlockerResolution } from '../core/ticket.ts'
 import { TrackerError, type TrackerErrorCode } from '../core/tracker-error.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
-import type { BackendKind } from '../protocol/backend.ts'
-import { ERROR_CODES, type RpcResult, type WorkspaceSnapshot } from '../protocol/tracker.ts'
-import type { BackendResolver } from './backend-resolver.ts'
-import type { LogSink } from './log.ts'
-import { createSnapshotService, type SnapshotService } from './snapshot-service.ts'
-
-const ROOT = '/workspace'
-
-function ticket(overrides: Partial<Ticket>): Ticket {
-  const number = overrides.number === undefined ? 1 : overrides.number
-  return {
-    ref: number === null ? '.scratch/feature/issues/01-ticket.md' : `#${String(number)}`,
-    number,
-    title: '一张票',
-    state: 'open',
-    labels: [],
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-01-01T00:00:00Z',
-    openBlockers: 0,
-    ...overrides,
-  }
-}
-
-const TICKETS: readonly Ticket[] = [
-  ticket({ number: 1, title: '可接的票', labels: ['enhancement', 'ready-for-agent'] }),
-  ticket({
-    number: 2,
-    title: '被阻塞的票',
-    labels: ['enhancement', 'ready-for-agent'],
-    openBlockers: 1,
-  }),
-  ticket({
-    number: 3,
-    title: '已关闭的票',
-    state: 'closed',
-    labels: ['bug', 'ready-for-agent'],
-    openBlockers: 2,
-  }),
-  ticket({ number: 4, title: '其他开放的票', labels: ['needs-triage'] }),
-]
-
-interface FakeResolver {
-  readonly resolve: BackendResolver
-  readonly calls: string[]
-  readonly blockerCalls: (readonly TicketReference[])[]
-}
-
-/** 假的阻塞补齐实现；抛错用来覆盖补齐失败。 */
-type BlockerResolver = (tickets: readonly TicketReference[]) => Promise<ReadonlyMap<string, number>>
-
-function fakeResolver(
-  responses: readonly (TrackerSnapshot | Error)[],
-  kind: BackendKind = 'github',
-  resolveBlockers?: BlockerResolver,
-): FakeResolver {
-  const calls: string[] = []
-  const blockerCalls: (readonly TicketReference[])[] = []
-  let index = 0
-  const resolve: BackendResolver = (workspaceRoot) => {
-    calls.push(workspaceRoot)
-    const response = responses[index]
-    index += 1
-    if (response === undefined) return Promise.reject(new Error('没有更多响应'))
-    if (response instanceof Error) return Promise.reject(response)
-
-    const tracker: Tracker = {
-      fetchSnapshot: () => Promise.resolve(response),
-      ...(resolveBlockers === undefined
-        ? {}
-        : {
-            resolveBlockers: (_root: string, targets: readonly TicketReference[]) => {
-              blockerCalls.push(targets)
-              return resolveBlockers(targets)
-            },
-          }),
-    }
-    return Promise.resolve({
-      kind,
-      tracker,
-      choice: { kind, source: kind === 'markdown' ? 'no-remote' : 'remote' },
-      address: kind === 'markdown' ? undefined : { host: 'github.com', path: 'cnzgray/repo' },
-    })
-  }
-  return { resolve, calls, blockerCalls }
-}
-
-function snapshot(overrides: Partial<TrackerSnapshot> = {}): TrackerSnapshot {
-  return {
-    repository: 'cnzgray/dsh-mattpocock-workflow',
-    fetchedAt: 1_000,
-    loaded: TICKETS.length,
-    total: 30,
-    tickets: TICKETS,
-    ...overrides,
-  }
-}
-
-function serviceWith(
-  responses: readonly (TrackerSnapshot | Error)[],
-  kind: BackendKind = 'github',
-  resolveBlockers?: BlockerResolver,
-): {
-  readonly service: SnapshotService
-  readonly calls: string[]
-  readonly blockerCalls: (readonly TicketReference[])[]
-  readonly logs: readonly { level: string; event: string; fields: Record<string, unknown> }[]
-} {
-  const { resolve, calls, blockerCalls } = fakeResolver(responses, kind, resolveBlockers)
-  const logs: { level: string; event: string; fields: Record<string, unknown> }[] = []
-  const log: LogSink = (level, event, fields) => {
-    logs.push({ level, event, fields: { ...fields } })
-  }
-  let clock = 1_000
-  const service = createSnapshotService({
-    resolve,
-    now: () => {
-      clock += 25
-      return clock
-    },
-    labels: TRACKER_LABELS,
-    log,
-  })
-  return { service, calls, blockerCalls, logs }
-}
-
-function expectOk(result: RpcResult<WorkspaceSnapshot>): WorkspaceSnapshot {
-  expect(result.ok).toBe(true)
-  if (!result.ok) throw new Error(result.error.message)
-  return result.result
-}
+import { ERROR_CODES } from '../protocol/tracker.ts'
+import { createSnapshotService } from './snapshot-service.ts'
+import {
+  ROOT,
+  expectOk,
+  resolution,
+  serviceWith,
+  snapshot,
+  ticket,
+} from './snapshot-service-test-support.ts'
 
 describe('快照服务', () => {
   it('返回仓库标识、计数与每张票的判定结果', async () => {
@@ -362,7 +242,7 @@ describe('快照服务', () => {
 describe('阻塞补齐', () => {
   it('有补齐能力的后端首屏未定稿，且不发补齐请求', async () => {
     const { service, blockerCalls } = serviceWith([snapshot()], 'gitlab', () =>
-      Promise.resolve(new Map()),
+      Promise.resolve(resolution()),
     )
 
     const result = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
@@ -383,11 +263,13 @@ describe('阻塞补齐', () => {
   it('补齐只请求开放票，原生计数优先，并重新判定', async () => {
     const { service, blockerCalls } = serviceWith([snapshot()], 'gitlab', () =>
       Promise.resolve(
-        new Map([
-          ['#1', 1],
-          ['#2', 0],
-          ['#4', 3],
-        ]),
+        resolution(
+          new Map([
+            ['#1', 1],
+            ['#2', 0],
+            ['#4', 3],
+          ]),
+        ),
       ),
     )
 
@@ -404,25 +286,17 @@ describe('阻塞补齐', () => {
       ],
     ])
     expect(finalized.blockersFinalized).toBe(true)
-    expect(
-      finalized.tickets.map((item) => [
-        item.ref,
-        item.openBlockers,
-        item.status,
-        item.skillAction,
-        item.skillActionReason,
-      ]),
-    ).toEqual([
-      ['#1', 1, 'blocked', 'none', 'blocked'],
-      ['#2', 1, 'blocked', 'none', 'blocked'],
-      ['#3', 2, 'closed', 'none', 'closed'],
-      ['#4', 3, 'blocked', 'none', 'blocked'],
+    expect(finalized.tickets.map((item) => [item.ref, item.openBlockers, item.status])).toEqual([
+      ['#1', 1, 'blocked'],
+      ['#2', 1, 'blocked'],
+      ['#3', 2, 'closed'],
+      ['#4', 3, 'blocked'],
     ])
   })
 
   it('没有缓存时先拉列表再补齐，定稿后直接返回缓存', async () => {
     const { service, calls, blockerCalls } = serviceWith([snapshot()], 'gitlab', () =>
-      Promise.resolve(new Map([['#1', 1]])),
+      Promise.resolve(resolution(new Map([['#1', 1]]))),
     )
 
     const first = expectOk(
@@ -439,13 +313,13 @@ describe('阻塞补齐', () => {
   })
 
   it('并发补齐共享同一次后端请求', async () => {
-    const pending = Promise.withResolvers<ReadonlyMap<string, number>>()
+    const pending = Promise.withResolvers<BlockerResolution>()
     const { service, blockerCalls } = serviceWith([snapshot()], 'gitlab', () => pending.promise)
     await service.handle('snapshot.get', { workspaceRoot: ROOT })
 
     const first = service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })
     const second = service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })
-    pending.resolve(new Map([['#1', 1]]))
+    pending.resolve(resolution(new Map([['#1', 1]])))
     const [a, b] = await Promise.all([first, second])
 
     expect(blockerCalls).toHaveLength(1)
@@ -487,7 +361,7 @@ describe('阻塞补齐', () => {
         attempt += 1
         return attempt === 1
           ? Promise.reject(new TrackerError('fetch-failed', '网络抖动'))
-          : Promise.resolve(new Map([['#1', 1]]))
+          : Promise.resolve(resolution(new Map([['#1', 1]])))
       },
     )
 
@@ -506,7 +380,7 @@ describe('阻塞补齐', () => {
   })
 
   it('刷新后旧的补齐结果仍返回给旧调用方，但不覆盖新快照', async () => {
-    const pending = Promise.withResolvers<ReadonlyMap<string, number>>()
+    const pending = Promise.withResolvers<BlockerResolution>()
     const { service } = serviceWith(
       [snapshot({ fetchedAt: 1_000, total: 30 }), snapshot({ fetchedAt: 2_000, total: 31 })],
       'gitlab',
@@ -516,7 +390,7 @@ describe('阻塞补齐', () => {
     await service.handle('snapshot.get', { workspaceRoot: ROOT })
     const resolving = service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })
     const refreshed = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
-    pending.resolve(new Map([['#1', 1]]))
+    pending.resolve(resolution(new Map([['#1', 1]])))
     const resolved = expectOk(await resolving)
 
     expect(resolved).toMatchObject({ fetchedAt: 1_000, total: 30, blockersFinalized: true })
@@ -539,7 +413,7 @@ describe('阻塞补齐', () => {
   })
 
   it('冷启动时并发的补齐请求只拉一次列表、只发一轮补齐', async () => {
-    const pending = Promise.withResolvers<ReadonlyMap<string, number>>()
+    const pending = Promise.withResolvers<BlockerResolution>()
     const { service, calls, blockerCalls } = serviceWith(
       [snapshot()],
       'gitlab',
@@ -548,7 +422,7 @@ describe('阻塞补齐', () => {
 
     const first = service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })
     const second = service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })
-    pending.resolve(new Map([['#1', 1]]))
+    pending.resolve(resolution(new Map([['#1', 1]])))
     const [a, b] = await Promise.all([first, second])
 
     expect(calls).toEqual([ROOT])
@@ -557,7 +431,9 @@ describe('阻塞补齐', () => {
   })
 
   it('补齐日志记录独立于列表的耗时', async () => {
-    const { service, logs } = serviceWith([snapshot()], 'gitlab', () => Promise.resolve(new Map()))
+    const { service, logs } = serviceWith([snapshot()], 'gitlab', () =>
+      Promise.resolve(resolution()),
+    )
 
     await service.handle('snapshot.get', { workspaceRoot: ROOT })
     await service.handle('snapshot.resolveBlockers', { workspaceRoot: ROOT })

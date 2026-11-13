@@ -38,7 +38,8 @@ function serviceWithNativeBlocker(): SnapshotService {
       kind: 'gitlab',
       tracker: {
         fetchSnapshot: () => Promise.resolve(RAW),
-        resolveBlockers: () => Promise.resolve(new Map([['#1', 1]])),
+        resolveBlockers: () =>
+          Promise.resolve({ open: new Map([['#1', 1]]), blockedBy: new Map() }),
       },
       choice: { kind: 'gitlab', source: 'remote' },
       address: { host: 'gitlab.com', path: 'cnzgray/repo' },

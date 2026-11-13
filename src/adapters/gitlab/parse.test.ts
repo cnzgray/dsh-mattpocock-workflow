@@ -5,6 +5,7 @@ import {
   hasNativeBlockingLinks,
   parseBlockedByCounts,
   parseIssuesPage,
+  parseNativeBlockers,
 } from './parse.ts'
 
 describe('GitLab 工单解析', () => {
@@ -33,6 +34,7 @@ describe('GitLab 工单解析', () => {
         createdAt: '2026-11-12T14:11:22Z',
         updatedAt: '2026-11-21T14:11:38Z',
         openBlockers: 0,
+        blockedBy: [],
       },
       description: '# 目标\n',
       hasBlockingIssuesCount: false,
@@ -70,6 +72,16 @@ describe('GitLab 工单解析', () => {
 
   it('嵌套 group 的项目路径编码成单个路径段', () => {
     expect(encodeProjectPath('group/sub/repo')).toBe('group%2Fsub%2Frepo')
+  })
+
+  it('原生链接给出未关闭数与全部 is_blocked_by 编号', () => {
+    const output = JSON.stringify([
+      { iid: 15, state: 'opened', link_type: 'is_blocked_by' },
+      { iid: 7, state: 'closed', link_type: 'is_blocked_by' },
+      { iid: 8, state: 'opened', link_type: 'relates_to' },
+    ])
+
+    expect(parseNativeBlockers(output)).toEqual({ open: 1, refs: [15, 7] })
   })
 })
 

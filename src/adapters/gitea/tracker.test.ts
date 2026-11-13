@@ -659,4 +659,8 @@ describeTrackerContract('Gitea', {
     request: GITEA_DETAIL_REQUEST,
     canDelete: true,
   },
+  fields: {
+    closedAt: { '#9': '2026-11-11T10:00:00Z' },
+    blockedBy: { '#15': ['#7'], '#16': ['#15', '#7'], '#9': [] },
+  },
 })

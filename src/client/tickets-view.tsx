@@ -6,17 +6,14 @@
  */
 import * as React from 'react'
 
-import type {
-  ErrorCode,
-  RpcErrorBody,
-  TicketSnapshot,
-  WorkspaceSnapshot,
-} from '../protocol/tracker.ts'
+import type { ErrorCode, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
-import { errorText, isEnvIssue } from './error-text.ts'
+import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
+import { formatAge, useNow } from './snapshot-age.ts'
+import { useSnapshotRequest } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import { TicketList } from './ticket-list.tsx'
 import {
@@ -24,12 +21,10 @@ import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
   BUG_ACTION_STYLE,
-  BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
   CHIP_STYLE,
   COLORS,
   EMPTY_STYLE,
-  ERROR_STYLE,
   FEATURE_ACTION_STYLE,
   FILTERS,
   HEADER_STYLE,
@@ -67,18 +62,11 @@ export interface TicketsViewProps {
   readonly onOpenEnvCheck: (code: ErrorCode) => void
   /** 点击工单行：打开这张票的详情，不做提示词注入。 */
   readonly onOpenTicket: (ticket: TicketSnapshot) => void
+  /** 从概览跳过来时要定位的票；只高亮，不写提示词。 */
+  readonly focusRef?: string | null | undefined
+  /** 定位完成后清空焦点，避免重新挂载时再次定位。 */
+  readonly onFocusHandled?: (() => void) | undefined
 }
-
-type Phase = 'loading' | 'ready' | 'refreshing' | 'error'
-
-interface SnapshotRequestState {
-  readonly snapshot: WorkspaceSnapshot | null
-  readonly error: RpcErrorBody | null
-  readonly phase: Phase
-  readonly refresh: () => void
-}
-
-const AGE_TICK_MS = 30_000
 
 /** 工单列表视图。 */
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
@@ -100,6 +88,8 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
     preference.direction,
   )
   const busy = phase === 'loading' || phase === 'refreshing'
+
+  const focused = useFocusedTicket(props.focusRef, props.onFocusHandled, props.workspaceRoot)
 
   return (
     <div
@@ -133,14 +123,13 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             onFilter={setFilter}
             onSort={toggleSort}
           />
-          <div data-testid="loaded-total" style={LOADED_STYLE}>
-            已加载 {snapshot.loaded} / 共 {snapshot.total}
-          </div>
-          <TicketList
-            tickets={visible}
-            emptyText={tickets.length === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
+          <TicketRows
+            snapshot={snapshot}
+            visible={visible}
+            ticketCount={tickets.length}
             injected={injected}
             canInject={props.canInject}
+            focused={focused}
             onPick={props.onOpenTicket}
             onSkillAction={onSkillAction}
           />
@@ -155,81 +144,63 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
   )
 }
 
-function useNow(clock: () => number): number {
-  const [now, setNow] = React.useState(() => clock())
+/**
+ * 从概览跳过来时要定位的票：只高亮，不写提示词——概览是只读视图。
+ * @param focusRef - 面板传下来的待定位引用。
+ * @param onFocusHandled - 定位完成后的回调，面板据此清空待定位状态。
+ * @param workspaceRoot - 当前工作区；换工作区时定位失效。
+ * @returns 当前要定位的引用；没有时为 null。
+ */
+function useFocusedTicket(
+  focusRef: string | null | undefined,
+  onFocusHandled: (() => void) | undefined,
+  workspaceRoot: string | undefined,
+): string | null {
+  const [focused, setFocused] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    const id = setInterval(() => {
-      setNow(clock())
-    }, AGE_TICK_MS)
-    return () => {
-      clearInterval(id)
-    }
-  }, [clock])
+    if (focusRef === null || focusRef === undefined) return
+    setFocused(focusRef)
+    onFocusHandled?.()
+  }, [focusRef, onFocusHandled])
 
-  return now
+  // 换工作区时清掉定位；首次挂载不清，刚跳过来的定位要留住。
+  const previousRoot = React.useRef(workspaceRoot)
+  React.useEffect(() => {
+    if (previousRoot.current === workspaceRoot) return
+    previousRoot.current = workspaceRoot
+    setFocused(null)
+  }, [workspaceRoot])
+
+  return focused
 }
 
-function useSnapshotRequest(
-  client: PanelClient,
-  workspaceRoot: string | undefined,
-): SnapshotRequestState {
-  const [snapshot, setSnapshot] = React.useState<WorkspaceSnapshot | null>(null)
-  const [error, setError] = React.useState<RpcErrorBody | null>(null)
-  const [phase, setPhase] = React.useState<Phase>('loading')
-  const sequence = React.useRef(0)
-
-  const request = React.useCallback(
-    async (mode: 'get' | 'refresh'): Promise<void> => {
-      const current = sequence.current + 1
-      sequence.current = current
-
-      if (workspaceRoot === undefined) {
-        setSnapshot(null)
-        setError({ code: 'invalid-params', message: '当前会话没有工作区目录，无法读取工单。' })
-        setPhase('error')
-        return
-      }
-
-      setPhase(mode === 'refresh' ? 'refreshing' : 'loading')
-      setError(null)
-      const result =
-        mode === 'refresh' ? await client.refresh(workspaceRoot) : await client.get(workspaceRoot)
-      if (current !== sequence.current) return
-
-      if (!result.ok) {
-        setError(result.error)
-        setPhase('error')
-        return
-      }
-
-      // 首屏只等列表：阻塞数先按描述回退显示，补齐结果到了再原子替换。
-      setSnapshot(result.result)
-      setError(null)
-      setPhase('ready')
-      if (result.result.blockersFinalized) return
-
-      const finalized = await client.resolveBlockers(workspaceRoot)
-      // 刷新会推进序号；旧补齐结果不能覆盖新列表。
-      if (current !== sequence.current) return
-      // 补齐失败保留首屏结果：列表已经可用，不弹错误横幅。
-      if (finalized.ok) setSnapshot(finalized.result)
-    },
-    [client, workspaceRoot],
+function TicketRows(props: {
+  readonly snapshot: WorkspaceSnapshot
+  readonly visible: readonly TicketSnapshot[]
+  readonly ticketCount: number
+  readonly injected: string | null
+  readonly canInject: boolean
+  readonly focused: string | null
+  readonly onPick: (ticket: TicketSnapshot) => void
+  readonly onSkillAction: (ticket: TicketSnapshot) => void
+}): React.ReactElement {
+  return (
+    <>
+      <div data-testid="loaded-total" style={LOADED_STYLE}>
+        已加载 {props.snapshot.loaded} / 共 {props.snapshot.total}
+      </div>
+      <TicketList
+        tickets={props.visible}
+        emptyText={props.ticketCount === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
+        injected={props.injected}
+        canInject={props.canInject}
+        focused={props.focused}
+        onPick={props.onPick}
+        onSkillAction={props.onSkillAction}
+      />
+    </>
   )
-
-  React.useEffect(() => {
-    setSnapshot(null)
-    setError(null)
-    void request('get')
-  }, [request])
-
-  const refresh = React.useCallback(() => {
-    if (phase === 'loading' || phase === 'refreshing') return
-    void request('refresh')
-  }, [phase, request])
-
-  return { snapshot, error, phase, refresh }
 }
 
 function Header(props: {
@@ -450,41 +421,4 @@ function Footer(props: {
       )}
     </footer>
   )
-}
-
-function ErrorBanner(props: {
-  readonly error: RpcErrorBody
-  readonly onOpenEnvCheck: (code: ErrorCode) => void
-}): React.ReactElement {
-  return (
-    <div role="alert" data-testid="error" style={ERROR_STYLE}>
-      <div>{errorText(props.error)}</div>
-      {isEnvIssue(props.error.code) ? (
-        <button
-          type="button"
-          data-testid="open-env-check"
-          data-hover="soft"
-          onClick={() => {
-            props.onOpenEnvCheck(props.error.code)
-          }}
-          style={{ ...BUTTON_STYLE, marginTop: 6 }}
-        >
-          查看环境检查
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-function formatAge(fetchedAt: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - fetchedAt) / 1000))
-  if (seconds < 60) return '刚刚'
-
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${String(minutes)} 分钟前`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${String(hours)} 小时前`
-
-  return `${String(Math.floor(hours / 24))} 天前`
 }

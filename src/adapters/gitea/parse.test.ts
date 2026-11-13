@@ -52,6 +52,7 @@ describe('Gitea 工单解析', () => {
           createdAt: '2026-11-12T14:11:22Z',
           updatedAt: '2026-11-21T14:11:38Z',
           openBlockers: 0,
+          blockedBy: [],
         },
         body: '# 目标\n',
       },
@@ -83,7 +84,7 @@ describe('Gitea 工单解析', () => {
       { number: 0, title: 'HIDDEN' },
     ])
 
-    expect(parseDependencies(output)).toEqual({ received: 3, open: 2 })
+    expect(parseDependencies(output)).toEqual({ received: 3, open: 2, refs: [15, 7] })
   })
 
   it('依赖列表不是数组时返回数据格式错误', () => {
