@@ -7,6 +7,7 @@
  */
 import type { BackendKind } from './backend.ts'
 import type { EnvCheckParams } from './env-check.ts'
+import type { TicketActionReason, TicketSkillAction } from './labels.ts'
 
 /** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
@@ -51,6 +52,10 @@ export interface TicketSnapshot {
   readonly state: TicketState
   readonly category: TicketCategory
   readonly status: TicketStatus
+  /** 该票对应的技能动作；`none` 表示不提供注入入口。判定在 core，界面只展示。 */
+  readonly skillAction: TicketSkillAction
+  /** 判定依据；界面用它渲染原因徽标和悬停说明。 */
+  readonly skillActionReason: TicketActionReason
   readonly createdAt: string
   readonly updatedAt: string
   /** 未关闭的阻塞票数量；0 表示可以开工。 */

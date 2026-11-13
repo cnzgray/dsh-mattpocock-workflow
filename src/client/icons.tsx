@@ -47,3 +47,54 @@ export function PlusIcon(): React.ReactElement {
     </svg>
   )
 }
+
+/** 技能按钮的“填入输入框”：箭头进入右侧括号，说明点击是往会话输入框里放提示词。 */
+export function InsertDraftIcon(): React.ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      style={{ flex: 'none' }}
+    >
+      <path
+        d="M2.3 8h7.3M7.1 5.3 9.9 8 7.1 10.7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.2 2.9h1.7v10.2h-1.7"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** 提示词已填入输入框：按钮换成对勾。 */
+export function CheckIcon(): React.ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      style={{ flex: 'none' }}
+    >
+      <path
+        d="m3.2 8.4 3.2 3.2 6.4-6.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

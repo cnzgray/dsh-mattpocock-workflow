@@ -4,6 +4,7 @@
  */
 import type { CSSProperties } from 'react'
 
+import type { TicketActionReason } from '../protocol/labels.ts'
 import type { TicketStatus } from '../protocol/tracker.ts'
 import type { TicketFilter, TicketSortKey } from './ticket-view.ts'
 
@@ -41,7 +42,7 @@ export const HEADER_STYLE: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 8,
-  padding: '12px 12px 4px',
+  padding: '10px 12px 2px',
 }
 
 export const REPO_CHIP_STYLE: CSSProperties = {
@@ -110,8 +111,8 @@ export const ACTION_BAR_STYLE: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   columnGap: 12,
-  rowGap: 8,
-  padding: '8px 12px 10px',
+  rowGap: 6,
+  padding: '6px 12px 8px',
 }
 
 export const BUTTON_STYLE: CSSProperties = {
@@ -237,11 +238,11 @@ export const TOOLBAR_STYLE: CSSProperties = {
   flexWrap: 'wrap',
   alignItems: 'center',
   gap: 8,
-  padding: '0 12px 6px',
+  padding: '0 12px 4px',
 }
 
 export const LOADED_STYLE: CSSProperties = {
-  padding: '2px 12px 8px',
+  padding: '0 12px 6px',
   color: COLORS.tertiary,
   fontSize: 11,
   fontVariantNumeric: 'tabular-nums',
@@ -253,36 +254,35 @@ export const EMPTY_STYLE: CSSProperties = {
   color: COLORS.secondary,
 }
 
+/** 卡片列表：卡片间距收紧到 6px，窄侧栏里一屏能多放几张。 */
 export const LIST_STYLE: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 6,
   flex: 1,
   minHeight: 0,
   overflow: 'auto',
   padding: '0 12px 12px',
 }
 
-export const CARD_STYLE: CSSProperties = {
+/**
+ * 工单卡片：左列是行按钮（编号 + 标题，下面一行是状态与分类），右列是技能按钮或原因徽标，
+ * 和标题第一行对齐。卡片表面在容器上，点空白处也算选中。
+ */
+export const CARD_ROW_STYLE: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-  gridTemplateRows: 'auto auto',
-  columnGap: 8,
-  // 行距放在分类徽标上：没有分类的卡片不留空的第二行。
-  rowGap: 0,
-  alignItems: 'center',
-  width: '100%',
-  padding: '10px 12px',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  alignItems: 'start',
+  columnGap: 10,
+  padding: '7px 10px 8px',
   // 用边框长属性：选中态只改 borderColor，取消选中时 React 会把它恢复成这里的值，
   // 若写成 border 简写，取消选中会清空颜色、退回 currentColor（黑框）。
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: COLORS.border,
-  borderRadius: 10,
+  borderRadius: 8,
   color: COLORS.text,
   cursor: 'pointer',
-  font: 'inherit',
-  textAlign: 'left',
 }
 
 export const CARD_SELECTED_STYLE: CSSProperties = {
@@ -290,10 +290,26 @@ export const CARD_SELECTED_STYLE: CSSProperties = {
   background: `color-mix(in srgb, ${COLORS.accent} 7%, transparent)`,
 }
 
+/** 行按钮：编号一列，标题与元信息共用第二列，标题换行时编号仍贴着第一行。 */
+export const CARD_STYLE: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  alignItems: 'start',
+  columnGap: 8,
+  rowGap: 2,
+  minWidth: 0,
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: 'inherit',
+  cursor: 'pointer',
+  font: 'inherit',
+  textAlign: 'left',
+}
+
 export const NUMBER_BADGE_STYLE: CSSProperties = {
   gridColumn: '1',
   gridRow: '1',
-  alignSelf: 'start',
   // 两位数编号刚好放下，标题在常见编号下对齐；更长的编号自然撑开。
   minWidth: '3ch',
   color: COLORS.tertiary,
@@ -312,18 +328,26 @@ export const CARD_TITLE_STYLE: CSSProperties = {
   overflowWrap: 'anywhere',
 }
 
-export const CARD_CATEGORY_STYLE: CSSProperties = {
+/** 标题下的一行小字：状态在前、分类在后，都是次要信息。 */
+export const CARD_META_STYLE: CSSProperties = {
   gridColumn: '2',
   gridRow: '2',
-  justifySelf: 'start',
-  marginTop: 6,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  columnGap: 8,
+  rowGap: 2,
+  minWidth: 0,
 }
 
-export const CARD_STATUS_STYLE: CSSProperties = {
-  gridColumn: '3',
-  gridRow: '1',
-  alignSelf: 'start',
-  justifySelf: 'end',
+/** 行内状态：圆点 + 文字，不加描边，避免和右侧按钮抢视线。 */
+const STATUS_INLINE_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  fontSize: 11,
+  lineHeight: '18px',
+  whiteSpace: 'nowrap',
 }
 
 const BADGE_STYLE: CSSProperties = {
@@ -334,7 +358,7 @@ const BADGE_STYLE: CSSProperties = {
   borderRadius: 999,
   padding: '0 7px',
   fontSize: 11,
-  lineHeight: '19px',
+  lineHeight: '18px',
   whiteSpace: 'nowrap',
 }
 
@@ -346,10 +370,10 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
 }
 
 export const STATUS_BADGES: Record<TicketStatus, CSSProperties> = {
-  ready: { ...BADGE_STYLE, color: COLORS.success },
-  blocked: { ...BADGE_STYLE, color: COLORS.warn },
-  closed: { ...BADGE_STYLE, color: COLORS.tertiary },
-  open: { ...BADGE_STYLE, color: COLORS.secondary },
+  ready: { ...STATUS_INLINE_STYLE, color: COLORS.success, fontWeight: 500 },
+  blocked: { ...STATUS_INLINE_STYLE, color: COLORS.warn },
+  closed: { ...STATUS_INLINE_STYLE, color: COLORS.tertiary },
+  open: { ...STATUS_INLINE_STYLE, color: COLORS.tertiary },
 }
 
 export const STATUS_DOT_STYLE: CSSProperties = {
@@ -359,13 +383,13 @@ export const STATUS_DOT_STYLE: CSSProperties = {
   background: 'currentColor',
 }
 
-/** 分类是次要信息：浅色底、无描边，和状态徽标区分开。 */
+/** 分类是次要信息：浅色底、无描边，和状态区分开。 */
 const CATEGORY_BADGE_STYLE: CSSProperties = {
   ...BADGE_STYLE,
   border: 'none',
   borderRadius: 4,
-  padding: '0 6px',
-  lineHeight: '18px',
+  padding: '0 5px',
+  lineHeight: '17px',
 }
 
 export const CATEGORY_BADGES: Record<'bug' | 'enhancement', CSSProperties> = {
@@ -382,20 +406,90 @@ export const CATEGORY_BADGES: Record<'bug' | 'enhancement', CSSProperties> = {
 }
 
 /**
+ * 判定依据对应的颜色：不可开工的原因用中性/警告色，三个技能分别用实现（强调）、
+ * 诊断（错误）、分流（警告）色。原因徽标与技能按钮共用这一份色相。
+ */
+export const ACTION_TONES: Record<TicketActionReason, string> = {
+  closed: COLORS.tertiary,
+  blocked: COLORS.warn,
+  wontfix: COLORS.tertiary,
+  'ready-for-human': COLORS.secondary,
+  'needs-triage': COLORS.warn,
+  'needs-info': COLORS.warn,
+  untriaged: COLORS.warn,
+  bug: COLORS.error,
+  'ready-for-agent': COLORS.accent,
+}
+
+/** 不可开工的原因徽标：圆环 + 色相，读作标签而不是按钮。 */
+export const ACTION_BADGE_STYLES: Record<TicketActionReason, CSSProperties> = {
+  closed: { ...BADGE_STYLE, color: ACTION_TONES.closed },
+  blocked: { ...BADGE_STYLE, color: ACTION_TONES.blocked },
+  wontfix: { ...BADGE_STYLE, color: ACTION_TONES.wontfix },
+  'ready-for-human': { ...BADGE_STYLE, color: ACTION_TONES['ready-for-human'] },
+  'needs-triage': { ...BADGE_STYLE, color: ACTION_TONES['needs-triage'] },
+  'needs-info': { ...BADGE_STYLE, color: ACTION_TONES['needs-info'] },
+  untriaged: { ...BADGE_STYLE, color: ACTION_TONES.untriaged },
+  bug: { ...BADGE_STYLE, color: ACTION_TONES.bug },
+  'ready-for-agent': { ...BADGE_STYLE, color: ACTION_TONES['ready-for-agent'] },
+}
+
+/** 技能按钮（或原因徽标）在右列，与标题第一行的 20px 行高居中对齐。 */
+export const CARD_ACTION_BADGE_STYLE: CSSProperties = {
+  justifySelf: 'end',
+  marginTop: -1,
+}
+
+/**
+ * 可点的技能徽标：形状换成面板里通用的按钮（6px 圆角、12px、22px 高），
+ * 和状态/分类标签的圆环拉开距离。底色与描边由样式表按 currentColor 调出，
+ * 悬停和“已填入”才能在样式表里覆盖。
+ */
+export const SKILL_BADGE_BUTTON_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  boxSizing: 'border-box',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 6,
+  height: 22,
+  padding: '0 8px 0 5px',
+  fontSize: 12,
+  fontWeight: 500,
+  lineHeight: '20px',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+}
+
+/** 没有可用会话时技能徽标不可点。 */
+export const SKILL_BADGE_DISABLED_STYLE: CSSProperties = {
+  opacity: 0.45,
+  cursor: 'not-allowed',
+}
+
+/**
  * 内联样式写不了伪类，这里集中放悬停、焦点和过渡。只作用于面板根节点之内；
  * 按钮的默认底色也放在这里，这样内联的选中态底色能覆盖它，悬停又能覆盖默认值。
  */
 export const PANEL_SHEET = `
 [data-anvil-panel] button { background: transparent; transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out; }
+[data-anvil-panel] [data-hover="card"] { transition: background-color 150ms ease-out, border-color 150ms ease-out; }
 [data-anvil-panel] button:disabled { cursor: default; }
 [data-anvil-panel] button:focus { outline: none; }
 [data-anvil-panel] button:focus-visible { outline: 2px solid ${COLORS.accent}; outline-offset: 1px; }
 [data-anvil-panel] [data-hover="soft"]:not(:disabled):not([aria-pressed="true"]):hover { background: ${COLORS.surfaceActive}; color: ${COLORS.text}; }
 [data-anvil-panel] [data-hover="tab"]:not([aria-pressed="true"]):hover { color: ${COLORS.text}; }
-[data-anvil-panel] [data-hover="card"]:not([aria-pressed="true"]):hover { border-color: ${COLORS.borderStrong}; background: rgba(128, 128, 128, 0.06); }
+[data-anvil-panel] [data-hover="card"]:not([data-selected="true"]):hover { border-color: ${COLORS.borderStrong}; background: rgba(128, 128, 128, 0.06); }
 [data-anvil-panel] [data-hover="primary"]:not(:disabled):hover { filter: brightness(1.08); }
 [data-anvil-panel] [data-hover="secondary"]:not(:disabled):hover { background: color-mix(in srgb, ${COLORS.error} 8%, transparent); }
-@media (prefers-reduced-motion: reduce) { [data-anvil-panel] button { transition: none; } }
+[data-anvil-panel] [data-hover="action"] { border-color: color-mix(in srgb, currentColor 30%, transparent); background: color-mix(in srgb, currentColor 12%, transparent); }
+[data-anvil-panel] [data-hover="action"]:not(:disabled):not([data-injected="true"]):hover { border-color: color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 20%, transparent); }
+[data-anvil-panel] [data-hover="action"]:not(:disabled):active { border-color: color-mix(in srgb, currentColor 65%, transparent); background: color-mix(in srgb, currentColor 28%, transparent); }
+[data-anvil-panel] [data-hover="action"][data-injected="true"]:not(:disabled) { border-color: color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 20%, transparent); }
+[data-anvil-panel] [data-hover="action"]:disabled { border-color: ${COLORS.border}; background: transparent; }
+@media (prefers-reduced-motion: reduce) { [data-anvil-panel] button, [data-anvil-panel] [data-hover="card"] { transition: none; } }
 `
 
 export const ERROR_STYLE: CSSProperties = {

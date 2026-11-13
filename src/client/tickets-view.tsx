@@ -8,13 +8,13 @@ import {
   ENV_ISSUE_ERROR_CODES,
   type ErrorCode,
   type RpcErrorBody,
-  type TicketSnapshot,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
-import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './prompts.ts'
+import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
+import { useTicketActions } from './ticket-actions.ts'
 import { TicketList } from './ticket-list.tsx'
 import {
   ACTION_BAR_STYLE,
@@ -90,13 +90,11 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
   const { snapshot, error, phase, refresh } = useSnapshotRequest(props.client, props.workspaceRoot)
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
-  const [selected, setSelected] = React.useState<string | null>(null)
   const nowValue = useNow(clock)
-  const { notice, inject } = useDraftInjection(props.canInject, props.injectDraft)
-
-  React.useEffect(() => {
-    setSelected(null)
-  }, [props.workspaceRoot])
+  const { selected, injected, notice, inject, onPick, onSkillAction } = useTicketActions(
+    props.workspaceRoot,
+    props.injectDraft,
+  )
 
   const tickets = snapshot?.tickets ?? []
   const counts = countTickets(tickets)
@@ -106,11 +104,6 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
     preference.direction,
   )
   const busy = phase === 'loading' || phase === 'refreshing'
-
-  const onPick = (ticket: TicketSnapshot): void => {
-    setSelected(ticket.ref)
-    inject(processTicketPrompt(ticket.ref))
-  }
 
   return (
     <div
@@ -151,7 +144,10 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             tickets={visible}
             emptyText={tickets.length === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
             selected={selected}
+            injected={injected}
+            canInject={props.canInject}
             onPick={onPick}
+            onSkillAction={onSkillAction}
           />
         </>
       ) : phase === 'loading' ? (
@@ -162,23 +158,6 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       <Footer canInject={props.canInject} notice={notice} />
     </div>
   )
-}
-
-function useDraftInjection(
-  canInject: boolean,
-  injectDraft: (text: string) => boolean,
-): { readonly notice: string | null; readonly inject: (text: string) => void } {
-  const [notice, setNotice] = React.useState<string | null>(null)
-
-  const inject = (text: string): void => {
-    if (!canInject) {
-      setNotice('当前没有可用会话，无法填入提示词。')
-      return
-    }
-    setNotice(injectDraft(text) ? null : '没有找到当前会话的输入框，未能填入提示词。')
-  }
-
-  return { notice, inject }
 }
 
 function useNow(clock: () => number): number {

@@ -23,6 +23,20 @@ const SNAPSHOT: WorkspaceSnapshot = {
   blockersFinalized: true,
 }
 
+const TICKET = {
+  ref: '#1',
+  number: 1,
+  title: '一张票',
+  state: 'open',
+  category: 'enhancement',
+  status: 'ready',
+  skillAction: 'implement',
+  skillActionReason: 'ready-for-agent',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  openBlockers: 0,
+} as const
+
 function response(body: unknown, ok = true, status = 200): HttpResponseLike {
   return {
     ok,
@@ -156,6 +170,34 @@ describe('快照 RPC 客户端', () => {
       total: SNAPSHOT.total,
       tickets: SNAPSHOT.tickets,
     }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+    )
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it.each(['skillAction', 'skillActionReason'] as const)(
+    '工单缺少 %s 时返回 fetch-failed',
+    async (field) => {
+      const ticket = Object.fromEntries(Object.entries(TICKET).filter(([key]) => key !== field))
+      const legacy = { ...SNAPSHOT, tickets: [ticket] }
+      const client = createPanelClient(
+        recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+      )
+
+      await expect(client.get('/repo')).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'fetch-failed' },
+      })
+    },
+  )
+
+  it('工单的技能动作不在词表里时返回 fetch-failed', async () => {
+    const legacy = { ...SNAPSHOT, tickets: [{ ...TICKET, skillAction: 'unknown' }] }
     const client = createPanelClient(
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )

@@ -4,6 +4,12 @@
  */
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import {
+  TICKET_ACTION_REASONS,
+  TICKET_SKILL_ACTIONS,
+  type TicketActionReason,
+  type TicketSkillAction,
+} from '../protocol/labels.ts'
+import {
   ERROR_CODES,
   RPC_METHODS,
   RPC_PATH,
@@ -133,8 +139,23 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
+  if (!value.tickets.every(hasSkillAction)) return false
   if (!('blockersFinalized' in value) || typeof value.blockersFinalized !== 'boolean') return false
   return true
+}
+
+function hasSkillAction(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('skillAction' in value) || !isSkillAction(value.skillAction)) return false
+  return 'skillActionReason' in value && isActionReason(value.skillActionReason)
+}
+
+function isSkillAction(value: unknown): value is TicketSkillAction {
+  return TICKET_SKILL_ACTIONS.some((action) => action === value)
+}
+
+function isActionReason(value: unknown): value is TicketActionReason {
+  return TICKET_ACTION_REASONS.some((reason) => reason === value)
 }
 
 function isEnvCheckResult(value: unknown): value is RpcResult<EnvCheckReport> {

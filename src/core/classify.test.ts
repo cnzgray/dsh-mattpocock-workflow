@@ -5,6 +5,10 @@ import type { Ticket, TicketLabelNames } from './ticket.ts'
 
 const NAMES: TicketLabelNames = {
   readyForAgent: 'ready-for-agent',
+  needsTriage: 'needs-triage',
+  needsInfo: 'needs-info',
+  readyForHuman: 'ready-for-human',
+  wontfix: 'wontfix',
   bug: 'bug',
   enhancement: 'enhancement',
 }

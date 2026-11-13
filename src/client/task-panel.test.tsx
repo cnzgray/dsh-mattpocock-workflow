@@ -2,195 +2,28 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
-import type { EnvCheckReport } from '../protocol/env-check.ts'
-import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
-import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT, processTicketPrompt } from './prompts.ts'
+import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import { NEW_BUG_PROMPT, NEW_FEATURE_PROMPT } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
-import { TaskPanel, type TaskPanelProps } from './task-panel.tsx'
+import {
+  badgeFor,
+  deferred,
+  ENV_REPORT,
+  fakeClient,
+  firstRow,
+  GITEA_ENV_REPORT,
+  NOW,
+  panelProps,
+  rowRefs,
+  SNAPSHOT,
+  UNUSED_RESOLVE,
+} from './task-panel-test-support.ts'
+import { TaskPanel } from './task-panel.tsx'
 
 afterEach(() => {
   cleanup()
   localStorage.clear()
 })
-
-const NOW = Date.parse('2026-11-12T15:00:00Z')
-
-const TICKETS: readonly TicketSnapshot[] = [
-  {
-    ref: '#1',
-    number: 1,
-    title: 'Bravo',
-    state: 'open',
-    category: 'enhancement',
-    status: 'ready',
-    createdAt: '2026-11-01T00:00:00Z',
-    updatedAt: '2026-11-05T00:00:00Z',
-    openBlockers: 0,
-  },
-  {
-    ref: '#2',
-    number: 2,
-    title: 'Alpha',
-    state: 'open',
-    category: 'bug',
-    status: 'blocked',
-    createdAt: '2026-11-01T00:00:00Z',
-    updatedAt: '2026-11-03T00:00:00Z',
-    openBlockers: 1,
-  },
-  {
-    ref: '#3',
-    number: 3,
-    title: 'Charlie',
-    state: 'closed',
-    category: 'bug',
-    status: 'closed',
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-11-04T00:00:00Z',
-    openBlockers: 0,
-  },
-  {
-    ref: '#4',
-    number: 4,
-    title: 'Delta',
-    state: 'open',
-    category: null,
-    status: 'open',
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-11-02T00:00:00Z',
-    openBlockers: 0,
-  },
-  {
-    ref: '#5',
-    number: 5,
-    title: 'Echo',
-    state: 'open',
-    category: 'enhancement',
-    status: 'ready',
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-    openBlockers: 0,
-  },
-]
-
-const ENV_REPORT: EnvCheckReport = {
-  checkedAt: NOW,
-  backend: 'github',
-  repository: 'cnzgray/dsh-mattpocock-workflow',
-  items: [
-    {
-      id: 'home',
-      subject: null,
-      status: 'pass',
-      detail: '/home/dev',
-      remedy: null,
-      blockedBy: null,
-    },
-    {
-      id: 'cli',
-      subject: 'github',
-      status: 'fail',
-      detail: '未找到 gh 可执行文件',
-      remedy: { code: 'install-cli', subject: 'github' },
-      blockedBy: null,
-    },
-  ],
-  capabilities: [],
-}
-
-const GITEA_ENV_REPORT: EnvCheckReport = {
-  checkedAt: NOW,
-  backend: 'gitea',
-  repository: 'cnzgray/dsh-mattpocock-workflow',
-  items: [
-    {
-      id: 'backend',
-      subject: null,
-      status: 'pass',
-      detail: 'tea-auth:gitea（gitea.example.com）',
-      remedy: null,
-      blockedBy: null,
-    },
-    {
-      id: 'auth',
-      subject: 'gitea',
-      status: 'fail',
-      detail: '未登录 gitea.example.com',
-      remedy: { code: 'login-cli', subject: 'gitea' },
-      blockedBy: null,
-    },
-  ],
-  capabilities: [],
-}
-
-const SNAPSHOT: WorkspaceSnapshot = {
-  backend: 'github',
-  repository: 'cnzgray/dsh-mattpocock-workflow',
-  repositoryHost: 'github.com',
-  fetchedAt: NOW - 15_000,
-  loaded: TICKETS.length,
-  total: 30,
-  tickets: TICKETS,
-  blockersFinalized: true,
-}
-
-const UNUSED_RESOLVE = (): Promise<RpcResult<WorkspaceSnapshot>> =>
-  Promise.resolve({ ok: true, result: SNAPSHOT })
-
-interface FakeClient {
-  readonly client: PanelClient
-  readonly getCalls: string[]
-  readonly refreshCalls: string[]
-}
-
-function fakeClient(
-  getResult: RpcResult<WorkspaceSnapshot> | ((root: string) => RpcResult<WorkspaceSnapshot>),
-  refreshResult?: RpcResult<WorkspaceSnapshot>,
-  resolveResult: () => Promise<RpcResult<WorkspaceSnapshot>> = UNUSED_RESOLVE,
-): FakeClient {
-  const getCalls: string[] = []
-  const refreshCalls: string[] = []
-  const get = (root: string): RpcResult<WorkspaceSnapshot> =>
-    typeof getResult === 'function' ? getResult(root) : getResult
-  const client: PanelClient = {
-    get(root) {
-      getCalls.push(root)
-      return Promise.resolve(get(root))
-    },
-    refresh(root) {
-      refreshCalls.push(root)
-      return Promise.resolve(refreshResult ?? get(root))
-    },
-    resolveBlockers: () => resolveResult(),
-    envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
-  }
-  return { client, getCalls, refreshCalls }
-}
-
-function deferred<T>(): { readonly promise: Promise<T>; resolve: (value: T) => void } {
-  return Promise.withResolvers<T>()
-}
-
-function panelProps(overrides: Partial<TaskPanelProps> = {}): TaskPanelProps {
-  return {
-    client: fakeClient({ ok: true, result: SNAPSHOT }).client,
-    workspaceRoot: '/repo',
-    canInject: true,
-    injectDraft: () => true,
-    now: () => NOW,
-    ...overrides,
-  }
-}
-
-function rowRefs(): readonly (string | null)[] {
-  return screen.getAllByTestId('ticket-row').map((row) => row.getAttribute('data-ref'))
-}
-
-function firstRow(): HTMLElement {
-  const row = screen.getAllByTestId('ticket-row').at(0)
-  if (row === undefined) throw new Error('缺少工单行')
-  return row
-}
 
 describe('任务面板', () => {
   it('显示仓库、快照时间、统计与已加载数量', async () => {
@@ -312,6 +145,8 @@ describe('任务面板', () => {
           state: 'open',
           category: null,
           status: 'ready',
+          skillAction: 'implement',
+          skillActionReason: 'ready-for-agent',
           createdAt: '2026-11-01T00:00:00Z',
           updatedAt: '2026-11-10T00:00:00Z',
           openBlockers: 0,
@@ -330,8 +165,10 @@ describe('任务面板', () => {
     expect(badge.textContent).toContain('…')
     expect(badge.getAttribute('title')).toBe(ref)
 
-    fireEvent.click(firstRow())
-    expect(injectDraft).toHaveBeenLastCalledWith(processTicketPrompt(ref))
+    fireEvent.click(screen.getByTestId('skill-badge'))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(new RegExp(`^/implement 处理工单 ${ref}`)),
+    )
   })
 
   it('刷新会重新拉取并更新快照', async () => {
@@ -411,7 +248,7 @@ describe('任务面板', () => {
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
-  it('三个注入入口分别填入对应提示词', async () => {
+  it('新建入口与技能徽标分别填入对应提示词', async () => {
     const injectDraft = vi.fn(() => true)
     render(<TaskPanel {...panelProps({ injectDraft })} />)
     await screen.findAllByTestId('ticket-row')
@@ -422,8 +259,8 @@ describe('任务面板', () => {
     fireEvent.click(screen.getByTestId('new-bug'))
     expect(injectDraft).toHaveBeenLastCalledWith(NEW_BUG_PROMPT)
 
-    fireEvent.click(firstRow())
-    expect(injectDraft).toHaveBeenLastCalledWith(processTicketPrompt('#1'))
+    fireEvent.click(badgeFor('#1'))
+    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/implement 处理工单 #1/))
   })
 
   it('没有可用会话时禁用注入按钮并给出提示', async () => {
@@ -435,9 +272,14 @@ describe('任务面板', () => {
     expect(screen.getByTestId<HTMLButtonElement>('new-bug').disabled).toBe(true)
     expect(screen.getByTestId('no-session-hint').textContent).toContain('没有可用会话')
 
+    const badges = screen.getAllByTestId<HTMLButtonElement>('skill-badge')
+    expect(badges).toHaveLength(3)
+    expect(badges.every((badge) => badge.disabled)).toBe(true)
+    expect(badges[0]?.title).toContain('无法填入提示词')
+
     fireEvent.click(firstRow())
+    fireEvent.click(badgeFor('#1'))
     expect(injectDraft).not.toHaveBeenCalled()
-    expect(screen.getByTestId('inject-notice').textContent).toContain('无法填入提示词')
   })
 
   it('切换工作区后清空旧快照并读取新工作区', async () => {

@@ -147,12 +147,19 @@ describe('快照服务', () => {
     expect(result.loaded).toBe(4)
     expect(result.total).toBe(30)
     expect(
-      result.tickets.map((item) => [item.ref, item.number, item.category, item.status]),
+      result.tickets.map((item) => [
+        item.ref,
+        item.number,
+        item.category,
+        item.status,
+        item.skillAction,
+        item.skillActionReason,
+      ]),
     ).toEqual([
-      ['#1', 1, 'enhancement', 'ready'],
-      ['#2', 2, 'enhancement', 'blocked'],
-      ['#3', 3, 'bug', 'closed'],
-      ['#4', 4, null, 'open'],
+      ['#1', 1, 'enhancement', 'ready', 'implement', 'ready-for-agent'],
+      ['#2', 2, 'enhancement', 'blocked', 'none', 'blocked'],
+      ['#3', 3, 'bug', 'closed', 'none', 'closed'],
+      ['#4', 4, null, 'open', 'triage', 'needs-triage'],
     ])
   })
 
@@ -397,11 +404,19 @@ describe('阻塞补齐', () => {
       ],
     ])
     expect(finalized.blockersFinalized).toBe(true)
-    expect(finalized.tickets.map((item) => [item.ref, item.openBlockers, item.status])).toEqual([
-      ['#1', 1, 'blocked'],
-      ['#2', 1, 'blocked'],
-      ['#3', 2, 'closed'],
-      ['#4', 3, 'blocked'],
+    expect(
+      finalized.tickets.map((item) => [
+        item.ref,
+        item.openBlockers,
+        item.status,
+        item.skillAction,
+        item.skillActionReason,
+      ]),
+    ).toEqual([
+      ['#1', 1, 'blocked', 'none', 'blocked'],
+      ['#2', 1, 'blocked', 'none', 'blocked'],
+      ['#3', 2, 'closed', 'none', 'closed'],
+      ['#4', 3, 'blocked', 'none', 'blocked'],
     ])
   })
 

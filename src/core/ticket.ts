@@ -83,6 +83,10 @@ export type CommandRunner = (
 /** 标签名集合，由宿主从 protocol 的常量传入，规则本身留在 core。 */
 export interface TicketLabelNames {
   readonly readyForAgent: string
+  readonly needsTriage: string
+  readonly needsInfo: string
+  readonly readyForHuman: string
+  readonly wontfix: string
   readonly bug: string
   readonly enhancement: string
 }

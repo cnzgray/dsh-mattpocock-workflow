@@ -9,6 +9,7 @@
  */
 import { mergeNativeBlockers } from '../core/blockers.ts'
 import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
+import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
 import type { BlockerTarget, TicketLabelNames, TrackerSnapshot } from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
@@ -144,7 +145,7 @@ async function fetchAndCache(
     const resolved = await deps.resolve(workspaceRoot)
     kind = resolved.kind
     const raw = await resolved.tracker.fetchSnapshot(workspaceRoot)
-    const tickets = classifyTickets(raw.tickets, deps.labels)
+    const tickets = withSkillActions(classifyTickets(raw.tickets, deps.labels), deps.labels)
     const resolver = resolved.tracker.resolveBlockers ?? null
     const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
     const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
@@ -235,7 +236,10 @@ async function finalize(
 
   try {
     const native = await resolver(workspaceRoot, targets)
-    const tickets = classifyTickets(mergeNativeBlockers(entry.raw.tickets, native), deps.labels)
+    const tickets = withSkillActions(
+      classifyTickets(mergeNativeBlockers(entry.raw.tickets, native), deps.labels),
+      deps.labels,
+    )
     settled = buildSnapshot(entry.kind, entry.repositoryHost, entry.raw, tickets, true)
   } catch (error) {
     // 补齐失败只影响定稿标记：保留阶段一结果，下一次刷新重新尝试。
@@ -267,7 +271,7 @@ function buildSnapshot(
   kind: BackendKind,
   repositoryHost: string | null,
   raw: TrackerSnapshot,
-  tickets: readonly ClassifiedTicket[],
+  tickets: readonly (ClassifiedTicket & SkillActionDecision)[],
   blockersFinalized: boolean,
 ): WorkspaceSnapshot {
   return {
@@ -285,6 +289,8 @@ function buildSnapshot(
       state: ticket.state,
       category: ticket.category,
       status: ticket.status,
+      skillAction: ticket.skillAction,
+      skillActionReason: ticket.skillActionReason,
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
       openBlockers: ticket.openBlockers,

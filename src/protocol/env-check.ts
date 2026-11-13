@@ -4,6 +4,7 @@
  * 解决码对应的文案与动作类型只在界面维护。
  */
 import type { BackendKind } from './backend.ts'
+import type { InjectableSkillAction } from './labels.ts'
 
 /** 检查项的稳定 id。标题文案由界面按 id、后端和 subject 渲染。 */
 export const ENV_CHECK_IDS = {
@@ -170,3 +171,13 @@ export const REQUIRED_SKILLS = [
   PANEL_SKILLS.diagnosingBugs,
   PANEL_SKILLS.implement,
 ] as const
+
+/**
+ * 技能动作到面板技能名的映射。只列可注入的动作，`none` 没有对应技能。
+ * core 判定的动作 id 必须都能在这里查到（宿主层有一致性测试）。
+ */
+export const SKILL_ACTION_SKILLS = {
+  implement: PANEL_SKILLS.implement,
+  diagnose: PANEL_SKILLS.diagnosingBugs,
+  triage: PANEL_SKILLS.triage,
+} as const satisfies Record<InjectableSkillAction, string>

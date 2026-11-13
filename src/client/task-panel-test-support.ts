@@ -1,0 +1,207 @@
+/**
+ * 任务面板测试的夹具：快照、环境检查报告、假 RPC 客户端与界面查询辅助。
+ * 与用例分开，免得夹具把测试文件挤到 max-lines 之外。
+ */
+import { screen } from '@testing-library/react'
+
+import type { EnvCheckReport } from '../protocol/env-check.ts'
+import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { PanelClient } from './rpc.ts'
+import type { TaskPanelProps } from './task-panel.tsx'
+
+export const NOW = Date.parse('2026-11-12T15:00:00Z')
+
+export const TICKETS: readonly TicketSnapshot[] = [
+  {
+    ref: '#1',
+    number: 1,
+    title: 'Bravo',
+    state: 'open',
+    category: 'enhancement',
+    status: 'ready',
+    skillAction: 'implement',
+    skillActionReason: 'ready-for-agent',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-05T00:00:00Z',
+    openBlockers: 0,
+  },
+  {
+    ref: '#2',
+    number: 2,
+    title: 'Alpha',
+    state: 'open',
+    category: 'bug',
+    status: 'blocked',
+    skillAction: 'none',
+    skillActionReason: 'blocked',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-03T00:00:00Z',
+    openBlockers: 1,
+  },
+  {
+    ref: '#3',
+    number: 3,
+    title: 'Charlie',
+    state: 'closed',
+    category: 'bug',
+    status: 'closed',
+    skillAction: 'none',
+    skillActionReason: 'closed',
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-11-04T00:00:00Z',
+    openBlockers: 0,
+  },
+  {
+    ref: '#4',
+    number: 4,
+    title: 'Delta',
+    state: 'open',
+    category: null,
+    status: 'open',
+    skillAction: 'triage',
+    skillActionReason: 'untriaged',
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-11-02T00:00:00Z',
+    openBlockers: 0,
+  },
+  {
+    ref: '#5',
+    number: 5,
+    title: 'Echo',
+    state: 'open',
+    category: 'enhancement',
+    status: 'ready',
+    skillAction: 'implement',
+    skillActionReason: 'ready-for-agent',
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+    openBlockers: 0,
+  },
+]
+
+export const ENV_REPORT: EnvCheckReport = {
+  checkedAt: NOW,
+  backend: 'github',
+  repository: 'cnzgray/dsh-mattpocock-workflow',
+  items: [
+    {
+      id: 'home',
+      subject: null,
+      status: 'pass',
+      detail: '/home/dev',
+      remedy: null,
+      blockedBy: null,
+    },
+    {
+      id: 'cli',
+      subject: 'github',
+      status: 'fail',
+      detail: '未找到 gh 可执行文件',
+      remedy: { code: 'install-cli', subject: 'github' },
+      blockedBy: null,
+    },
+  ],
+  capabilities: [],
+}
+
+export const GITEA_ENV_REPORT: EnvCheckReport = {
+  checkedAt: NOW,
+  backend: 'gitea',
+  repository: 'cnzgray/dsh-mattpocock-workflow',
+  items: [
+    {
+      id: 'backend',
+      subject: null,
+      status: 'pass',
+      detail: 'tea-auth:gitea（gitea.example.com）',
+      remedy: null,
+      blockedBy: null,
+    },
+    {
+      id: 'auth',
+      subject: 'gitea',
+      status: 'fail',
+      detail: '未登录 gitea.example.com',
+      remedy: { code: 'login-cli', subject: 'gitea' },
+      blockedBy: null,
+    },
+  ],
+  capabilities: [],
+}
+
+export const SNAPSHOT: WorkspaceSnapshot = {
+  backend: 'github',
+  repository: 'cnzgray/dsh-mattpocock-workflow',
+  repositoryHost: 'github.com',
+  fetchedAt: NOW - 15_000,
+  loaded: TICKETS.length,
+  total: 30,
+  tickets: TICKETS,
+  blockersFinalized: true,
+}
+
+export const UNUSED_RESOLVE = (): Promise<RpcResult<WorkspaceSnapshot>> =>
+  Promise.resolve({ ok: true, result: SNAPSHOT })
+
+export interface FakeClient {
+  readonly client: PanelClient
+  readonly getCalls: string[]
+  readonly refreshCalls: string[]
+}
+
+export function fakeClient(
+  getResult: RpcResult<WorkspaceSnapshot> | ((root: string) => RpcResult<WorkspaceSnapshot>),
+  refreshResult?: RpcResult<WorkspaceSnapshot>,
+  resolveResult: () => Promise<RpcResult<WorkspaceSnapshot>> = UNUSED_RESOLVE,
+): FakeClient {
+  const getCalls: string[] = []
+  const refreshCalls: string[] = []
+  const get = (root: string): RpcResult<WorkspaceSnapshot> =>
+    typeof getResult === 'function' ? getResult(root) : getResult
+  const client: PanelClient = {
+    get(root) {
+      getCalls.push(root)
+      return Promise.resolve(get(root))
+    },
+    refresh(root) {
+      refreshCalls.push(root)
+      return Promise.resolve(refreshResult ?? get(root))
+    },
+    resolveBlockers: () => resolveResult(),
+    envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
+  }
+  return { client, getCalls, refreshCalls }
+}
+
+export function deferred<T>(): { readonly promise: Promise<T>; resolve: (value: T) => void } {
+  return Promise.withResolvers<T>()
+}
+
+export function panelProps(overrides: Partial<TaskPanelProps> = {}): TaskPanelProps {
+  return {
+    client: fakeClient({ ok: true, result: SNAPSHOT }).client,
+    workspaceRoot: '/repo',
+    canInject: true,
+    injectDraft: () => true,
+    now: () => NOW,
+    ...overrides,
+  }
+}
+
+export function rowRefs(): readonly (string | null)[] {
+  return screen.getAllByTestId('ticket-row').map((row) => row.getAttribute('data-ref'))
+}
+
+export function firstRow(): HTMLElement {
+  const row = screen.getAllByTestId('ticket-row').at(0)
+  if (row === undefined) throw new Error('缺少工单行')
+  return row
+}
+
+export function badgeFor(ref: string): HTMLElement {
+  const badge = screen
+    .getAllByTestId('skill-badge')
+    .find((item) => item.getAttribute('data-ref') === ref)
+  if (badge === undefined) throw new Error(`缺少 ${ref} 的技能徽标`)
+  return badge
+}

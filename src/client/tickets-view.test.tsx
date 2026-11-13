@@ -34,6 +34,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     state: 'open',
     category: 'enhancement',
     status: 'ready',
+    skillAction: 'implement',
+    skillActionReason: 'ready-for-agent',
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-05T00:00:00Z',
     openBlockers: 0,
@@ -45,6 +47,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     state: 'open',
     category: 'bug',
     status: 'blocked',
+    skillAction: 'none',
+    skillActionReason: 'blocked',
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-03T00:00:00Z',
     openBlockers: 1,
@@ -56,6 +60,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     state: 'closed',
     category: 'bug',
     status: 'closed',
+    skillAction: 'none',
+    skillActionReason: 'closed',
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-11-04T00:00:00Z',
     openBlockers: 0,
@@ -79,7 +85,15 @@ function phaseOne(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
     ...FINAL,
     blockersFinalized: false,
     tickets: TICKETS.map((ticket) =>
-      ticket.ref === '#2' ? { ...ticket, status: 'ready', openBlockers: 0 } : ticket,
+      ticket.ref === '#2'
+        ? {
+            ...ticket,
+            status: 'ready',
+            openBlockers: 0,
+            skillAction: 'implement',
+            skillActionReason: 'ready-for-agent',
+          }
+        : ticket,
     ),
     ...overrides,
   }
