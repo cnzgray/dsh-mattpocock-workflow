@@ -4,7 +4,7 @@
  */
 import { readFile, readdir, stat } from 'node:fs/promises'
 
-import type { MarkdownTicketFile } from '../../core/markdown.ts'
+import { parseMarkdownTickets, type MarkdownTicketFile } from '../../core/markdown.ts'
 
 /** 目录项类型。 */
 export type DirectoryEntryKind = 'file' | 'directory'
@@ -123,6 +123,144 @@ function sortEntries(entries: readonly DirectoryEntry[]): DirectoryEntry[] {
   return [...entries].sort((left, right) =>
     left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
   )
+}
+
+/** 一次增量扫描的结果。 */
+export interface LocalTicketChanges {
+  /** 窗口内变更过的工单文件：修改时间晚于窗口起点。 */
+  readonly changed: readonly MarkdownTicketFile[]
+  /**
+   * 为判定阻塞而一并读入的兄弟工单文件。
+   *
+   * 它们本身没有变化，不进入结果；只是变更工单的 `Blocked by:` 行引用到它们，
+   * 少了它们，变更工单的阻塞数就会与全量扫描对不上。
+   */
+  readonly context: readonly MarkdownTicketFile[]
+}
+
+/**
+ * 扫描 `<workspaceRoot>/.scratch/<feature>/issues/*.md`，只取窗口内动过的工单。
+ *
+ * 先用 `statFile` 看修改时间，只有动过的文件才读内容：本地工单越攒越多时，
+ * 增量刷新不该把整棵目录树重新读一遍。
+ * @param files - 文件读取能力。
+ * @param workspaceRoot - 工作区根目录。
+ * @param since - 窗口起点（毫秒时间戳）。
+ * @returns 变更过的工单文件与补读的兄弟文件；`.scratch` 不存在时为 undefined。
+ */
+export async function readChangedTicketFiles(
+  files: WorkspaceFiles,
+  workspaceRoot: string,
+  since: number,
+): Promise<LocalTicketChanges | undefined> {
+  const scratch = joinPath(workspaceRoot, '.scratch')
+  const features = await files.listDirectory(scratch)
+  if (features === undefined) return undefined
+
+  const changed: MarkdownTicketFile[] = []
+  const context: MarkdownTicketFile[] = []
+
+  for (const feature of sortEntries(features)) {
+    if (feature.kind !== 'directory') continue
+
+    const issuesDirectory = joinPath(scratch, feature.name, 'issues')
+    const entries = await files.listDirectory(issuesDirectory)
+    if (entries === undefined) continue
+
+    const candidates = sortEntries(entries).filter(
+      (entry) => entry.kind === 'file' && entry.name.endsWith('.md'),
+    )
+    if (candidates.length === 0) continue
+
+    const moved: MarkdownTicketFile[] = []
+    const untouched: { readonly entry: DirectoryEntry; readonly timestamps: FileTimestamps }[] = []
+    for (const entry of candidates) {
+      const path = joinPath(issuesDirectory, entry.name)
+      const timestamps = await files.statFile(path)
+      if (timestamps.updatedAt > since) {
+        moved.push(await readTicketFile(files, feature.name, entry.name, path, timestamps))
+      } else {
+        untouched.push({ entry, timestamps })
+      }
+    }
+    if (moved.length === 0) continue
+
+    changed.push(...moved)
+
+    // 阻塞数要用到被引用的兄弟工单：先用占位内容解析一次，
+    // 拿到变更工单引用了哪些兄弟文件，再只补读被引用的那几个。
+    for (const sibling of referencedSiblings(moved, untouched, feature.name)) {
+      const path = joinPath(issuesDirectory, sibling.entry.name)
+      context.push(
+        await readTicketFile(files, feature.name, sibling.entry.name, path, sibling.timestamps),
+      )
+    }
+  }
+
+  return { changed, context }
+}
+
+/**
+ * 找出变更工单引用到的兄弟文件。
+ *
+ * 先用占位内容解析一次：core 的阻塞判定只会把「同一 feature 下确实存在的兄弟工单」
+ * 放进 `blockedBy`，所以这份占位解析能给出要补读的文件，
+ * 适配器不必把 `Blocked by:` 的解析规则再写一遍。
+ * @param moved - 变更过的工单文件。
+ * @param untouched - 同一 feature 下没动过的工单文件与它们的时间戳。
+ * @param feature - feature 目录名。
+ * @returns 被引用到的兄弟文件。
+ */
+function referencedSiblings(
+  moved: readonly MarkdownTicketFile[],
+  untouched: readonly { readonly entry: DirectoryEntry; readonly timestamps: FileTimestamps }[],
+  feature: string,
+): readonly { readonly entry: DirectoryEntry; readonly timestamps: FileTimestamps }[] {
+  const movedPaths = new Set(moved.map((file) => file.path))
+  const placeholders = untouched.map(({ entry }) => ({
+    path: `.scratch/${feature}/issues/${entry.name}`,
+    feature,
+    name: entry.name,
+    content: '',
+    createdAt: '',
+    updatedAt: '',
+  }))
+
+  const probe = parseMarkdownTickets([...moved, ...placeholders])
+  const referenced = new Set<string>()
+  for (const ticket of probe) {
+    if (!movedPaths.has(ticket.ref)) continue
+    for (const ref of ticket.blockedBy ?? []) referenced.add(ref)
+  }
+
+  return untouched.filter(({ entry }) => referenced.has(`.scratch/${feature}/issues/${entry.name}`))
+}
+
+/**
+ * 读一个工单文件的内容与时间戳。
+ * @param files - 文件读取能力。
+ * @param feature - feature 目录名。
+ * @param name - 文件名。
+ * @param path - 文件的绝对路径。
+ * @param timestamps - 文件的创建与修改时间。
+ * @returns 工单文件。
+ */
+async function readTicketFile(
+  files: WorkspaceFiles,
+  feature: string,
+  name: string,
+  path: string,
+  timestamps: FileTimestamps,
+): Promise<MarkdownTicketFile> {
+  const content = await files.readTextFile(path)
+  return {
+    path: `.scratch/${feature}/issues/${name}`,
+    feature,
+    name,
+    content,
+    createdAt: new Date(timestamps.createdAt).toISOString(),
+    updatedAt: new Date(timestamps.updatedAt).toISOString(),
+  }
 }
 
 /**

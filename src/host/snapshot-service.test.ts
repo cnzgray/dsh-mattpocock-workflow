@@ -4,15 +4,17 @@ import type { BlockerResolution } from '../core/ticket.ts'
 import { TrackerError, type TrackerErrorCode } from '../core/tracker-error.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
-import { ERROR_CODES } from '../protocol/tracker.ts'
+import { ERROR_CODES, SNAPSHOT_CLEAR_CONFIRMATION } from '../protocol/tracker.ts'
 import { createSnapshotService } from './snapshot-service.ts'
 import {
   AUTHOR,
   ROOT,
   expectOk,
+  memoryStore,
   resolution,
   serviceWith,
   snapshot,
+  storedEntry,
   ticket,
 } from './snapshot-service-test-support.ts'
 
@@ -99,21 +101,21 @@ describe('快照服务', () => {
     expect(refreshed.total).toBe(31)
   })
 
-  it('刷新失败时保留上一次快照，后续读取仍命中缓存', async () => {
+  it('刷新失败时保留上一次快照，并标出失败原因', async () => {
     const { service, calls } = serviceWith([
       snapshot({ fetchedAt: 1_000 }),
       new TrackerError('fetch-failed', '网络抖动'),
     ])
 
     const first = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
-    const failed = await service.handle('snapshot.refresh', { workspaceRoot: ROOT })
+    const failed = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
     const again = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
 
-    expect(first).toEqual(again)
-    expect(failed).toEqual({
-      ok: false,
-      error: { code: 'fetch-failed', message: '网络抖动' },
-    })
+    expect(again.tickets).toEqual(first.tickets)
+    expect(again.stale).toBe(true)
+    expect(again.refreshError).toEqual({ code: 'fetch-failed', message: '网络抖动' })
+    expect(failed.stale).toBe(true)
+    expect(failed.refreshError).toEqual({ code: 'fetch-failed', message: '网络抖动' })
     expect(calls).toHaveLength(2)
   })
 
@@ -135,12 +137,19 @@ describe('快照服务', () => {
           repository: 'cnzgray/dsh-mattpocock-workflow',
           loaded: 4,
           total: 30,
+          mode: 'full',
         },
       },
       {
         level: 'warn',
         event: LOG_EVENTS.snapshot,
-        fields: { result: 'error', stage: 'list', code: 'fetch-failed', durationMs: 25 },
+        fields: {
+          result: 'error',
+          backend: 'github',
+          stage: 'list',
+          code: 'fetch-failed',
+          durationMs: 25,
+        },
       },
     ])
   })
@@ -448,5 +457,193 @@ describe('阻塞补齐', () => {
       event: LOG_EVENTS.snapshot,
       fields: { result: 'ok', backend: 'gitlab', stage: 'blockers', durationMs: 25 },
     })
+  })
+})
+
+describe('本地快照库与增量刷新', () => {
+  it('库里有数据时先返回缓存，不发远端列表请求', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service, snapshotCalls } = serviceWith([snapshot()], 'github', undefined, { store })
+
+    const result = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
+
+    expect(result.source).toBe('cache')
+    expect(result.stale).toBe(true)
+    expect(result.refreshError).toBeNull()
+    expect(result.tickets.map((item) => item.ref)).toEqual(['#1', '#2', '#3', '#4'])
+    expect(snapshotCalls).toHaveLength(0)
+  })
+
+  it('刷新时走增量，把变更合并进缓存', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service, changeCalls, snapshotCalls } = serviceWith([snapshot()], 'github', undefined, {
+      store,
+      changes: () =>
+        Promise.resolve({
+          tickets: [ticket({ number: 2, title: '改过的票', updatedAt: '2026-02-01T00:00:00Z' })],
+          truncated: false,
+        }),
+    })
+
+    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+
+    expect(changeCalls).toHaveLength(1)
+    expect(snapshotCalls).toHaveLength(0)
+    expect(result.source).toBe('live')
+    expect(result.stale).toBe(false)
+    expect(result.tickets.find((item) => item.ref === '#2')?.title).toBe('改过的票')
+  })
+
+  it('增量窗口从上次成功拉取的时刻向前重叠一小段', async () => {
+    const store = memoryStore([storedEntry({ fetchedAt: 5_000 })])
+    const { service, changeCalls } = serviceWith([snapshot()], 'github', undefined, {
+      store,
+      changes: () => Promise.resolve({ tickets: [], truncated: false }),
+    })
+
+    await service.handle('snapshot.refresh', { workspaceRoot: ROOT })
+
+    expect(changeCalls[0]?.since).toBe(5_000 - 60_000)
+  })
+
+  it('增量结果与全量重拉的票集合一致', async () => {
+    const full = snapshot({
+      tickets: [
+        ticket({ number: 1, title: '旧的票', updatedAt: '2026-01-01T00:00:00Z' }),
+        ticket({ number: 2, title: '新的票', updatedAt: '2026-02-01T00:00:00Z' }),
+      ],
+      loaded: 2,
+      total: 2,
+    })
+    const store = memoryStore([
+      storedEntry({
+        fetchedAt: 1_000,
+        loaded: 1,
+        total: 2,
+        tickets: [ticket({ number: 1, title: '旧的票', updatedAt: '2026-01-01T00:00:00Z' })],
+      }),
+    ])
+    const { service } = serviceWith([full], 'github', undefined, {
+      store,
+      changes: () =>
+        Promise.resolve({
+          tickets: [ticket({ number: 2, title: '新的票', updatedAt: '2026-02-01T00:00:00Z' })],
+          truncated: false,
+        }),
+    })
+
+    const merged = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const reloaded = expectOk(
+      await service.handle('snapshot.refresh', { workspaceRoot: ROOT, full: true }),
+    )
+
+    expect(merged.tickets.map((item) => item.ref).sort()).toEqual(
+      reloaded.tickets.map((item) => item.ref).sort(),
+    )
+  })
+
+  it('增量被截断时退回全量重拉', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service, snapshotCalls } = serviceWith([snapshot()], 'github', undefined, {
+      store,
+      changes: () => Promise.resolve({ tickets: [], truncated: true }),
+    })
+
+    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+
+    expect(snapshotCalls).toHaveLength(1)
+    expect(result.source).toBe('live')
+  })
+
+  it('刷新失败时保留旧数据并带上失败原因', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service } = serviceWith([snapshot()], 'github', undefined, {
+      store,
+      changes: () => Promise.reject(new TrackerError('fetch-failed', '远端连不上。')),
+    })
+
+    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+
+    expect(result.stale).toBe(true)
+    expect(result.refreshError?.code).toBe('fetch-failed')
+    expect(result.tickets).toHaveLength(4)
+  })
+
+  it('全量刷新忽略本地快照库', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service, snapshotCalls, changeCalls } = serviceWith([snapshot()], 'github', undefined, {
+      store,
+      changes: () => Promise.resolve({ tickets: [], truncated: false }),
+    })
+
+    await service.handle('snapshot.refresh', { workspaceRoot: ROOT, full: true })
+
+    expect(snapshotCalls).toHaveLength(1)
+    expect(changeCalls).toHaveLength(0)
+  })
+
+  it('缓存属于别的仓库时作废并全量拉取', async () => {
+    const store = memoryStore([storedEntry({ repositoryKey: 'github@github.com/other/repo' })])
+    const { service, snapshotCalls } = serviceWith([snapshot(), snapshot()], 'github', undefined, {
+      store,
+    })
+
+    const result = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
+
+    expect(result.source).toBe('live')
+    expect(snapshotCalls).toHaveLength(1)
+    expect(store.removed).toEqual([ROOT])
+  })
+
+  it('拉取成功后写进本地快照库', async () => {
+    const store = memoryStore()
+    const { service } = serviceWith([snapshot()], 'github', undefined, { store })
+
+    await service.handle('snapshot.get', { workspaceRoot: ROOT })
+
+    expect(store.writes).toHaveLength(1)
+    expect(store.writes[0]?.repositoryKey).toBe('github@github.com/cnzgray/repo')
+  })
+
+  it('读取本地快照库信息', async () => {
+    const store = memoryStore([storedEntry({ fetchedAt: 2_000 })])
+    const { service } = serviceWith([snapshot()], 'github', undefined, { store })
+
+    const result = await service.cache({ workspaceRoot: ROOT })
+
+    expect(result).toEqual({
+      ok: true,
+      result: {
+        location: '~/.dsh/cache/dsh-mattpocock-workflow',
+        entries: 1,
+        lastWrittenAt: 2_000,
+        cleared: 0,
+      },
+    })
+  })
+
+  it('带确认词清空本地快照库', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service } = serviceWith([snapshot()], 'github', undefined, { store })
+
+    const result = await service.cache({
+      workspaceRoot: ROOT,
+      clear: true,
+      confirm: SNAPSHOT_CLEAR_CONFIRMATION,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(store.cleared).toBe(1)
+    expect(store.entries.size).toBe(0)
+  })
+
+  it('缺确认词时拒绝清空本地快照库', async () => {
+    const store = memoryStore([storedEntry()])
+    const { service } = serviceWith([snapshot()], 'github', undefined, { store })
+
+    const result = await service.cache({ workspaceRoot: ROOT, clear: true })
+
+    expect(result.ok).toBe(false)
+    expect(store.entries.size).toBe(1)
   })
 })

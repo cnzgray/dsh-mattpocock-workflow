@@ -5,15 +5,19 @@ import { CommandError, TrackerError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
 import {
   GH_ASSIGNEES_OUTPUT,
+  GH_CHANGES_OUTPUT,
   GH_ISSUE_DETAIL,
   GH_ISSUES_OUTPUT,
   GH_LABELS_OUTPUT,
+  GH_TRUNCATED_CHANGES_OUTPUT,
   GH_VIEWER_PERMISSION_OUTPUT,
   GIT_REMOTES_OUTPUT,
 } from './fixtures.ts'
 import { createGithubTracker } from './tracker.ts'
 
 const NOW = 1_700_000_000_000
+/** 增量窗口起点：2026-11-13T00:00:00Z。 */
+const SINCE = Date.parse('2026-11-13T00:00:00Z')
 
 interface RecordedRunner {
   readonly runner: CommandRunner
@@ -186,6 +190,65 @@ describe('GitHub 工单后端', () => {
 
 const EMPTY_ISSUES_OUTPUT = JSON.stringify({
   data: { repository: { issues: { totalCount: 0, nodes: [] } } },
+})
+
+/**
+ * 增量用的假 runner：带 `since` 参数的查询回增量夹具，其它回列表夹具。
+ * 真实后端按查询里的时间窗口过滤，这里靠夹具区分两条路。
+ */
+function changesRunner(outputs: { changes?: string; list?: string } = {}): RecordedRunner {
+  return recordedRunner({
+    gh: (args) => {
+      const isChanges = args.some((arg) => arg.startsWith('since='))
+      if (isChanges) return outputs.changes ?? GH_CHANGES_OUTPUT
+      return outputs.list ?? GH_ISSUES_OUTPUT
+    },
+  })
+}
+
+describe('GitHub 工单增量', () => {
+  it('增量查询带上更新时间窗口，过滤条件与列表一致', async () => {
+    const { runner, calls } = changesRunner()
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    await tracker.fetchChanges?.('/workspace', SINCE)
+
+    const ghCall = calls.find((call) => call[0] === 'gh')
+    const query = ghCall?.find((arg) => arg.startsWith('query=')) ?? ''
+    expect(query).toContain('filterBy: { since: $since }')
+    expect(query).toContain('orderBy: { field: UPDATED_AT, direction: DESC }')
+    expect(query).toContain('pageInfo { hasNextPage }')
+    expect(ghCall).toContain(`since=${new Date(SINCE).toISOString()}`)
+  })
+
+  it('返回窗口内变更过的工单与仓库总数', async () => {
+    const { runner } = changesRunner()
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16', '#12'])
+    expect(changes?.truncated).toBe(false)
+    expect(changes?.total).toBe(30)
+  })
+
+  it('后端还有下一页时标记为截断，宿主据此退回全量重拉', async () => {
+    const { runner } = changesRunner({ changes: GH_TRUNCATED_CHANGES_OUTPUT })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.truncated).toBe(true)
+  })
+
+  it('列表快照声明窗口上限，宿主合并增量时按它裁剪', async () => {
+    const { runner } = recordedRunner({})
+    const tracker = createGithubTracker({ run: runner, now: () => NOW, limit: 42 })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.windowLimit).toBe(42)
+  })
 })
 
 interface MutableGithubIssue {
@@ -554,6 +617,11 @@ describeTrackerContract('GitHub', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0, 0, 2] },
+  changes: {
+    createTracker: () => createGithubTracker({ run: changesRunner().runner, now: () => NOW }),
+    since: SINCE,
+    expected: { refs: ['#16', '#12'] },
+  },
   detail: {
     createTracker: () =>
       mutableTracker({

@@ -6,6 +6,7 @@
  * 插件降级并记日志，而不是抛错让整个客户端加载失败。
  */
 import { createNodeEnvFiles } from '../adapters/fs/env-files.ts'
+import { createNodeSnapshotStore } from '../adapters/fs/snapshot-store.ts'
 import { createGiteaEnvProbe } from '../adapters/gitea/env.ts'
 import { createGithubEnvProbe } from '../adapters/github/env.ts'
 import { createGitlabEnvProbe } from '../adapters/gitlab/env.ts'
@@ -115,9 +116,11 @@ function createRpcHandler(
   const resolve = createBackendResolver({ run, now, files: workspaceFiles })
   // 环境检查每次都重新探测后端：刚装好 glab / tea 或刚加上远端时要能马上看到变化。
   const resolveFresh = createBackendResolver({ run, now, files: workspaceFiles, cache: false })
+  // 本地快照库：跨进程保存最近一次成功拉取的工单数据，宿主重启后面板仍能先出数据。
+  const store = createNodeSnapshotStore()
 
-  const snapshot = createSnapshotService({ resolve, now, labels: TRACKER_LABELS, log })
-  const ticket = createTicketService({ resolve, now, log })
+  const snapshot = createSnapshotService({ resolve, now, labels: TRACKER_LABELS, log, store })
+  const ticket = createTicketService({ resolve, now, log, store })
   const envCheck = createEnvCheckService({
     resolve: resolveFresh,
     github: createGithubEnvProbe({ run }),
@@ -135,6 +138,7 @@ function createRpcHandler(
   return {
     handle: (method, params) => {
       if (method === RPC_METHODS.envCheck) return envCheck.handle(method, params)
+      if (method === RPC_METHODS.snapshotCache) return snapshot.cache(params)
       if (
         method === RPC_METHODS.ticketGet ||
         method === RPC_METHODS.ticketUpdate ||

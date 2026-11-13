@@ -12,7 +12,7 @@ import type {
   EnvCheckReport,
   EnvCheckStatus,
 } from '../protocol/env-check.ts'
-import type { RpcErrorBody } from '../protocol/tracker.ts'
+import type { RpcErrorBody, RpcResult, SnapshotCacheInfo } from '../protocol/tracker.ts'
 import { CapabilityPanel } from './env-capabilities.tsx'
 import {
   ENV_BACKEND_STYLE,
@@ -30,8 +30,30 @@ import {
 } from './env-check-styles.ts'
 import { envBackendLabel, envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
+import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
-import { BUTTON_STYLE, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
+import { BUTTON_STYLE, COLORS, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
+
+/** 本地快照库小节：跟检查项卡片同一种边框，只是排成纵向。 */
+const ENV_CACHE_SECTION_STYLE: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 4,
+  margin: '0 12px 12px',
+  padding: '9px 12px',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 10,
+  background: COLORS.surface,
+  color: COLORS.text,
+}
+
+/** 清空失败的原因：不能静默，用户要知道为什么没清掉。 */
+const ENV_CACHE_ERROR_STYLE: React.CSSProperties = {
+  color: COLORS.error,
+  fontSize: 12,
+  overflowWrap: 'anywhere',
+}
 
 /** 环境检查视图依赖。 */
 export interface EnvCheckViewProps {
@@ -67,6 +89,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
   const capabilities = [...(report?.capabilities ?? []), ...props.clientCapabilities()]
   const { highlighted, registerCard, jumpTo } = useRootCauseJump()
   useFocusBackend(report, props.focusBackend ?? null, jumpTo)
+  const cache = useSnapshotCache(props.client, props.workspaceRoot)
   const handlers: RemedyHandlers = {
     canInject: props.canInject,
     injectDraft: props.injectDraft,
@@ -124,7 +147,129 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
           <CapabilityPanel capabilities={capabilities} />
         </div>
       )}
+      {props.workspaceRoot === undefined ? null : <CacheSection state={cache} />}
     </div>
+  )
+}
+
+/** 本地快照库：位置、条目数与最近写入时间，以及清空入口。 */
+interface CacheState {
+  readonly info: SnapshotCacheInfo | null
+  readonly error: RpcErrorBody | null
+  readonly notice: string | null
+  readonly busy: boolean
+  readonly clear: () => void
+}
+
+/**
+ * 读本地快照库的信息，并提供清空它的入口。
+ * @param client - 面板客户端。
+ * @param workspaceRoot - 当前工作区；没有工作区时不发请求。
+ * @returns 缓存信息、失败原因、反馈与清空动作。
+ */
+function useSnapshotCache(client: PanelClient, workspaceRoot: string | undefined): CacheState {
+  const [info, setInfo] = React.useState<SnapshotCacheInfo | null>(null)
+  const [error, setError] = React.useState<RpcErrorBody | null>(null)
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+
+  const load = React.useCallback(async (): Promise<void> => {
+    if (workspaceRoot === undefined) return
+    const result = await requestCache(client, workspaceRoot, false)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setInfo(result.result)
+  }, [client, workspaceRoot])
+
+  React.useEffect(() => {
+    setInfo(null)
+    setError(null)
+    setNotice(null)
+    void load()
+  }, [load])
+
+  const clearAsync = React.useCallback(async (): Promise<void> => {
+    if (workspaceRoot === undefined) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    const result = await requestCache(client, workspaceRoot, true)
+    setBusy(false)
+    // 清空失败要说出来，不能让用户以为已经清掉了。
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setNotice(`已清除 ${String(result.result.cleared)} 条本地快照。`)
+    await load()
+  }, [client, workspaceRoot, load])
+
+  const clear = React.useCallback((): void => {
+    void clearAsync()
+  }, [clearAsync])
+
+  return { info, error, notice, busy, clear }
+}
+
+/** 读或清空本地快照库；宿主抛错时也要变成一条能显示的失败原因。 */
+async function requestCache(
+  client: PanelClient,
+  workspaceRoot: string,
+  clear: boolean,
+): Promise<RpcResult<SnapshotCacheInfo>> {
+  try {
+    return await client.cache(workspaceRoot, clear ? { clear: true } : undefined)
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : '未知错误'
+    return {
+      ok: false,
+      error: { code: 'fetch-failed', message: `本地快照库操作失败：${detail}` },
+    }
+  }
+}
+
+function CacheSection(props: { readonly state: CacheState }): React.ReactElement {
+  const info = props.state.info
+
+  return (
+    <section data-testid="env-cache" style={ENV_CACHE_SECTION_STYLE}>
+      <div style={ENV_TITLE_STYLE}>本地快照库</div>
+      <div data-testid="env-cache-location" style={ENV_DETAIL_STYLE}>
+        {info === null ? '正在读取本地快照库…' : info.location}
+      </div>
+      <div data-testid="env-cache-entries" style={ENV_DETAIL_STYLE}>
+        {info === null ? '条目数未知' : `${String(info.entries)} 条快照`}
+      </div>
+      <div data-testid="env-cache-written" style={ENV_DETAIL_STYLE}>
+        {info === null
+          ? '写入时间未知'
+          : info.lastWrittenAt === null
+            ? '还没有写入记录'
+            : `最近写入：${formatRelativeTime(info.lastWrittenAt, Date.now())}`}
+      </div>
+      <button
+        type="button"
+        data-testid="env-cache-clear"
+        data-hover="soft"
+        disabled={props.state.busy}
+        onClick={props.state.clear}
+        style={BUTTON_STYLE}
+      >
+        {props.state.busy ? '清除中…' : '清除本地快照库'}
+      </button>
+      {props.state.notice === null ? null : (
+        <div data-testid="env-cache-notice" style={ENV_SKIP_STYLE}>
+          {props.state.notice}
+        </div>
+      )}
+      {props.state.error === null ? null : (
+        <div role="alert" data-testid="env-cache-error" style={ENV_CACHE_ERROR_STYLE}>
+          {props.state.error.message}
+        </div>
+      )}
+    </section>
   )
 }
 

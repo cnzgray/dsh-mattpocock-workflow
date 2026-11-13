@@ -14,7 +14,12 @@ import {
   RPC_METHODS,
   RPC_PATH,
   type ErrorCode,
+  type RpcErrorBody,
   type RpcResult,
+  SNAPSHOT_CLEAR_CONFIRMATION,
+  type SnapshotCacheInfo,
+  type SnapshotCacheParams,
+  type SnapshotRefreshParams,
   TICKET_DELETE_CONFIRMATION,
   type TicketDeleteResult,
   type TicketDetail,
@@ -44,7 +49,20 @@ export type FetchLike = (
 /** 面板客户端：界面只依赖这些方法。 */
 export interface PanelClient {
   get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
-  refresh(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+  /**
+   * 刷新快照。默认走增量；`full` 为 true 时忽略本地快照库，全量重拉一次。
+   */
+  refresh(
+    workspaceRoot: string,
+    options?: { readonly full?: boolean },
+  ): Promise<RpcResult<WorkspaceSnapshot>>
+  /**
+   * 读取本地快照库的信息；`clear` 为 true 时按确认词清空它。
+   */
+  cache(
+    workspaceRoot: string,
+    options?: { readonly clear?: boolean },
+  ): Promise<RpcResult<SnapshotCacheInfo>>
   /** 补齐原生阻塞信息；快照已定稿时宿主直接返回缓存。 */
   resolveBlockers(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /** 重新跑一次环境检查；宿主不缓存结果。 */
@@ -81,8 +99,19 @@ export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelCli
   return {
     get: (workspaceRoot) =>
       call(fetchImpl, RPC_METHODS.snapshotGet, { workspaceRoot }, isSnapshotResult),
-    refresh: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotRefresh, { workspaceRoot }, isSnapshotResult),
+    refresh: (workspaceRoot, options) => {
+      // 只有明确要求全量时才带上 full：缺省时宿主能用增量就用增量。
+      const params: SnapshotRefreshParams =
+        options?.full === true ? { workspaceRoot, full: true } : { workspaceRoot }
+      return call(fetchImpl, RPC_METHODS.snapshotRefresh, params, isSnapshotResult)
+    },
+    cache: (workspaceRoot, options) => {
+      const params: SnapshotCacheParams =
+        options?.clear === true
+          ? { workspaceRoot, clear: true, confirm: SNAPSHOT_CLEAR_CONFIRMATION }
+          : { workspaceRoot }
+      return call(fetchImpl, RPC_METHODS.snapshotCache, params, isSnapshotCacheResult)
+    },
     resolveBlockers: (workspaceRoot) =>
       call(fetchImpl, RPC_METHODS.snapshotResolveBlockers, { workspaceRoot }, isSnapshotResult),
     envCheck: (workspaceRoot) =>
@@ -189,6 +218,33 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
     return false
   }
   if (!('blockersFinalized' in value) || typeof value.blockersFinalized !== 'boolean') return false
+  // 数据来源、是否陈旧与刷新失败原因：少一个字段就无法如实呈现数据的新鲜度。
+  if (!('source' in value) || !(value.source === 'live' || value.source === 'cache')) return false
+  if (!('stale' in value) || typeof value.stale !== 'boolean') return false
+  if (!('refreshError' in value)) return false
+  if (value.refreshError !== null && !isRpcErrorBody(value.refreshError)) return false
+  return true
+}
+
+/** 失败响应体：错误码与说明都要有，缺一个就当作格式不对。 */
+function isRpcErrorBody(value: unknown): value is RpcErrorBody {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('code' in value) || typeof value.code !== 'string') return false
+  if (!('message' in value) || typeof value.message !== 'string') return false
+  return true
+}
+
+function isSnapshotCacheResult(value: unknown): value is RpcResult<SnapshotCacheInfo> {
+  return isRpcResult(value, isSnapshotCacheInfo)
+}
+
+function isSnapshotCacheInfo(value: unknown): value is SnapshotCacheInfo {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('location' in value) || typeof value.location !== 'string') return false
+  if (!('entries' in value) || typeof value.entries !== 'number') return false
+  if (!('lastWrittenAt' in value)) return false
+  if (value.lastWrittenAt !== null && typeof value.lastWrittenAt !== 'number') return false
+  if (!('cleared' in value) || typeof value.cleared !== 'number') return false
   return true
 }
 

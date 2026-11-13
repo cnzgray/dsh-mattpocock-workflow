@@ -74,6 +74,21 @@ export const GITLAB_ISSUES = [
 
 export const GITLAB_ISSUES_OUTPUT = issuesJson(GITLAB_ISSUES)
 
+/**
+ * 增量查询的录制输出：只回窗口内变更过的票。
+ * 这张票的正文里写了 `Blocked by:`，用来验证增量不做阻塞加工。
+ */
+export const GITLAB_CHANGES_OUTPUT = issuesJson([
+  gitlabIssue({
+    iid: 16,
+    title: 'GitLab 工单后端',
+    labels: ['enhancement', 'ready-for-agent'],
+    description: 'Blocked by: #15\n',
+    createdAt: '2026-11-12T14:14:07Z',
+    updatedAt: '2026-11-21T09:15:00Z',
+  }),
+])
+
 /** iid → `/issues/:iid/links` 的录制响应。 */
 export const GITLAB_LINKS = new Map<number, string>([
   [15, JSON.stringify([{ iid: 7, state: 'closed', link_type: 'is_blocked_by' }])],

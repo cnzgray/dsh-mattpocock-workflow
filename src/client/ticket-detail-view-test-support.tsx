@@ -85,6 +85,9 @@ export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 export interface FakeBackend {
@@ -124,6 +127,16 @@ export function fakeBackend(
       return Promise.resolve({ ok: true, result: refreshed })
     },
     resolveBlockers: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
+    cache: () =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+          entries: 0,
+          lastWrittenAt: null,
+          cleared: 0,
+        },
+      }),
     getDetail(root, ref, number) {
       detailCalls.push([root, ref, number])
       if (detailFailure !== null) {

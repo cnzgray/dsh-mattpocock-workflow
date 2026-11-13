@@ -66,6 +66,20 @@ export interface TicketDeleteFixture {
   readonly canDelete: boolean
 }
 
+/**
+ * 后端的增量能力：实现增量，或显式声明不支持。
+ *
+ * 必须显式填写，避免某个后端悄悄退回全量而没人发现。
+ */
+export type TrackerChangesFixture =
+  | {
+      readonly createTracker: () => Tracker
+      /** 增量窗口的起点（毫秒时间戳）。 */
+      readonly since: number
+      readonly expected: { readonly refs: readonly string[] }
+    }
+  | { readonly unsupported: true }
+
 /** 一个后端跑契约所需的工厂与期望值。 */
 export interface TrackerContractFixture {
   /** 各后端在自己的测试里绑定依赖；套件只拿一个无参工厂。 */
@@ -88,6 +102,12 @@ export interface TrackerContractFixture {
    * 避免新增后端时悄悄漏掉阻塞能力。
    */
   readonly nativeBlockers: NativeBlockersFixture
+  /**
+   * 增量能力的显式声明。每个后端都必须填写：
+   * 实现增量的给出工厂、窗口起点与期望的工单引用，
+   * 不支持的显式声明 `unsupported`。
+   */
+  readonly changes: TrackerChangesFixture
   /** 后端实现可选详情能力时的读取请求、期望输出与可选变更；省略表示不实现。 */
   readonly detail?: TicketDetailFixture
   /** 后端实现可选补全候选能力时的期望输出；省略表示不实现。 */
@@ -115,6 +135,7 @@ export function describeTrackerContract(backend: string, fixture: TrackerContrac
   describe(`${backend} 工单后端契约`, () => {
     describeListContract(fixture)
     describeBlockerContract(fixture)
+    describeChangesContract(fixture)
     describeDetailContract(fixture)
     describeOptionsContract(fixture)
     describeDeleteContract(fixture)
@@ -202,6 +223,35 @@ function describeBlockerContract(fixture: TrackerContractFixture): void {
     expect(tracker.resolveBlockers).toBeUndefined()
     const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
     expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(nativeBlockers.expected)
+  })
+}
+
+/**
+ * 增量能力的契约：实现增量的后端必须按窗口取回变更过的工单，
+ * 不支持的后端必须显式声明没有这个方法。
+ */
+function describeChangesContract(fixture: TrackerContractFixture): void {
+  const changes = fixture.changes
+
+  if ('unsupported' in changes) {
+    it('显式声明不支持增量', () => {
+      expect(fixture.createTracker().fetchChanges).toBeUndefined()
+    })
+    return
+  }
+
+  it('声明增量能力', () => {
+    expect(typeof fixture.createTracker().fetchChanges).toBe('function')
+  })
+
+  it('按时间窗口取回变更过的工单', async () => {
+    const tracker = changes.createTracker()
+
+    const observed = await tracker.fetchChanges?.(fixture.workspaceRoot, changes.since)
+
+    // 引用按字典序比较：增量只覆盖变更过的票，顺序由后端决定。
+    const refs = (observed?.tickets ?? []).map((ticket) => ticket.ref).sort()
+    expect(refs).toEqual([...changes.expected.refs].sort())
   })
 }
 

@@ -4,7 +4,12 @@
  */
 import * as React from 'react'
 
-import type { ErrorCode, SnapshotMetrics, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type {
+  ErrorCode,
+  SnapshotMetrics,
+  SnapshotSource,
+  WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, RefreshIcon } from './icons.tsx'
@@ -44,16 +49,27 @@ import {
 } from './overview-text.ts'
 import type { PanelClient } from './rpc.ts'
 import { formatAge, useNow } from './snapshot-age.ts'
-import { useSnapshotRequest } from './snapshot-request.ts'
+import { snapshotRefreshNotice, useSnapshotRequest } from './snapshot-request.ts'
 import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
+  COLORS,
   EMPTY_STYLE,
   REFRESH_BUTTON_STYLE,
   REPO_CHIP_STYLE,
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
 } from './task-panel-styles.ts'
+
+/** 刷新失败原因：贴在数据时间旁边，说明数据没更新，但不盖住概览。 */
+const REFRESH_ERROR_STYLE: React.CSSProperties = {
+  color: COLORS.error,
+  fontSize: 11,
+  maxWidth: 160,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
 
 /** 概览视图依赖。 */
 export interface OverviewViewProps {
@@ -69,7 +85,10 @@ export interface OverviewViewProps {
 /** 概览视图。 */
 export function OverviewView(props: OverviewViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
-  const { snapshot, error, phase, refresh } = useSnapshotRequest(props.client, props.workspaceRoot)
+  const { snapshot, error, refreshError, phase, refresh } = useSnapshotRequest(
+    props.client,
+    props.workspaceRoot,
+  )
   const nowValue = useNow(clock)
   const busy = phase === 'loading' || phase === 'refreshing'
 
@@ -83,6 +102,7 @@ export function OverviewView(props: OverviewViewProps): React.ReactElement {
         now={nowValue}
         loading={phase === 'loading'}
         busy={busy}
+        notice={snapshotRefreshNotice(snapshot, refreshError)}
         onRefresh={refresh}
       />
       {error === null ? null : <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} />}
@@ -105,11 +125,28 @@ export function OverviewView(props: OverviewViewProps): React.ReactElement {
   )
 }
 
+/** 数据来源徽标：本地缓存的指标不是实时的，标出来才不会误判。 */
+function SourceBadge(props: { readonly source: SnapshotSource }): React.ReactElement {
+  return (
+    <span
+      data-testid="overview-source"
+      style={{
+        ...BACKEND_BADGE_STYLE,
+        color: props.source === 'cache' ? COLORS.warn : COLORS.secondary,
+      }}
+    >
+      {props.source === 'cache' ? '本地缓存' : '实时'}
+    </span>
+  )
+}
+
 function Identity(props: {
   readonly snapshot: WorkspaceSnapshot | null
   readonly now: number
   readonly loading: boolean
   readonly busy: boolean
+  /** 数据旁边的失败原因：有数据时显示在时间旁边，不用整屏横幅盖住概览。 */
+  readonly notice: string | null
   readonly onRefresh: () => void
 }): React.ReactElement {
   const snapshot = props.snapshot
@@ -133,6 +170,8 @@ function Identity(props: {
             {BACKEND_LABELS[snapshot.backend]}
           </span>
         )}
+        {/* 数据来源：本地缓存的指标不是实时的，必须标出来。 */}
+        {snapshot === null ? null : <SourceBadge source={snapshot.source} />}
         {host === null ? null : (
           <span data-testid="overview-host" title={host} style={REPO_HOST_STYLE}>
             {host}
@@ -143,6 +182,15 @@ function Identity(props: {
         <span data-testid="overview-age" style={{ ...AGE_STYLE, fontSize: 'inherit' }}>
           {snapshot === null ? '尚无快照' : formatAge(snapshot.fetchedAt, props.now)}
         </span>
+        {props.notice === null ? null : (
+          <span
+            data-testid="overview-refresh-error"
+            title={props.notice}
+            style={REFRESH_ERROR_STYLE}
+          >
+            {props.notice}
+          </span>
+        )}
         <span aria-hidden="true" style={IDENTITY_SEPARATOR_STYLE}>
           ·
         </span>

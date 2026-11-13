@@ -55,6 +55,24 @@ export interface TrackerSnapshot {
   readonly loaded: number
   readonly total: number
   readonly tickets: readonly Ticket[]
+  /**
+   * 列表覆盖的上限：只覆盖最近更新的 N 张票（GitHub 的单页上限）。
+   * 缺省表示覆盖全部。宿主合并增量时按它裁剪，使结果与全量重拉一致。
+   */
+  readonly windowLimit?: number
+}
+
+/** 一次增量拉取的结果。 */
+export interface TrackerChanges {
+  /** 变更过的工单：更新时间落在增量窗口内。 */
+  readonly tickets: readonly Ticket[]
+  /**
+   * 是否被后端上限截断。为 true 时宿主改用全量重拉，
+   * 不把一份不完整的增量当成完整结果。
+   */
+  readonly truncated: boolean
+  /** 变更查询返回的仓库总票数；给出时用它更新总数，没有则沿用上次的。 */
+  readonly total?: number
 }
 
 /**
@@ -131,6 +149,17 @@ export interface TicketOptions {
 export interface Tracker {
   /** 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。 */
   fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot>
+  /**
+   * 可选能力：读取某时刻之后变更过的工单。
+   *
+   * 不实现该能力的后端由宿主退回全量刷新。实现的后端必须与列表查询使用
+   * 同一套过滤条件（状态、类型等），只在时间窗口上不同；窗口起点是
+   * 「上次成功拉取的时刻」向前重叠一小段，重叠部分按工单引用去重。
+   * @param workspaceRoot - 工作区根目录。
+   * @param since - 毫秒时间戳；后端按「更新时间在此刻之后」过滤。
+   * @returns 变更过的工单与是否被上限截断。
+   */
+  fetchChanges?: (workspaceRoot: string, since: number) => Promise<TrackerChanges>
   /**
    * 可选能力：读取开放票的未关闭原生阻塞数与阻塞引用。
    *

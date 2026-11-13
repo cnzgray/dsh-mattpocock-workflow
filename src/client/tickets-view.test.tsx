@@ -85,6 +85,9 @@ const FINAL: WorkspaceSnapshot = {
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 /** 阶段一快照：#2 还没有原生阻塞数据，按描述回退判定为可接。 */
@@ -110,6 +113,8 @@ function phaseOne(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
 interface FakeClient {
   readonly client: PanelClient
   readonly refreshCalls: string[]
+  /** 全量刷新的调用记录：宿主收到的请求带 full。 */
+  readonly fullRefreshCalls: string[]
   readonly resolveCalls: string[]
 }
 
@@ -129,17 +134,29 @@ function fakeClient(
   refreshResult?: () => Promise<RpcResult<WorkspaceSnapshot>>,
 ): FakeClient {
   const refreshCalls: string[] = []
+  const fullRefreshCalls: string[] = []
   const resolveCalls: string[] = []
   const client: PanelClient = {
     get: () => Promise.resolve(getResult),
-    refresh(root) {
+    refresh(root, options) {
       refreshCalls.push(root)
+      if (options?.full === true) fullRefreshCalls.push(root)
       return refreshResult === undefined ? Promise.resolve(getResult) : refreshResult()
     },
     resolveBlockers(root) {
       resolveCalls.push(root)
       return resolveResult()
     },
+    cache: () =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+          entries: 0,
+          lastWrittenAt: null,
+          cleared: 0,
+        },
+      }),
     getDetail: () => Promise.reject(new Error('未使用')),
     updateTicket: () => Promise.reject(new Error('未使用')),
     getOptions: () =>
@@ -147,7 +164,7 @@ function fakeClient(
     deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck: UNUSED_ENV_CHECK,
   }
-  return { client, refreshCalls, resolveCalls }
+  return { client, refreshCalls, fullRefreshCalls, resolveCalls }
 }
 
 function viewElement(
@@ -322,6 +339,16 @@ describe('工单列表的阻塞补齐', () => {
       get: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
       refresh: () => refreshPending.promise,
       resolveBlockers: () => stale.promise,
+      cache: () =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+            entries: 0,
+            lastWrittenAt: null,
+            cleared: 0,
+          },
+        }),
       getDetail: () => Promise.reject(new Error('未使用')),
       updateTicket: () => Promise.reject(new Error('未使用')),
       getOptions: () =>
@@ -492,5 +519,115 @@ describe('空列表的提示', () => {
     fireEvent.click(screen.getByTestId('filter-closed'))
 
     expect(screen.getByTestId('empty').textContent).toBe('没有符合筛选条件的工单。')
+  })
+})
+
+describe('数据来源与刷新', () => {
+  it('实时快照标出数据来源是实时', async () => {
+    const { client } = fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(client)
+
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('snapshot-source').textContent).toBe('实时')
+  })
+
+  it('快照来自本地缓存时先显示数据，再自动发起一次增量刷新', async () => {
+    const refreshPending = deferred<RpcResult<WorkspaceSnapshot>>()
+    const cached = { ...FINAL, source: 'cache' as const, stale: true }
+    const fake = fakeClient({ ok: true, result: cached }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    const client: PanelClient = {
+      ...fake.client,
+      refresh: (root, options) => {
+        fake.refreshCalls.push(root)
+        if (options?.full === true) fake.fullRefreshCalls.push(root)
+        return refreshPending.promise
+      },
+    }
+    renderView(client)
+
+    // 缓存数据先渲染出来，刷新还没回来也不空屏。
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('snapshot-source').textContent).toBe('本地缓存')
+    expect(screen.getAllByTestId('ticket-row')).toHaveLength(2)
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    expect(fake.fullRefreshCalls).toEqual([])
+  })
+
+  it('刷新失败时保留列表，并在数据旁边显示失败原因', async () => {
+    const fake = fakeClient(
+      { ok: true, result: FINAL },
+      () => Promise.resolve({ ok: true, result: FINAL }),
+      () => Promise.resolve({ ok: false, error: { code: 'fetch-failed', message: '网络断了' } }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('refresh'))
+
+    await screen.findByTestId('refresh-error')
+    expect(screen.getByTestId('refresh-error').textContent).toContain('网络断了')
+    expect(screen.queryByTestId('error')).toBeNull()
+    expect(screen.getAllByTestId('ticket-row')).toHaveLength(2)
+  })
+
+  it('快照自带刷新失败原因时在数据旁边显示该原因', async () => {
+    const refreshPending = deferred<RpcResult<WorkspaceSnapshot>>()
+    const stale = {
+      ...FINAL,
+      stale: true,
+      refreshError: { code: 'fetch-failed' as const, message: '上次刷新失败' },
+    }
+    const fake = fakeClient({ ok: true, result: stale }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    const client: PanelClient = {
+      ...fake.client,
+      refresh: () => refreshPending.promise,
+    }
+    renderView(client)
+    await screen.findAllByTestId('ticket-row')
+
+    await screen.findByTestId('refresh-error')
+    expect(screen.getByTestId('refresh-error').textContent).toContain('上次刷新失败')
+  })
+
+  it('数据陈旧但没有失败原因时说明数据不是最新的', async () => {
+    const refreshPending = deferred<RpcResult<WorkspaceSnapshot>>()
+    const stale = { ...FINAL, stale: true }
+    const fake = fakeClient({ ok: true, result: stale }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    const client: PanelClient = {
+      ...fake.client,
+      refresh: () => refreshPending.promise,
+    }
+    renderView(client)
+    await screen.findAllByTestId('ticket-row')
+
+    await screen.findByTestId('refresh-error')
+    expect(screen.getByTestId('refresh-error').textContent).toContain('数据可能不是最新的')
+  })
+
+  it('点击全量刷新时让宿主忽略本地快照库重拉一次', async () => {
+    const fake = fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('refresh-full'))
+
+    await waitFor(() => {
+      expect(fake.fullRefreshCalls).toEqual(['/repo'])
+    })
+    expect(fake.refreshCalls).toEqual(['/repo'])
   })
 })

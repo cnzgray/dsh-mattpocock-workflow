@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { SnapshotStore } from '../adapters/fs/snapshot-store.ts'
 import type {
   TicketDetail,
   TicketOptions,
@@ -15,6 +16,7 @@ import type { RpcResult, TicketDetail as WireTicketDetail } from '../protocol/tr
 import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
 import type { LogSink } from './log.ts'
 import { createTicketService, type TicketService } from './ticket-service.ts'
+import { memoryStore, storedEntry, ticket } from './snapshot-service-test-support.ts'
 
 const ROOT = '/workspace'
 const REF: TicketReference = { ref: '#25', number: 25 }
@@ -50,6 +52,8 @@ interface FakeOptions {
   readonly supportUpdate?: boolean
   readonly supportOptions?: boolean
   readonly supportDelete?: boolean
+  /** 注入的本地快照库。 */
+  readonly store?: SnapshotStore
 }
 
 interface FakeResolver {
@@ -161,6 +165,7 @@ function serviceWith(options: FakeOptions = {}): FakeService {
         return clock
       },
       log,
+      ...(options.store === undefined ? {} : { store: options.store }),
     }),
     detailCalls: fake.detailCalls,
     updateCalls: fake.updateCalls,
@@ -572,5 +577,35 @@ describe('工单删除服务', () => {
       ok: false,
       error: { code: 'ticket-not-found', message: '找不到这张工单，它可能已被删除。' },
     })
+  })
+})
+
+describe('写操作与本地快照库', () => {
+  it('变更成功后同步缓存里那张票', async () => {
+    const store = memoryStore([
+      storedEntry({ workspaceRoot: ROOT, tickets: [ticket({ number: 25 })] }),
+    ])
+    const { service } = serviceWith({ store })
+
+    await service.handle('ticket.update', {
+      workspaceRoot: ROOT,
+      ...REF,
+      patch: { labels: ['bug'], state: 'closed' },
+    })
+
+    const entry = store.entries.get(ROOT)
+    expect(entry?.tickets[0]?.labels).toEqual(['bug'])
+    expect(entry?.tickets[0]?.state).toBe('closed')
+  })
+
+  it('删除成功后把那张票从缓存里去掉', async () => {
+    const store = memoryStore([
+      storedEntry({ workspaceRoot: ROOT, tickets: [ticket({ number: 25 })] }),
+    ])
+    const { service } = serviceWith({ store, supportDelete: true })
+
+    await service.handle('ticket.delete', { workspaceRoot: ROOT, ...REF, confirm: 'delete' })
+
+    expect(store.entries.get(ROOT)?.tickets).toEqual([])
   })
 })

@@ -1,23 +1,25 @@
 /**
- * 快照服务：缓存、刷新、阻塞补齐与错误映射。主接缝是 `handle(method, params)`，
- * 测试注入假的「按工作区解析后端」函数就能覆盖缓存、错误码和刷新失败保留旧快照。
+ * 快照服务：本地快照库、增量刷新、阻塞补齐与错误映射。主接缝是 `handle(method, params)`，
+ * 测试注入假的「按工作区解析后端」函数与假的快照库就能覆盖缓存、增量、错误码和刷新失败保留旧快照。
  *
  * 读取分两个阶段：
  * 1. 列表：后端返回列表即生成快照；GitHub 的原生阻塞数在同一次查询里取回，
  *    其余后端的阻塞数先按描述回退；
  * 2. 补齐：仅当后端实现 `resolveBlockers` 时读取原生阻塞数，合并后写回缓存。
  * 补齐按工作区去重；刷新替换缓存条目，旧的补齐结果不会覆盖新快照。
+ *
+ * 本地快照库是跨进程的缓存：每个工作区一个文件，存最近一次成功拉取的原始工单。
+ * 打开面板先读库（不发远端请求），客户端随即发起一次刷新把库推向最新：
+ * 有可用库且后端支持增量时走增量，否则全量重拉。刷新失败保留旧数据，
+ * 并把失败原因放进快照，界面据此说明「显示的是本地缓存」。
  */
 import { mergeNativeBlockers } from '../core/blockers.ts'
 import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
-import { computeMetrics } from '../core/metrics.ts'
+import { isRecord } from '../core/json.ts'
+import { mergeTickets } from '../core/merge.ts'
 import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
-import type {
-  BlockerResolution,
-  TicketLabelNames,
-  TicketReference,
-  TrackerSnapshot,
-} from '../core/ticket.ts'
+import type { TicketReference, TrackerChanges, TrackerSnapshot } from '../core/ticket.ts'
+import type { SnapshotStoreEntry } from '../core/snapshot-store.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
@@ -26,57 +28,59 @@ import {
   RPC_METHODS,
   type ErrorCode,
   type RpcResult,
+  type SnapshotCacheInfo,
   type SnapshotMetrics,
+  type SnapshotSource,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
-import type { BackendResolver } from './backend-resolver.ts'
-import type { LogSink } from './log.ts'
+import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
 import { readWorkspaceRoot } from './rpc-params.ts'
+import {
+  buildStoredSnapshot,
+  cacheInfo,
+  metricsOf,
+  readStored,
+  removeStored,
+  repositoryKey,
+  storedEntry,
+  writeStored,
+  type BlockerResolver,
+  type CachedWorkspace,
+  type SnapshotLibraryDeps,
+} from './snapshot-library.ts'
+
+/**
+ * 增量窗口向前重叠的时长。远端时钟偏移与最终一致性都可能让边界上的票漏掉，
+ * 多取一点再按工单引用去重，比漏票安全。
+ */
+const INCREMENTAL_OVERLAP_MS = 60_000
 
 /** 快照服务依赖。 */
-export interface SnapshotServiceDeps {
+export interface SnapshotServiceDeps extends SnapshotLibraryDeps {
   /** 按工作区解析后端；解析结果由宿主自己缓存。 */
   readonly resolve: BackendResolver
-  readonly now: () => number
-  readonly labels: TicketLabelNames
-  readonly log: LogSink
 }
 
 /** 宿主对界面的唯一 RPC 入口。 */
 export interface SnapshotService {
   /**
-   * 处理一个 RPC 方法。
+   * 处理一个快照方法。
    * @param method - 三个快照方法之一。
-   * @param params - `{ workspaceRoot }`。
+   * @param params - 方法参数。
    * @returns 成功快照或带错误码的失败。
    */
   handle(method: string, params: unknown): Promise<RpcResult<WorkspaceSnapshot>>
+  /**
+   * 读取或清空本地快照库。
+   * @param params - 请求参数；带确认词时可以清空。
+   * @returns 本地快照库的信息。
+   */
+  cache(params: unknown): Promise<RpcResult<SnapshotCacheInfo>>
 }
-
-/**
- * 一个工作区的缓存条目。刷新会用新条目替换旧条目；
- * 补齐结果靠条目身份判断是否过期，旧条目写不回缓存。
- */
-interface CachedWorkspace {
-  readonly kind: BackendKind
-  /** 远端实例主机；列表与补齐两阶段共用同一份，本地 Markdown 为 null。 */
-  readonly repositoryHost: string | null
-  /** 后端的原始列表，补齐后按它重新判定，避免丢失标签。 */
-  readonly raw: TrackerSnapshot
-  snapshot: WorkspaceSnapshot
-  /** 原生阻塞补齐能力；null 表示后端不实现，列表阶段已经定稿。 */
-  readonly resolver: BlockerResolver | null
-  pending: Promise<RpcResult<WorkspaceSnapshot>> | null
-}
-
-type BlockerResolver = (
-  workspaceRoot: string,
-  tickets: readonly TicketReference[],
-) => Promise<BlockerResolution>
 
 /**
  * 创建按工作区根目录缓存的快照服务。
- * @param deps - 工单后端、时钟、标签名与日志出口。
+ * @param deps - 工单后端、时钟、标签名、日志出口与可选的本地快照库。
  * @returns 快照服务。
  */
 export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotService {
@@ -98,16 +102,24 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
       }
 
       if (method === RPC_METHODS.snapshotGet) {
-        const cached = cache.get(workspaceRoot)
-        if (cached !== undefined) return Promise.resolve({ ok: true, result: cached.snapshot })
-        return loadWorkspace(deps, cache, loading, workspaceRoot)
+        return getSnapshot(deps, cache, loading, workspaceRoot)
       }
 
       if (method === RPC_METHODS.snapshotResolveBlockers) {
         return resolveBlockers(deps, cache, loading, workspaceRoot)
       }
 
-      return fetchAndCache(deps, cache, workspaceRoot)
+      return refreshSnapshot(deps, cache, workspaceRoot, readFullFlag(params))
+    },
+
+    cache(params) {
+      if (readWorkspaceRoot(params) === undefined) {
+        return Promise.resolve({
+          ok: false,
+          error: { code: ERROR_CODES.invalidParams, message: '缺少非空的 workspaceRoot 参数。' },
+        })
+      }
+      return cacheInfo(deps, cache, params)
     },
   }
 }
@@ -120,6 +132,39 @@ function isSnapshotMethod(method: string): boolean {
   )
 }
 
+/** 读出「全量刷新」标记。 */
+function readFullFlag(params: unknown): boolean {
+  return isRecord(params) && params.full === true
+}
+
+/**
+ * 读取快照：先给内存缓存，再给本地快照库，最后才实时拉取。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param loading - 进行中的首屏拉取。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 快照或失败。
+ */
+function getSnapshot(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  loading: Map<string, Promise<RpcResult<WorkspaceSnapshot>>>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const cached = cache.get(workspaceRoot)
+  if (cached !== undefined) return Promise.resolve({ ok: true, result: cached.snapshot })
+
+  return loadWorkspace(deps, cache, loading, workspaceRoot)
+}
+
+/**
+ * 首屏拉取：同一工作区的并发请求共享同一次拉取。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param loading - 进行中的首屏拉取。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 快照或失败。
+ */
 function loadWorkspace(
   deps: SnapshotServiceDeps,
   cache: Map<string, CachedWorkspace>,
@@ -129,7 +174,7 @@ function loadWorkspace(
   const running = loading.get(workspaceRoot)
   if (running !== undefined) return running
 
-  const task = fetchAndCache(deps, cache, workspaceRoot)
+  const task = readWorkspace(deps, cache, workspaceRoot)
   loading.set(workspaceRoot, task)
   void task.then(
     () => {
@@ -142,6 +187,172 @@ function loadWorkspace(
   return task
 }
 
+/**
+ * 首屏：库里有料就先给库里那份，再由客户端发起刷新把它推向最新。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 快照或失败。
+ */
+async function readWorkspace(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const stored = await readStored(deps, workspaceRoot)
+  if (stored !== undefined) {
+    const served = await serveStored(deps, cache, workspaceRoot, stored)
+    if (served !== undefined) return served
+  }
+  return fetchAndCache(deps, cache, workspaceRoot)
+}
+
+/**
+ * 把本地快照库里的数据交给界面。
+ *
+ * 先确认这份缓存属于当前仓库：换远端、换后端时身份对不上，缓存作废并按全量重拉。
+ * 后端暂时解析不出来时仍然显示缓存，但标成陈旧并带上失败原因。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @param stored - 库里的条目。
+ * @returns 快照；缓存不属于当前仓库时返回 undefined，交给调用方实时拉取。
+ */
+async function serveStored(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  stored: SnapshotStoreEntry,
+): Promise<RpcResult<WorkspaceSnapshot> | undefined> {
+  let resolved: ResolvedBackend
+  try {
+    resolved = await deps.resolve(workspaceRoot)
+  } catch (error) {
+    const mapped = mapError(error)
+    const snapshot = buildStoredSnapshot(deps, stored, {
+      stale: true,
+      refreshError: { code: mapped.code, message: mapped.message },
+    })
+    cache.set(workspaceRoot, storedEntry(stored, null, snapshot))
+    return { ok: true, result: snapshot }
+  }
+
+  if (repositoryKey(resolved.kind, resolved.address) !== stored.repositoryKey) {
+    await removeStored(deps, workspaceRoot)
+    return undefined
+  }
+
+  const snapshot = buildStoredSnapshot(deps, stored, { stale: true, refreshError: null })
+  cache.set(workspaceRoot, storedEntry(stored, resolved, snapshot))
+  return { ok: true, result: snapshot }
+}
+
+/**
+ * 刷新：能用增量就增量，否则全量重拉。
+ *
+ * 增量以本地快照库里的数据为基准，窗口起点是上次成功拉取的时刻向前重叠一小段。
+ * 增量被后端截断时退回全量，不把一份不完整的结果当成完整结果。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @param full - 为 true 时忽略本地快照库，全量重拉。
+ * @returns 快照或失败。
+ */
+async function refreshSnapshot(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  full: boolean,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const startedAt = deps.now()
+
+  let resolved: ResolvedBackend
+  try {
+    resolved = await deps.resolve(workspaceRoot)
+  } catch (error) {
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+  }
+
+  const stored = await readStored(deps, workspaceRoot)
+  const base =
+    stored?.repositoryKey === repositoryKey(resolved.kind, resolved.address) ? stored : undefined
+  const tracker = resolved.tracker
+
+  if (base !== undefined && !full && tracker.fetchChanges !== undefined) {
+    const merged = await mergeIncremental(deps, cache, workspaceRoot, resolved, base, startedAt)
+    if (merged !== undefined) return merged
+  }
+
+  try {
+    const raw = await tracker.fetchSnapshot(workspaceRoot)
+    return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
+  } catch (error) {
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+  }
+}
+
+/**
+ * 走一次增量拉取并合并。
+ *
+ * 增量被后端截断时返回 undefined，交给调用方退回全量重拉；
+ * 增量请求失败时保留旧数据并带上失败原因。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @param resolved - 解析出的后端。
+ * @param base - 库里的基准数据。
+ * @param startedAt - 这次刷新的起始时刻。
+ * @returns 合并后的快照；退回全量时是 undefined。
+ */
+async function mergeIncremental(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  resolved: ResolvedBackend,
+  base: SnapshotStoreEntry,
+  startedAt: number,
+): Promise<RpcResult<WorkspaceSnapshot> | undefined> {
+  const tracker = resolved.tracker
+  if (tracker.fetchChanges === undefined) return undefined
+
+  let changes: TrackerChanges
+  try {
+    changes = await tracker.fetchChanges(workspaceRoot, base.fetchedAt - INCREMENTAL_OVERLAP_MS)
+  } catch (error) {
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+  }
+
+  if (changes.truncated) {
+    // 增量被截断：这份结果不完整，退回全量重拉。
+    deps.log('warn', LOG_EVENTS.snapshot, {
+      result: 'error',
+      backend: resolved.kind,
+      stage: SNAPSHOT_STAGES.list,
+      code: ERROR_CODES.fetchFailed,
+      durationMs: Math.max(0, deps.now() - startedAt),
+    })
+    return undefined
+  }
+
+  const merged = mergeTickets(base.tickets, changes.tickets, base.windowLimit)
+  const raw: TrackerSnapshot = {
+    repository: base.repository,
+    fetchedAt: deps.now(),
+    loaded: merged.length,
+    total: changes.total ?? base.total,
+    tickets: merged,
+    ...(base.windowLimit === undefined ? {} : { windowLimit: base.windowLimit }),
+  }
+  return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'incremental')
+}
+
+/**
+ * 全量拉取并写缓存。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 快照或失败。
+ */
 async function fetchAndCache(
   deps: SnapshotServiceDeps,
   cache: Map<string, CachedWorkspace>,
@@ -154,31 +365,7 @@ async function fetchAndCache(
     const resolved = await deps.resolve(workspaceRoot)
     kind = resolved.kind
     const raw = await resolved.tracker.fetchSnapshot(workspaceRoot)
-    const tickets = withSkillActions(classifyTickets(raw.tickets, deps.labels), deps.labels)
-    const resolver = resolved.tracker.resolveBlockers ?? null
-    const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
-    const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
-    const metrics = metricsOf(deps, resolved.kind, raw, tickets, finalized)
-    const snapshot = buildSnapshot(resolved.kind, repositoryHost, raw, tickets, finalized, metrics)
-
-    cache.set(workspaceRoot, {
-      kind: resolved.kind,
-      repositoryHost,
-      raw,
-      snapshot,
-      resolver,
-      pending: null,
-    })
-    deps.log('info', LOG_EVENTS.snapshot, {
-      result: 'ok',
-      backend: resolved.kind,
-      stage: SNAPSHOT_STAGES.list,
-      durationMs: Math.max(0, deps.now() - startedAt),
-      repository: snapshot.repository,
-      loaded: snapshot.loaded,
-      total: snapshot.total,
-    })
-    return { ok: true, result: snapshot }
+    return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
   } catch (error) {
     const mapped = mapError(error)
     deps.log('warn', LOG_EVENTS.snapshot, {
@@ -190,6 +377,114 @@ async function fetchAndCache(
     })
     return failure(mapped.code, mapped.message)
   }
+}
+
+/**
+ * 发布一次成功拉取的结果：写内存缓存、写本地快照库、返回快照。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @param resolved - 解析出的后端。
+ * @param raw - 后端返回的原始列表。
+ * @param startedAt - 这次拉取的起始时刻。
+ * @param mode - 这次是全量还是增量。
+ * @returns 快照。
+ */
+async function publish(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  resolved: ResolvedBackend,
+  raw: TrackerSnapshot,
+  startedAt: number,
+  mode: 'full' | 'incremental',
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const tickets = withSkillActions(classifyTickets(raw.tickets, deps.labels), deps.labels)
+  const resolver = resolved.tracker.resolveBlockers ?? null
+  const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
+  const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
+  const metrics = metricsOf(deps, resolved.kind, raw, tickets, finalized)
+  const snapshot = buildSnapshot(
+    resolved.kind,
+    repositoryHost,
+    raw,
+    tickets,
+    finalized,
+    metrics,
+    'live',
+    false,
+    null,
+  )
+
+  cache.set(workspaceRoot, {
+    kind: resolved.kind,
+    repositoryHost,
+    raw,
+    snapshot,
+    resolver,
+    pending: null,
+  })
+
+  await writeStored(deps, workspaceRoot, resolved, raw)
+
+  deps.log('info', LOG_EVENTS.snapshot, {
+    result: 'ok',
+    backend: resolved.kind,
+    stage: SNAPSHOT_STAGES.list,
+    durationMs: Math.max(0, deps.now() - startedAt),
+    repository: snapshot.repository,
+    loaded: snapshot.loaded,
+    total: snapshot.total,
+    mode,
+  })
+  return { ok: true, result: snapshot }
+}
+
+/**
+ * 刷新失败时保留旧数据：把失败原因放进快照，界面据此说明「显示的是本地缓存」。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param workspaceRoot - 工作区根目录。
+ * @param mapped - 映射后的错误码与文案。
+ * @param startedAt - 这次刷新的起始时刻。
+ * @returns 有旧数据时返回带失败原因的快照，否则返回失败。
+ */
+async function keepOldSnapshot(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  workspaceRoot: string,
+  mapped: { readonly code: ErrorCode; readonly message: string },
+  startedAt: number,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const refreshError = { code: mapped.code, message: mapped.message }
+  const cached = cache.get(workspaceRoot)
+  if (cached !== undefined) {
+    const snapshot: WorkspaceSnapshot = { ...cached.snapshot, stale: true, refreshError }
+    cached.snapshot = snapshot
+    deps.log('warn', LOG_EVENTS.snapshot, {
+      result: 'error',
+      backend: cached.kind,
+      stage: SNAPSHOT_STAGES.list,
+      code: mapped.code,
+      durationMs: Math.max(0, deps.now() - startedAt),
+    })
+    return { ok: true, result: snapshot }
+  }
+
+  // 内存里还没有快照，但库里可能有：把库里的数据显示出来并说明刷新失败。
+  const stored = await readStored(deps, workspaceRoot)
+  if (stored === undefined) return failure(mapped.code, mapped.message)
+
+  const snapshot = buildStoredSnapshot(deps, stored, { stale: true, refreshError })
+  cache.set(workspaceRoot, storedEntry(stored, null, snapshot))
+  deps.log('warn', LOG_EVENTS.snapshot, {
+    result: 'error',
+    backend: stored.backend,
+    stage: SNAPSHOT_STAGES.list,
+    code: mapped.code,
+    durationMs: Math.max(0, deps.now() - startedAt),
+  })
+  return { ok: true, result: snapshot }
 }
 
 /**
@@ -251,7 +546,17 @@ async function finalize(
       deps.labels,
     )
     const metrics = metricsOf(deps, entry.kind, entry.raw, tickets, true)
-    settled = buildSnapshot(entry.kind, entry.repositoryHost, entry.raw, tickets, true, metrics)
+    settled = buildSnapshot(
+      entry.kind,
+      entry.repositoryHost,
+      entry.raw,
+      tickets,
+      true,
+      metrics,
+      entry.snapshot.source,
+      entry.snapshot.stale,
+      entry.snapshot.refreshError,
+    )
   } catch (error) {
     // 补齐失败只影响定稿标记：保留阶段一结果，下一次刷新重新尝试。
     failure = mapError(error)
@@ -285,6 +590,9 @@ function buildSnapshot(
   tickets: readonly (ClassifiedTicket & SkillActionDecision)[],
   blockersFinalized: boolean,
   metrics: SnapshotMetrics,
+  source: SnapshotSource,
+  stale: boolean,
+  refreshError: { readonly code: ErrorCode; readonly message: string } | null,
 ): WorkspaceSnapshot {
   return {
     backend: kind,
@@ -295,6 +603,9 @@ function buildSnapshot(
     total: raw.total,
     blockersFinalized,
     metrics,
+    source,
+    stale,
+    refreshError,
     tickets: tickets.map((ticket) => ({
       ref: ticket.ref,
       number: ticket.number,
@@ -313,27 +624,6 @@ function buildSnapshot(
       ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
     })),
   }
-}
-
-/**
- * 组装快照时计算指标。时钟取后端的快照时间，让指标与界面显示的“多久之前”一致。
- * 本地 Markdown 的时间是文件创建/修改时间，不是工单时间，时效与流量指标按不可用处理。
- */
-function metricsOf(
-  deps: SnapshotServiceDeps,
-  kind: BackendKind,
-  raw: TrackerSnapshot,
-  tickets: readonly ClassifiedTicket[],
-  blockersFinalized: boolean,
-): SnapshotMetrics {
-  return computeMetrics({
-    tickets,
-    total: raw.total,
-    now: raw.fetchedAt,
-    timestamps: kind !== 'markdown',
-    blockersFinalized,
-    labels: deps.labels,
-  })
 }
 
 function mapError(error: unknown): { readonly code: ErrorCode; readonly message: string } {

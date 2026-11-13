@@ -5,6 +5,7 @@ import { CommandError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
 import {
   GITEA_ASSIGNEES_OUTPUT,
+  GITEA_CHANGES_OUTPUT,
   GITEA_COMMENTS,
   GITEA_DEPENDENCIES,
   GITEA_ISSUES,
@@ -22,10 +23,14 @@ import {
 import { createGiteaTracker } from './tracker.ts'
 
 const NOW = 1_700_000_000_000
+/** 增量窗口起点：2026-11-20T00:00:00Z。 */
+const SINCE = Date.parse('2026-11-20T00:00:00Z')
 
 interface RunnerOptions {
   readonly git?: () => string
   readonly issues?: (page: number) => RecordedApiCall
+  /** 带 `since` 的增量查询用这一组输出。 */
+  readonly changes?: (page: number) => RecordedApiCall
   readonly dependencies?: (index: number) => RecordedApiCall
 }
 
@@ -60,9 +65,10 @@ function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
     }
 
     const page = /[?&]page=(\d+)/.exec(endpoint)
-    const recorded = (options.issues ?? (() => GITEA_ISSUES_OUTPUT))(
-      page === null ? 1 : Number.parseInt(page[1] ?? '1', 10),
-    )
+    const source = endpoint.includes('since=')
+      ? (options.changes ?? (() => GITEA_CHANGES_OUTPUT))
+      : (options.issues ?? (() => GITEA_ISSUES_OUTPUT))
+    const recorded = source(page === null ? 1 : Number.parseInt(page[1] ?? '1', 10))
     return Promise.resolve({ stdout: recorded.stdout, stderr: recorded.stderr })
   }
   return { runner, calls, dependencyCalls }
@@ -273,6 +279,42 @@ describe('Gitea 工单后端', () => {
     await expect(tracker.fetchSnapshot('/workspace')).rejects.toMatchObject({
       code: 'fetch-failed',
     })
+  })
+})
+
+describe('Gitea 工单增量', () => {
+  it('增量查询带上 since 窗口，其余过滤条件与列表一致', async () => {
+    const { tracker, calls } = trackerWith()
+
+    await tracker.fetchChanges?.('/workspace', SINCE)
+
+    const endpoint = calls.find((call) => call[0] === 'tea')?.[3] ?? ''
+    expect(endpoint).toContain('state=all')
+    expect(endpoint).toContain('type=issues')
+    expect(endpoint).toContain(`since=${new Date(SINCE).toISOString()}`)
+  })
+
+  it('返回窗口内变更过的票，并给出它的阻塞数', async () => {
+    const { tracker } = trackerWith()
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
+    expect(changes?.truncated).toBe(false)
+    // Gitea 没有单独的阻塞补齐能力，增量里要自己补齐，
+    // 否则合并后这张票会显示成没有阻塞。
+    expect(changes?.tickets[0]?.openBlockers).toBe(1)
+  })
+
+  it('翻到页数上限还没拿完时标记为截断', async () => {
+    const recorded = recordedRunner({
+      changes: () => apiCall([giteaIssue({ number: 15, title: '一直有票', state: 'closed' })]),
+    })
+    const tracker = createGiteaTracker({ run: recorded.runner, now: () => NOW })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.truncated).toBe(true)
   })
 })
 
@@ -634,6 +676,11 @@ describeTrackerContract('Gitea', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0] },
+  changes: {
+    createTracker: () => createGiteaTracker({ run: recordedRunner().runner, now: () => NOW }),
+    since: SINCE,
+    expected: { refs: ['#16'] },
+  },
   detail: {
     createTracker: () =>
       mutableGiteaTracker({

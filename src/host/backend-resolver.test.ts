@@ -405,7 +405,7 @@ describe('宿主后端选择', () => {
     expect(authCalls).toHaveLength(2)
   })
 
-  it('刷新失败时保留上一次成功快照', async () => {
+  it('刷新失败时保留上一次成功快照，并标出失败原因', async () => {
     let calls = 0
     const { run } = hostRunner({
       gh: () => {
@@ -420,8 +420,13 @@ describe('宿主后端选择', () => {
     const failed = await service.handle('snapshot.refresh', { workspaceRoot: '/repo' })
     const again = await service.handle('snapshot.get', { workspaceRoot: '/repo' })
 
-    expect(failed).toMatchObject({ ok: false, error: { code: 'fetch-failed' } })
-    expect(again).toEqual(first)
+    expect(failed).toMatchObject({
+      ok: true,
+      result: { stale: true, refreshError: { code: 'fetch-failed' } },
+    })
+    const firstTickets = first.ok ? first.result.tickets : []
+    const againTickets = again.ok ? again.result.tickets : []
+    expect(againTickets).toEqual(firstTickets)
   })
   it('关闭缓存后每次检查都重新解析远端', async () => {
     let remote = 'git@github.com:owner/repo.git'

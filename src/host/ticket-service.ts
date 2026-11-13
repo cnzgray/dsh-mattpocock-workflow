@@ -7,6 +7,7 @@
  * 能力存在即支持，不存在即不支持：本地 Markdown 只实现 `fetchDetail`，
  * 因此详情里的写控件全部禁用；宿主不返回空数据冒充成功。
  */
+import type { SnapshotStore } from '../adapters/fs/snapshot-store.ts'
 import { isRecord } from '../core/json.ts'
 import type {
   TicketDetail,
@@ -39,6 +40,11 @@ export interface TicketServiceDeps {
   readonly resolve: BackendResolver
   readonly now: () => number
   readonly log: LogSink
+  /**
+   * 本地快照库。写操作成功后同步缓存里那张票，缓存才不会比远端更旧。
+   * 没有它时写操作只影响远端。
+   */
+  readonly store?: SnapshotStore | undefined
 }
 
 /** 宿主对界面的工单 RPC 入口。 */
@@ -134,6 +140,7 @@ async function update(
     }
 
     await updateTicket(target.workspaceRoot, referenceOf(target), patch)
+    await syncCachedTicket(deps, target.workspaceRoot, target.ref, patch)
     logResult(deps, 'info', kind, 'update', startedAt)
     return { ok: true, result: { applied: true } }
   } catch (error) {
@@ -202,12 +209,62 @@ async function remove(
     }
 
     await deleteTicket(target.workspaceRoot, referenceOf(target))
+    await removeCachedTicket(deps, target.workspaceRoot, target.ref)
     logResult(deps, 'info', kind, 'delete', startedAt)
     return { ok: true, result: { deleted: true } }
   } catch (error) {
     const mapped = mapError(error)
     logResult(deps, 'warn', kind, 'delete', startedAt, mapped.code)
     return failure(mapped.code, mapped.message)
+  }
+}
+
+/**
+ * 变更成功后同步本地快照库里的那张票。
+ *
+ * 只同步列表级字段（标签、状态）；分配人不进列表快照。同步失败就跳过：
+ * 缓存比远端旧一点，下一次刷新会把它拉齐。
+ * @param deps - 服务依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @param ref - 工单引用。
+ * @param patch - 已应用的补丁。
+ */
+async function syncCachedTicket(
+  deps: TicketServiceDeps,
+  workspaceRoot: string,
+  ref: string,
+  patch: TicketPatch,
+): Promise<void> {
+  const store = deps.store
+  if (store === undefined) return
+  if (patch.labels === undefined && patch.state === undefined) return
+  try {
+    await store.patchTicket(workspaceRoot, ref, {
+      ...(patch.labels === undefined ? {} : { labels: patch.labels }),
+      ...(patch.state === undefined ? {} : { state: patch.state }),
+    })
+  } catch {
+    // 缓存写不进去不影响这次变更的结果。
+  }
+}
+
+/**
+ * 删除成功后把那张票从本地快照库里去掉。
+ * @param deps - 服务依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @param ref - 工单引用。
+ */
+async function removeCachedTicket(
+  deps: TicketServiceDeps,
+  workspaceRoot: string,
+  ref: string,
+): Promise<void> {
+  const store = deps.store
+  if (store === undefined) return
+  try {
+    await store.removeTicket(workspaceRoot, ref)
+  } catch {
+    // 同上：缓存清不掉不影响删除结果。
   }
 }
 

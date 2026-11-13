@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import type { BackendKind } from '../protocol/backend.ts'
 import type { EnvCheckReport } from '../protocol/env-check.ts'
-import type { RpcResult } from '../protocol/tracker.ts'
+import type { RpcResult, SnapshotCacheInfo } from '../protocol/tracker.ts'
 import { EnvCheckView } from './env-check-view.tsx'
 import {
   CANDIDATE_REPORT,
@@ -25,10 +25,25 @@ afterEach(() => {
 interface FakeClient {
   readonly client: PanelClient
   readonly calls: string[]
+  /** 本地快照库的调用：工作区与是否要求清空。 */
+  readonly cacheCalls: (readonly [string, boolean])[]
 }
 
-function fakeClient(envCheck: (root: string) => Promise<RpcResult<EnvCheckReport>>): FakeClient {
+/** 空的本地快照库：默认夹具没有真实的缓存目录。 */
+const EMPTY_CACHE: SnapshotCacheInfo = {
+  location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+  entries: 0,
+  lastWrittenAt: null,
+  cleared: 0,
+}
+
+function fakeClient(
+  envCheck: (root: string) => Promise<RpcResult<EnvCheckReport>>,
+  cache: (root: string, clear: boolean) => Promise<RpcResult<SnapshotCacheInfo>> = () =>
+    Promise.resolve({ ok: true, result: EMPTY_CACHE }),
+): FakeClient {
   const calls: string[] = []
+  const cacheCalls: (readonly [string, boolean])[] = []
   const client: PanelClient = {
     get: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
@@ -38,12 +53,17 @@ function fakeClient(envCheck: (root: string) => Promise<RpcResult<EnvCheckReport
     getOptions: () =>
       Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
     deleteTicket: () => Promise.reject(new Error('未使用')),
+    cache(root, options) {
+      const clear = options?.clear === true
+      cacheCalls.push([root, clear])
+      return cache(root, clear)
+    },
     envCheck(root) {
       calls.push(root)
       return envCheck(root)
     },
   }
-  return { client, calls }
+  return { client, calls, cacheCalls }
 }
 
 function renderView(
@@ -53,9 +73,10 @@ function renderView(
     readonly canInject?: boolean | undefined
     readonly injectDraft?: ((text: string) => boolean) | undefined
     readonly focusBackend?: Exclude<BackendKind, 'markdown'> | null
+    readonly cache?: (root: string, clear: boolean) => Promise<RpcResult<SnapshotCacheInfo>>
   } = {},
 ): FakeClient {
-  const fake = fakeClient(envCheck)
+  const fake = fakeClient(envCheck, options.cache)
   render(
     <EnvCheckView
       client={fake.client}
@@ -397,5 +418,87 @@ describe('环境检查视图', () => {
     expect(screen.getByTestId('env-error').textContent).toContain('请在打开的工作区里重新打开面板')
     expect(screen.queryByTestId('env-error-retry')).toBeNull()
     expect(fake.calls).toEqual([])
+  })
+})
+
+describe('本地快照库小节', () => {
+  it('显示缓存位置、条目数与最近写入时间', async () => {
+    const fake = renderView(() => okResponse(), {
+      cache: () =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+            entries: 3,
+            lastWrittenAt: Date.now() - 60_000,
+            cleared: 0,
+          },
+        }),
+    })
+
+    await screen.findByTestId('env-cache')
+    expect(fake.cacheCalls).toEqual([['/repo', false]])
+    expect(screen.getByTestId('env-cache-location').textContent).toBe(
+      '~/.dsh/cache/dsh-mattpocock-workflow/',
+    )
+    expect(screen.getByTestId('env-cache-entries').textContent).toContain('3 条快照')
+    expect(screen.getByTestId('env-cache-written').textContent).toContain('最近写入')
+  })
+
+  it('没有写入记录时说明是空的，不显示时间', async () => {
+    renderView(() => okResponse())
+
+    await screen.findByTestId('env-cache')
+
+    expect(screen.getByTestId('env-cache-written').textContent).toContain('还没有写入记录')
+  })
+
+  it('清除时让宿主清空本地快照库，并刷新这节信息', async () => {
+    let cleared = false
+    const fake = renderView(() => okResponse(), {
+      cache: (_root, clear) => {
+        if (clear) cleared = true
+        return Promise.resolve({
+          ok: true,
+          result: {
+            location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+            entries: cleared ? 0 : 2,
+            lastWrittenAt: null,
+            cleared: clear ? 2 : 0,
+          },
+        })
+      },
+    })
+    await screen.findByTestId('env-cache')
+
+    fireEvent.click(screen.getByTestId('env-cache-clear'))
+
+    await screen.findByTestId('env-cache-notice')
+    expect(fake.cacheCalls).toEqual([
+      ['/repo', false],
+      ['/repo', true],
+      ['/repo', false],
+    ])
+    expect(screen.getByTestId('env-cache-notice').textContent).toContain('已清除 2 条')
+    expect(screen.getByTestId('env-cache-entries').textContent).toContain('0 条快照')
+  })
+
+  it('清除失败时显示原因，不静默', async () => {
+    renderView(() => okResponse(), {
+      cache: (_root, clear) =>
+        clear
+          ? Promise.resolve({
+              ok: false,
+              error: { code: 'internal', message: '快照库被占用' },
+            })
+          : Promise.resolve({ ok: true, result: EMPTY_CACHE }),
+    })
+    await screen.findByTestId('env-cache')
+
+    fireEvent.click(screen.getByTestId('env-cache-clear'))
+
+    await screen.findByTestId('env-cache-error')
+    expect(screen.getByTestId('env-cache-error').textContent).toContain('快照库被占用')
+    expect(screen.queryByTestId('env-cache-notice')).toBeNull()
   })
 })

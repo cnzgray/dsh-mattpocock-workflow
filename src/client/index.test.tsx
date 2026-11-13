@@ -20,6 +20,9 @@ const SNAPSHOT = {
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 /** 与 DSH 客户端根上下文一致的最小形状。 */

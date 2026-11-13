@@ -89,6 +89,9 @@ const SNAPSHOT: WorkspaceSnapshot = {
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 const UNUSED_ENV_CHECK = (): Promise<RpcResult<EnvCheckReport>> =>
@@ -102,6 +105,16 @@ function fakeClient(): PanelClient {
     get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     resolveBlockers: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+    cache: () =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+          entries: 0,
+          lastWrittenAt: null,
+          cleared: 0,
+        },
+      }),
     getDetail: () => Promise.reject(new Error('未使用')),
     updateTicket: () => Promise.reject(new Error('未使用')),
     getOptions: () =>

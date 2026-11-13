@@ -90,6 +90,18 @@ function trackerFor(tree: TreeSpec = TREE): Tracker {
   return createMarkdownTracker({ files: memoryFiles(tree), now: () => NOW })
 }
 
+/** 只有 `02-bug.md` 在窗口内动过：增量只会读到它与它引用到的兄弟工单。 */
+const MOVED_TREE: TreeSpec = {
+  directories: TREE.directories,
+  files: {
+    ...TREE.files,
+    '/ws/.scratch/login/issues/02-bug.md': {
+      content: '# 会话 bug\n\nStatus: ready-for-agent\nBlocked by: 01, 03\n',
+      updatedAt: UPDATED + 60_000,
+    },
+  },
+}
+
 describe('本地 Markdown 工单后端', () => {
   it('按 feature 与文件名顺序扫描 issues 目录，忽略 spec、map 与非 md 文件', async () => {
     const snapshot = await trackerFor().fetchSnapshot('/ws')
@@ -152,6 +164,58 @@ describe('本地 Markdown 工单后端', () => {
     }
 
     await expect(trackerFor(tree).fetchSnapshot('/ws')).rejects.toMatchObject({
+      code: 'markdown-read-failed',
+    })
+  })
+})
+
+describe('本地 Markdown 工单增量', () => {
+  it('只返回窗口内动过的工单', async () => {
+    const tracker = trackerFor(MOVED_TREE)
+
+    const changes = await tracker.fetchChanges?.('/ws', UPDATED)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual([
+      '.scratch/login/issues/02-bug.md',
+    ])
+    expect(changes?.truncated).toBe(false)
+  })
+
+  it('没有文件动过时返回空增量', async () => {
+    const tracker = trackerFor()
+
+    const changes = await tracker.fetchChanges?.('/ws', UPDATED)
+
+    expect(changes?.tickets).toEqual([])
+  })
+
+  it('变更工单的阻塞数与全量扫描一致', async () => {
+    const tracker = trackerFor(MOVED_TREE)
+
+    const changes = await tracker.fetchChanges?.('/ws', UPDATED)
+    const snapshot = await tracker.fetchSnapshot('/ws')
+
+    const changed = changes?.tickets[0]
+    const full = snapshot.tickets.find((ticket) => ticket.ref === '.scratch/login/issues/02-bug.md')
+    expect(changed?.openBlockers).toBe(full?.openBlockers)
+    expect(changed?.blockedBy).toEqual(full?.blockedBy)
+  })
+
+  it('工作区还没有 .scratch 时返回空增量', async () => {
+    const tracker = trackerFor({ directories: {}, files: {} })
+
+    const changes = await tracker.fetchChanges?.('/empty', UPDATED)
+
+    expect(changes?.tickets).toEqual([])
+  })
+
+  it('读取文件失败时返回 markdown-read-failed', async () => {
+    const tracker = trackerFor({
+      ...TREE,
+      failRead: ['/ws/.scratch/login/issues/02-bug.md'],
+    })
+
+    await expect(tracker.fetchChanges?.('/ws', UPDATED - 1)).rejects.toMatchObject({
       code: 'markdown-read-failed',
     })
   })
@@ -260,6 +324,11 @@ describeTrackerContract('本地 Markdown', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'none', expected: [0, 0, 1, 0] },
+  changes: {
+    createTracker: () => trackerFor(MOVED_TREE),
+    since: UPDATED,
+    expected: { refs: ['.scratch/login/issues/02-bug.md'] },
+  },
   detail: {
     createTracker: () => trackerFor(),
     request: { ref: MARKDOWN_DETAIL_REF, number: null },

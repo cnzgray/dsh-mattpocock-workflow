@@ -145,6 +145,9 @@ describe('任务面板', () => {
       total: 1,
       metrics: emptyMetrics(),
       blockersFinalized: true,
+      source: 'live',
+      stale: false,
+      refreshError: null,
       tickets: [
         {
           ref,
@@ -234,8 +237,10 @@ describe('任务面板', () => {
 
     fireEvent.click(screen.getByTestId('refresh'))
 
-    await screen.findByTestId('error')
-    expect(screen.getByTestId('error').textContent).toContain('未找到 gh 命令')
+    // 失败原因贴在数据旁边，不用整屏横幅盖住还在的列表。
+    await screen.findByTestId('refresh-error')
+    expect(screen.getByTestId('refresh-error').textContent).toContain('未找到 gh')
+    expect(screen.queryByTestId('error')).toBeNull()
     expect(screen.getAllByTestId('ticket-row')).toHaveLength(4)
   })
 

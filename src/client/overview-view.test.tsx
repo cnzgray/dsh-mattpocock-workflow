@@ -156,6 +156,9 @@ const SNAPSHOT: WorkspaceSnapshot = {
   tickets: TICKETS,
   metrics: METRICS,
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 const ENV_CHECK: EnvCheckReport = {
@@ -204,6 +207,16 @@ function fakeClient(
       resolveCalls.push(root)
       return options.resolveResult?.() ?? Promise.resolve({ ok: true, result: SNAPSHOT })
     },
+    cache: () =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+          entries: 0,
+          lastWrittenAt: null,
+          cleared: 0,
+        },
+      }),
     envCheck: () => Promise.resolve({ ok: true, result: ENV_CHECK }),
     getDetail: () => Promise.reject(new Error('未使用')),
     updateTicket: () => Promise.reject(new Error('未使用')),
@@ -520,5 +533,35 @@ describe('概览视图', () => {
       expect(screen.getByTestId('overview-repo').textContent).toBe('/two/repo')
     })
     expect(fake.getCalls).toEqual(['/one', '/two'])
+  })
+  it('实时快照标出数据来源是实时', async () => {
+    renderView(fakeClient({ ok: true, result: SNAPSHOT }))
+    await screen.findByTestId('metric-grid')
+
+    expect(screen.getByTestId('overview-source').textContent).toBe('实时')
+  })
+
+  it('快照来自本地缓存时标出本地缓存', async () => {
+    const cached: WorkspaceSnapshot = { ...SNAPSHOT, source: 'cache', stale: true }
+    renderView(fakeClient({ ok: true, result: cached }))
+    await screen.findByTestId('metric-grid')
+
+    expect(screen.getByTestId('overview-source').textContent).toBe('本地缓存')
+  })
+
+  it('刷新失败时保留概览数据，并在时间旁边显示失败原因', async () => {
+    const fake = fakeClient(
+      { ok: true, result: SNAPSHOT },
+      { refreshResult: { ok: false, error: { code: 'fetch-failed', message: '网络断了' } } },
+    )
+    renderView(fake)
+    await screen.findByTestId('metric-grid')
+
+    fireEvent.click(screen.getByTestId('overview-refresh'))
+
+    await screen.findByTestId('overview-refresh-error')
+    expect(screen.getByTestId('overview-refresh-error').textContent).toContain('网络断了')
+    expect(screen.queryByTestId('error')).toBeNull()
+    expect(screen.getByTestId('metric-grid')).toBeTruthy()
   })
 })

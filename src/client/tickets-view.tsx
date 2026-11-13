@@ -6,7 +6,12 @@
  */
 import * as React from 'react'
 
-import type { ErrorCode, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type {
+  ErrorCode,
+  SnapshotSource,
+  TicketSnapshot,
+  WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
@@ -14,7 +19,7 @@ import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
 import { useNow } from './snapshot-age.ts'
-import { useSnapshotRequest } from './snapshot-request.ts'
+import { snapshotRefreshNotice, useSnapshotRequest } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import { TicketList } from './ticket-list.tsx'
 import {
@@ -22,6 +27,7 @@ import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
   BUG_ACTION_STYLE,
+  BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
   CHIP_STYLE,
   COLORS,
@@ -52,6 +58,24 @@ import {
 } from './ticket-view.ts'
 import { useViewPreference } from './use-view-preference.ts'
 
+/** 全量刷新是次要动作：描边按钮，和刷新按钮并排但不同层级。 */
+const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
+  ...BUTTON_STYLE,
+  padding: '2px 6px',
+  fontSize: 12,
+  color: COLORS.secondary,
+}
+
+/** 刷新失败原因：贴在数据时间旁边，说明数据没更新，但不盖住列表。 */
+const REFRESH_ERROR_STYLE: React.CSSProperties = {
+  color: COLORS.error,
+  fontSize: 12,
+  maxWidth: 160,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
 /** 工单列表视图依赖。 */
 export interface TicketsViewProps {
   readonly client: PanelClient
@@ -72,7 +96,10 @@ export interface TicketsViewProps {
 /** 工单列表视图。 */
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
-  const { snapshot, error, phase, refresh } = useSnapshotRequest(props.client, props.workspaceRoot)
+  const { snapshot, error, refreshError, phase, refresh, refreshFull } = useSnapshotRequest(
+    props.client,
+    props.workspaceRoot,
+  )
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
   const { injected, notice, inject, onSkillAction } = useTicketActions(
@@ -102,7 +129,9 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         now={nowValue}
         loading={phase === 'loading'}
         busy={busy}
+        notice={snapshotRefreshNotice(snapshot, refreshError)}
         onRefresh={refresh}
+        onRefreshFull={refreshFull}
       />
       <ActionBar
         counts={snapshot === null ? null : counts}
@@ -207,12 +236,30 @@ function TicketRows(props: {
   )
 }
 
+/** 数据来源徽标：本地缓存的数据不是实时的，标出来才不会误判。 */
+function SourceBadge(props: { readonly source: SnapshotSource }): React.ReactElement {
+  return (
+    <span
+      data-testid="snapshot-source"
+      style={{
+        ...BACKEND_BADGE_STYLE,
+        color: props.source === 'cache' ? COLORS.warn : COLORS.secondary,
+      }}
+    >
+      {props.source === 'cache' ? '本地缓存' : '实时'}
+    </span>
+  )
+}
+
 function Header(props: {
   readonly snapshot: WorkspaceSnapshot | null
   readonly now: number
   readonly loading: boolean
   readonly busy: boolean
+  /** 数据旁边的失败原因：有数据时显示在时间旁边，不用整屏横幅盖住列表。 */
+  readonly notice: string | null
   readonly onRefresh: () => void
+  readonly onRefreshFull: () => void
 }): React.ReactElement {
   return (
     <header style={HEADER_STYLE}>
@@ -232,6 +279,8 @@ function Header(props: {
             {BACKEND_LABELS[props.snapshot.backend]}
           </span>
         )}
+        {/* 数据来源：本地缓存的数据不是实时的，必须让用户一眼看出来。 */}
+        {props.snapshot === null ? null : <SourceBadge source={props.snapshot.source} />}
         {/* 自建 Gitea 可能同时登录多个实例，主机名是区分同名仓库的唯一线索。 */}
         {props.snapshot?.backend === 'gitea' && props.snapshot.repositoryHost !== null ? (
           <span
@@ -249,6 +298,11 @@ function Header(props: {
             ? '尚无快照'
             : formatRelativeTime(props.snapshot.fetchedAt, props.now)}
         </span>
+        {props.notice === null ? null : (
+          <span data-testid="refresh-error" title={props.notice} style={REFRESH_ERROR_STYLE}>
+            {props.notice}
+          </span>
+        )}
         <button
           type="button"
           data-testid="refresh"
@@ -259,6 +313,16 @@ function Header(props: {
         >
           <RefreshIcon />
           {props.busy ? '刷新中…' : '刷新'}
+        </button>
+        <button
+          type="button"
+          data-testid="refresh-full"
+          data-hover="soft"
+          disabled={props.busy}
+          onClick={props.onRefreshFull}
+          style={{ ...SECONDARY_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
+        >
+          全量刷新
         </button>
       </div>
     </header>

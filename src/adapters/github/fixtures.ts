@@ -79,6 +79,63 @@ const RECORDED_ISSUES = {
 
 export const GH_ISSUES_OUTPUT = JSON.stringify(RECORDED_ISSUES, null, 2)
 
+/**
+ * 增量查询的录制输出：同一份查询加上更新时间过滤后只回变更过的票。
+ *
+ * `repositoryTotal` 是未过滤的仓库总数：带过滤的 `totalCount` 只是
+ * 「这次窗口内变更了多少张票」，不能当仓库总数用。
+ */
+export const GH_CHANGES_OUTPUT = JSON.stringify(
+  {
+    data: {
+      repository: {
+        repositoryTotal: { totalCount: 30 },
+        issues: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              number: 16,
+              title: '工单后端新增 Gitea 支持',
+              state: 'OPEN',
+              createdAt: '2026-11-12T14:14:07Z',
+              updatedAt: '2026-11-13T09:00:00Z',
+              labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
+              author: AUTHOR,
+              issueDependenciesSummary: { blockedBy: 1 },
+            },
+            {
+              number: 12,
+              title: '刷新后列表没有回到顶部',
+              state: 'CLOSED',
+              createdAt: '2026-11-11T09:00:00Z',
+              updatedAt: '2026-11-13T08:00:00Z',
+              closedAt: '2026-11-13T08:30:00Z',
+              labels: { nodes: [{ name: 'bug' }] },
+              author: AUTHOR,
+              issueDependenciesSummary: { blockedBy: 0 },
+            },
+          ],
+        },
+      },
+    },
+  },
+  null,
+  2,
+)
+
+/** 增量查询被单页上限截断的录制输出：`hasNextPage` 为真。 */
+export const GH_TRUNCATED_CHANGES_OUTPUT = JSON.stringify({
+  data: {
+    repository: {
+      repositoryTotal: { totalCount: 30 },
+      issues: {
+        pageInfo: { hasNextPage: true },
+        nodes: [],
+      },
+    },
+  },
+})
+
 /** 构造 `gh issue view --json` 的详情对象。 */
 export function ghIssueDetail(overrides: {
   readonly number: number

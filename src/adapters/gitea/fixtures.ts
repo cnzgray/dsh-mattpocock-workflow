@@ -130,6 +130,24 @@ export const GITEA_ISSUES = [
 
 export const GITEA_ISSUES_OUTPUT = apiCall(GITEA_ISSUES, GITEA_ISSUES.length)
 
+/**
+ * 增量查询的录制输出：只回窗口内变更过的票。
+ *
+ * 响应头里的总条数是过滤后的条数，不是仓库的票数。
+ */
+export const GITEA_CHANGES_OUTPUT = apiCall(
+  [
+    giteaIssue({
+      number: 16,
+      title: 'Gitea 工单后端',
+      labels: ['enhancement', 'ready-for-agent'],
+      createdAt: '2026-11-12T14:14:07Z',
+      updatedAt: '2026-11-21T09:15:00Z',
+    }),
+  ],
+  1,
+)
+
 /** 工单编号 → `/issues/:index/dependencies` 的录制响应。 */
 export const GITEA_DEPENDENCIES = new Map<number, RecordedApiCall>([
   [15, apiCall([giteaIssue({ number: 7, title: '初始化工程', state: 'closed' })], 1)],

@@ -16,8 +16,10 @@ import type {
   Ticket,
   TicketState,
   Tracker,
+  TrackerChanges,
   TrackerSnapshot,
 } from '../../core/ticket.ts'
+import { TrackerError } from '../../core/tracker-error.ts'
 import { deleteGiteaTicket, readGiteaDeletePermission } from './delete.ts'
 import { applyGiteaChanges, readGiteaDetail } from './detail.ts'
 import { readGiteaOptions } from './options.ts'
@@ -87,6 +89,10 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
       }
     },
 
+    async fetchChanges(workspaceRoot: string, since: number): Promise<TrackerChanges> {
+      return readGiteaChanges(deps, workspaceRoot, pageSize, since, concurrency)
+    },
+
     fetchDetail: (workspaceRoot, reference) =>
       readGiteaDetail(detailDeps, workspaceRoot, reference),
 
@@ -101,20 +107,79 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
   }
 }
 
+/**
+ * 读取某个时刻之后变更过的工单。
+ *
+ * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口。
+ */
+async function readGiteaChanges(
+  deps: GiteaTrackerDeps,
+  workspaceRoot: string,
+  pageSize: number,
+  since: number,
+  concurrency: number,
+): Promise<TrackerChanges> {
+  if (!Number.isFinite(since)) {
+    throw new TrackerError('fetch-failed', '增量窗口的起点不是有效时间戳。')
+  }
+
+  const repository = await readRepository(deps.run, workspaceRoot)
+  const issues = await readIssues(deps, workspaceRoot, repository, pageSize, since)
+
+  const states = new Map<number, TicketState>()
+  for (const issue of issues.items) {
+    if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
+  }
+
+  // Gitea 的阻塞数是在列表阶段就地解析的，没有单独的补齐能力；
+  // 增量里也要给变更过的票补上，否则合并后这些票会显示成没有阻塞。
+  const native = await readNativeBlockers(
+    deps,
+    workspaceRoot,
+    repository,
+    issues.items,
+    pageSize,
+    concurrency,
+  )
+  const tickets = issues.items.map((issue) => ({
+    ...issue.ticket,
+    ...resolveOpenBlockers({
+      ticket: issue.ticket,
+      nativeBlockers: native?.get(issue.ticket.number ?? -1),
+      text: issue.body,
+      states,
+    }),
+  }))
+
+  return { tickets, truncated: issues.truncated }
+}
+
+/**
+ * 读取一页页的工单。
+ *
+ * `since` 给了就只取该时刻之后更新过的票：同一路径、同样的过滤条件，
+ * 只多一个时间窗口，这样增量与全量覆盖的是同一批工单。
+ */
 async function readIssues(
   deps: GiteaTrackerDeps,
   workspaceRoot: string,
   repository: GiteaRepository,
   pageSize: number,
-): Promise<{ readonly items: ParsedIssue[]; readonly total: number | undefined }> {
+  since?: number,
+): Promise<{
+  readonly items: ParsedIssue[]
+  readonly total: number | undefined
+  readonly truncated: boolean
+}> {
   const items: ParsedIssue[] = []
   let total: number | undefined
+  let truncated = false
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const response = await callGiteaApi(
       deps.run,
       workspaceRoot,
-      issuesEndpoint(repository, pageSize, page),
+      issuesEndpoint(repository, pageSize, page, since),
     )
     ensureSuccess(response, '读取 Gitea 工单')
 
@@ -125,9 +190,11 @@ async function readIssues(
     // 有总条数就按条数收口；没有时只能一直翻到空页，宁可多一次请求，也不提前截断。
     if (total !== undefined && items.length >= total) break
     if (parsed.length === 0) break
+    // 翻到页数上限还没拿完：这份列表不完整，调用方要知道自己拿到的是半份。
+    if (page === MAX_PAGES) truncated = true
   }
 
-  return { items, total }
+  return { items, total, truncated }
 }
 
 async function readNativeBlockers(
@@ -201,8 +268,21 @@ async function readDependencies(
 /** 依赖功能未启用。只用于在读取阶段区分 404，不向外暴露。 */
 class DependenciesUnavailable extends Error {}
 
-function issuesEndpoint(repository: GiteaRepository, pageSize: number, page: number): string {
-  return `/repos/${repository.owner}/${repository.name}/issues?state=all&type=issues&page=${String(page)}&limit=${String(pageSize)}`
+/**
+ * 工单列表接口。
+ *
+ * 增量查询只在同一条路径上加 `since`：语义是「只显示该时刻之后更新过的条目」，
+ * 边界上的票由宿主向前重叠一段时间兜底。
+ * 其余参数（状态、排除 PR、页码、页大小）与列表完全一致，避免增量与全量口径不同。
+ */
+function issuesEndpoint(
+  repository: GiteaRepository,
+  pageSize: number,
+  page: number,
+  since?: number,
+): string {
+  const window = since === undefined ? '' : `&since=${new Date(since).toISOString()}`
+  return `/repos/${repository.owner}/${repository.name}/issues?state=all&type=issues&page=${String(page)}&limit=${String(pageSize)}${window}`
 }
 
 function dependenciesEndpoint(

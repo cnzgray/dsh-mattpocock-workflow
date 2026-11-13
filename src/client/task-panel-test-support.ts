@@ -8,6 +8,7 @@ import type { EnvCheckReport } from '../protocol/env-check.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   RpcResult,
+  SnapshotCacheInfo,
   TicketDetail,
   TicketSnapshot,
   WorkspaceSnapshot,
@@ -158,6 +159,9 @@ export const SNAPSHOT: WorkspaceSnapshot = {
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 export const UNUSED_RESOLVE = (): Promise<RpcResult<WorkspaceSnapshot>> =>
@@ -184,8 +188,18 @@ export interface FakeClient {
   readonly client: PanelClient
   readonly getCalls: string[]
   readonly refreshCalls: string[]
+  /** 全量刷新的调用记录：工作区根目录。 */
+  readonly fullRefreshCalls: string[]
   /** 详情请求的参数：工作区、引用、编号。 */
   readonly detailCalls: (readonly [string, string, number | null])[]
+}
+
+/** 空的本地快照库：默认夹具没有真实的缓存目录。 */
+export const EMPTY_CACHE: SnapshotCacheInfo = {
+  location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+  entries: 0,
+  lastWrittenAt: null,
+  cleared: 0,
 }
 
 export function fakeClient(
@@ -195,6 +209,7 @@ export function fakeClient(
 ): FakeClient {
   const getCalls: string[] = []
   const refreshCalls: string[] = []
+  const fullRefreshCalls: string[] = []
   const detailCalls: (readonly [string, string, number | null])[] = []
   const get = (root: string): RpcResult<WorkspaceSnapshot> =>
     typeof getResult === 'function' ? getResult(root) : getResult
@@ -203,10 +218,12 @@ export function fakeClient(
       getCalls.push(root)
       return Promise.resolve(get(root))
     },
-    refresh(root) {
+    refresh(root, options) {
       refreshCalls.push(root)
+      if (options?.full === true) fullRefreshCalls.push(root)
       return Promise.resolve(refreshResult ?? get(root))
     },
+    cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => resolveResult(),
     getDetail(root, ref, number) {
       detailCalls.push([root, ref, number])
@@ -218,7 +235,7 @@ export function fakeClient(
     deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
-  return { client, getCalls, refreshCalls, detailCalls }
+  return { client, getCalls, refreshCalls, fullRefreshCalls, detailCalls }
 }
 
 /** 只覆盖用得到的方法；其余方法被调用即视为测试写错。 */
@@ -226,6 +243,7 @@ export function clientWith(overrides: Partial<PanelClient>): PanelClient {
   return {
     get: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
+    cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => Promise.reject(new Error('未使用')),
     getDetail: () => Promise.reject(new Error('未使用')),
     updateTicket: () => Promise.reject(new Error('未使用')),

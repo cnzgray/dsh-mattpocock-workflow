@@ -28,6 +28,9 @@ const SNAPSHOT: WorkspaceSnapshot = {
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,
+  source: 'live',
+  stale: false,
+  refreshError: null,
 }
 
 const TICKET = {
@@ -120,6 +123,58 @@ describe('快照 RPC 客户端', () => {
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
       method: 'snapshot.resolveBlockers',
       params: { workspaceRoot: '/repo' },
+    })
+  })
+
+  it('增量刷新不带 full 参数', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.refresh('/repo')
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'snapshot.refresh',
+      params: { workspaceRoot: '/repo' },
+    })
+  })
+
+  it('全量刷新时在请求参数里带上 full', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.refresh('/repo', { full: true })
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'snapshot.refresh',
+      params: { workspaceRoot: '/repo', full: true },
+    })
+  })
+
+  it.each([
+    ['source', { source: undefined }],
+    ['stale', { stale: undefined }],
+    ['refreshError', { refreshError: undefined }],
+  ] as const)('快照缺少 %s 时返回 fetch-failed', async (_field, patch) => {
+    const legacy = { ...SNAPSHOT, ...patch }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+    )
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('快照的刷新失败原因格式不对时返回 fetch-failed', async () => {
+    const broken = { ...SNAPSHOT, refreshError: { code: 'fetch-failed' } }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: broken })).fetchImpl,
+    )
+
+    await expect(client.get('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
     })
   })
 
@@ -314,6 +369,56 @@ describe('工单详情 RPC 客户端', () => {
     await expect(
       client.updateTicket('/repo', '#25', 25, { state: 'closed' }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'fetch-failed' } })
+  })
+})
+
+describe('本地快照库 RPC 客户端', () => {
+  const CACHE_INFO = {
+    location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+    entries: 3,
+    lastWrittenAt: 1_700_000_000_000,
+    cleared: 0,
+  }
+
+  it('读取本地快照库时只带工作区', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: CACHE_INFO }))
+
+    const result = await createPanelClient(fetchImpl).cache('/repo')
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'snapshot.cache',
+      params: { workspaceRoot: '/repo' },
+    })
+    expect(result).toEqual({ ok: true, result: CACHE_INFO })
+  })
+
+  it('清空本地快照库时带上确认词', async () => {
+    const { fetchImpl, calls } = recordingFetch(
+      response({ ok: true, result: { ...CACHE_INFO, entries: 0, cleared: 3 } }),
+    )
+
+    await createPanelClient(fetchImpl).cache('/repo', { clear: true })
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'snapshot.cache',
+      params: { workspaceRoot: '/repo', clear: true, confirm: 'clear-cache' },
+    })
+  })
+
+  it.each([
+    ['location', { location: undefined }],
+    ['entries', { entries: undefined }],
+    ['lastWrittenAt', { lastWrittenAt: undefined }],
+    ['cleared', { cleared: undefined }],
+  ] as const)('快照库信息缺少 %s 时返回 fetch-failed', async (_field, patch) => {
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: { ...CACHE_INFO, ...patch } })).fetchImpl,
+    )
+
+    await expect(client.cache('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
   })
 })
 

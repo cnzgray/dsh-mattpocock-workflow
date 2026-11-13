@@ -20,6 +20,18 @@ function fakeService(result: RpcResult<WorkspaceSnapshot>): {
       calls.push({ method, params })
       return Promise.resolve(result)
     },
+    cache(params) {
+      calls.push({ method: 'snapshot.cache', params })
+      return Promise.resolve({
+        ok: true,
+        result: {
+          location: '~/.dsh/cache/dsh-mattpocock-workflow',
+          entries: 0,
+          lastWrittenAt: null,
+          cleared: 0,
+        },
+      })
+    },
   }
   return { service, calls }
 }
@@ -36,6 +48,9 @@ const OK: RpcResult<WorkspaceSnapshot> = {
     tickets: [],
     metrics: emptyMetrics(),
     blockersFinalized: true,
+    source: 'live',
+    stale: false,
+    refreshError: null,
   },
 }
 

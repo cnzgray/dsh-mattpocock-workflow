@@ -20,6 +20,8 @@ export const RPC_METHODS = {
   snapshotRefresh: 'snapshot.refresh',
   /** 补齐原生阻塞信息；快照已定稿时直接返回缓存。同一工作区的进行中请求会复用。 */
   snapshotResolveBlockers: 'snapshot.resolveBlockers',
+  /** 读取本地快照库的信息；带确认词时可以清空它。 */
+  snapshotCache: 'snapshot.cache',
   /** 重新跑一次环境检查；同一工作区的进行中请求会复用。 */
   envCheck: 'env.check',
   /** 读取单张工单详情；只在打开详情时请求，不进入列表快照。 */
@@ -235,6 +237,15 @@ export interface WorkspaceSnapshot {
    * 原生阻塞随列表返回、后端不支持原生阻塞、补齐完成或补齐失败后都为 true。
    */
   readonly blockersFinalized: boolean
+  /**
+   * 数据来源：实时拉取还是本地快照库。来自本地库时界面应标注出来，
+   * 并在后台发起一次刷新把它推向最新。
+   */
+  readonly source: SnapshotSource
+  /** 是否陈旧：数据来自本地库，或最近一次刷新失败。 */
+  readonly stale: boolean
+  /** 最近一次刷新失败的原因；没有失败时为 null。 */
+  readonly refreshError: RpcErrorBody | null
 }
 
 /** 三个快照方法共用的参数。 */
@@ -242,6 +253,47 @@ export interface SnapshotParams {
   /** 当前工作区根目录，宿主用它解析 git 远端并缓存快照。 */
   readonly workspaceRoot: string
 }
+
+/** 刷新快照的参数。 */
+export interface SnapshotRefreshParams extends SnapshotParams {
+  /**
+   * 为 true 时忽略本地快照库，重新全量拉一次。
+   * 缺省时能用增量就增量，缓存不可信时由界面显式要求全量。
+   */
+  readonly full?: boolean
+}
+
+/**
+ * 快照的数据来源。
+ * - `live`：这次是刚从后端拉到的；
+ * - `cache`：这次来自本地快照库，正在被刷新推向最新。
+ */
+export type SnapshotSource = 'live' | 'cache'
+
+/** 读取或清空本地快照库的参数。 */
+export interface SnapshotCacheParams {
+  /** 当前工作区根目录。 */
+  readonly workspaceRoot: string
+  /** 为 true 时清空本地快照库；必须带确认词。 */
+  readonly clear?: boolean
+  /** 清空时的确认词。 */
+  readonly confirm?: string
+}
+
+/** 本地快照库的信息。 */
+export interface SnapshotCacheInfo {
+  /** 缓存目录的位置，用符号形式给出，不含机器上的绝对路径。 */
+  readonly location: string
+  /** 当前缓存条目数。 */
+  readonly entries: number
+  /** 最近一次写入时间；没有条目时为 null。 */
+  readonly lastWrittenAt: number | null
+  /** 本次清掉的条目数；没有清空时为 0。 */
+  readonly cleared: number
+}
+
+/** 清空本地快照库的确认词。与删除工单的确认词不同，避免手滑。 */
+export const SNAPSHOT_CLEAR_CONFIRMATION = 'clear-cache'
 
 /** 一条工单评论。本地 Markdown 的评论没有作者与时间，两项为 null。 */
 export interface TicketComment {
@@ -364,8 +416,9 @@ export interface TicketOptions {
 /** 方法名到参数类型的映射。 */
 export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
-  'snapshot.refresh': SnapshotParams
+  'snapshot.refresh': SnapshotRefreshParams
   'snapshot.resolveBlockers': SnapshotParams
+  'snapshot.cache': SnapshotCacheParams
   'env.check': EnvCheckParams
   'ticket.get': TicketDetailParams
   'ticket.update': TicketUpdateParams

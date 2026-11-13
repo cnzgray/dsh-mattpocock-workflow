@@ -28,8 +28,10 @@ import type {
   TicketReference,
   TicketState,
   Tracker,
+  TrackerChanges,
   TrackerSnapshot,
 } from '../../core/ticket.ts'
+import { TrackerError } from '../../core/tracker-error.ts'
 import { deleteGitlabTicket, readGitlabDeletePermission } from './delete.ts'
 import { applyGitlabChanges, readGitlabDetail } from './detail.ts'
 import { readGitlabOptions } from './options.ts'
@@ -99,6 +101,10 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
         total: tickets.length,
         tickets,
       }
+    },
+
+    async fetchChanges(workspaceRoot: string, since: number): Promise<TrackerChanges> {
+      return readGitlabChanges(deps, workspaceRoot, pageSize, since)
     },
 
     async resolveBlockers(workspaceRoot, targets) {
@@ -178,16 +184,49 @@ function blockerHint(project: RepositoryAddress, issues: readonly ParsedIssue[])
   }
 }
 
+/**
+ * 读取某个时刻之后变更过的工单。
+ *
+ * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口。
+ */
+async function readGitlabChanges(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  pageSize: number,
+  since: number,
+): Promise<TrackerChanges> {
+  if (!Number.isFinite(since)) {
+    throw new TrackerError('fetch-failed', '增量窗口的起点不是有效时间戳。')
+  }
+
+  const project = await readProjectAddress(deps.run, workspaceRoot)
+  const issues = await readIssues(deps, workspaceRoot, project.path, pageSize, since)
+
+  return {
+    // 增量只负责取回变更过的票，阻塞判定由宿主在合并后统一处理。
+    tickets: issues.map((issue) => issue.ticket),
+    // GitLab 的列表按页读到不足一页为止，没有额外的页数上限。
+    truncated: false,
+  }
+}
+
+/**
+ * 读取一页页的工单。
+ *
+ * `since` 给了就只取该时刻之后更新过的票：同一路径、同样的过滤条件，
+ * 只多一个时间窗口，这样增量与全量覆盖的是同一批工单。
+ */
 async function readIssues(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
   project: string,
   pageSize: number,
+  since?: number,
 ): Promise<ParsedIssue[]> {
   const issues: ParsedIssue[] = []
 
   for (let page = 1; ; page += 1) {
-    const endpoint = issuesEndpoint(project, pageSize, page)
+    const endpoint = issuesEndpoint(project, pageSize, page, since)
     let output: string
     try {
       output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
@@ -330,8 +369,16 @@ function withOpenBlockers(issue: ParsedIssue, states: ReadonlyMap<number, Ticket
   }
 }
 
-function issuesEndpoint(project: string, pageSize: number, page: number): string {
-  return `${projectEndpoint(project)}/issues?state=all&per_page=${String(pageSize)}&page=${String(page)}`
+/**
+ * 工单列表接口。
+ *
+ * 增量查询只在同一条路径上加 `updated_after`：语义是「更新时间在该时刻之后」，
+ * 边界不含，边界上的票由宿主向前重叠一段时间兜底。
+ * 其余参数（状态、页大小、页码）与列表完全一致，避免增量与全量口径不同。
+ */
+function issuesEndpoint(project: string, pageSize: number, page: number, since?: number): string {
+  const window = since === undefined ? '' : `&updated_after=${new Date(since).toISOString()}`
+  return `${projectEndpoint(project)}/issues?state=all&per_page=${String(pageSize)}&page=${String(page)}${window}`
 }
 
 function normalizePositive(value: number, fallback: number): number {
