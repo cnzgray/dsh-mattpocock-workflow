@@ -10,6 +10,7 @@ import {
 } from '../../core/markdown.ts'
 import type { Tracker, TrackerSnapshot } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
+import { readMarkdownDetail } from './detail.ts'
 import { readLocalTicketFiles, type WorkspaceFiles } from './files.ts'
 
 /** 本地 Markdown 后端依赖。 */
@@ -47,5 +48,8 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
         tickets: parsed,
       }
     },
+
+    // 本地 Markdown 只提供只读详情：没有链接、分配人与任何写操作。
+    fetchDetail: (workspaceRoot, reference) => readMarkdownDetail(deps, workspaceRoot, reference),
   }
 }

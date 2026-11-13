@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseMarkdownTickets, workspaceName, type MarkdownTicketFile } from './markdown.ts'
+import {
+  markdownLabels,
+  markdownState,
+  parseMarkdownDetail,
+  parseMarkdownTickets,
+  titleFromFileName,
+  workspaceName,
+  type MarkdownTicketFile,
+} from './markdown.ts'
 
 function file(
   feature: string,
@@ -132,5 +140,56 @@ describe('工作区显示名', () => {
     ['C:\\work\\repo', 'repo'],
   ])('%s 的显示名是 %s', (root, expected) => {
     expect(workspaceName(root)).toBe(expected)
+  })
+})
+
+describe('本地 Markdown 工单详情', () => {
+  it('正文取标题之后、Comments 之前，保留原始 Markdown', () => {
+    const content = [
+      '# 会话过期处理',
+      '',
+      'Status: ready-for-agent',
+      '',
+      '## 复现步骤',
+      '',
+      '1. 打开面板',
+      '2. 刷新',
+      '',
+      '## Comments',
+      '',
+      '维护者补充：先修列表。',
+    ].join('\n')
+
+    expect(parseMarkdownDetail(content, '回退标题')).toEqual({
+      title: '会话过期处理',
+      body: 'Status: ready-for-agent\n\n## 复现步骤\n\n1. 打开面板\n2. 刷新',
+      comments: ['维护者补充：先修列表。'],
+    })
+  })
+
+  it('评论段按空行拆成多条并保持顺序', () => {
+    const content = ['# 标题', '', '## Comments', '', '第一条评论', '', '第二条评论'].join('\n')
+
+    expect(parseMarkdownDetail(content, '回退标题').comments).toEqual(['第一条评论', '第二条评论'])
+  })
+
+  it('没有标题行时用回退标题，没有 Comments 段时评论为空', () => {
+    const parsed = parseMarkdownDetail('正文内容\n', '03-session')
+
+    expect(parsed.title).toBe('03-session')
+    expect(parsed.body).toBe('正文内容')
+    expect(parsed.comments).toEqual([])
+  })
+
+  it('Status 行同时决定状态与标签', () => {
+    expect(markdownState('Status: resolved\n')).toBe('closed')
+    expect(markdownState('Status: ready-for-agent\n')).toBe('open')
+    expect(markdownLabels('Status: resolved\n')).toEqual(['resolved'])
+    expect(markdownLabels('没有状态行\n')).toEqual([])
+  })
+
+  it('文件名回退去掉编号与扩展名', () => {
+    expect(titleFromFileName('03-session.md')).toBe('session')
+    expect(titleFromFileName('.md')).toBe('')
   })
 })

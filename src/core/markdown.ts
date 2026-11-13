@@ -5,7 +5,7 @@
  *
  * 这里只做纯解析：目录扫描、读文件和时间戳由 adapters 注入。
  */
-import type { Ticket } from './ticket.ts'
+import type { Ticket, TicketState } from './ticket.ts'
 
 /** 一张已读入内存的本地工单文件。 */
 export interface MarkdownTicketFile {
@@ -23,6 +23,7 @@ export interface MarkdownTicketFile {
 }
 
 const HEADING = /^#\s+(.+?)\s*$/
+const COMMENTS_HEADING = /^##\s+Comments\b/i
 const STATUS = /^\s*Status:\s*(.+?)\s*$/i
 const BLOCKED_BY = /^\s*Blocked by:\s*(.*?)\s*$/i
 const FILE_NUMBER = /^(\d+)(?:-|\.md$)/
@@ -43,19 +44,16 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
     byFeature.set(file.feature, numbers)
   }
 
-  return files.map((file) => {
-    const status = parseTicketStatus(file.content)
-    return {
-      ref: file.path,
-      number: null,
-      title: titleOf(file),
-      state: status === 'resolved' ? 'closed' : 'open',
-      labels: status === undefined ? [] : [status],
-      createdAt: file.createdAt,
-      updatedAt: file.updatedAt,
-      openBlockers: countOpenBlockers(file, byFeature.get(file.feature)),
-    }
-  })
+  return files.map((file) => ({
+    ref: file.path,
+    number: null,
+    title: titleOf(file),
+    state: markdownState(file.content),
+    labels: markdownLabels(file.content),
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+    openBlockers: countOpenBlockers(file, byFeature.get(file.feature)),
+  }))
 }
 
 /**
@@ -71,13 +69,39 @@ export function workspaceName(workspaceRoot: string): string {
   return trimmed.slice(separator + 1)
 }
 
-function titleOf(file: MarkdownTicketFile): string {
-  const heading = firstHeading(file.content)
-  if (heading !== undefined) return heading
-
-  const withoutExtension = file.name.replace(/\.md$/i, '')
+/**
+ * 从文件名推导标题；文件里没有 `# 标题` 行时使用。
+ * @param name - 文件名，例如 `03-session.md`。
+ * @returns 去掉编号与扩展名的标题。
+ */
+export function titleFromFileName(name: string): string {
+  const withoutExtension = name.replace(/\.md$/i, '')
   const withoutNumber = withoutExtension.replace(/^\d+-/, '')
   return withoutNumber.length > 0 ? withoutNumber : withoutExtension
+}
+
+/**
+ * 本地工单的标签：只有 `Status:` 行的值，本地约定没有分类。
+ * @param content - 文件全文。
+ * @returns 零个或一个标签。
+ */
+export function markdownLabels(content: string): readonly string[] {
+  const status = parseTicketStatus(content)
+  return status === undefined ? [] : [status]
+}
+
+/**
+ * 从文件内容判定开闭状态：`Status: resolved` 视为已关闭。
+ * @param content - 文件全文。
+ * @returns 工单状态。
+ */
+export function markdownState(content: string): TicketState {
+  return parseTicketStatus(content) === 'resolved' ? 'closed' : 'open'
+}
+
+function titleOf(file: MarkdownTicketFile): string {
+  const heading = firstHeading(file.content)
+  return heading ?? titleFromFileName(file.name)
 }
 
 function firstHeading(content: string): string | undefined {
@@ -152,4 +176,46 @@ function fileNumber(name: string): number | undefined {
   if (match === null) return undefined
   const value = Number.parseInt(match[1] ?? '', 10)
   return Number.isInteger(value) ? value : undefined
+}
+
+/** 本地 Markdown 的详情：标题、正文与按段落拆开的评论。 */
+export interface MarkdownDetail {
+  readonly title: string
+  /** 首个标题之后、`## Comments` 之前的原文。 */
+  readonly body: string
+  /** 评论段里按空行拆开的段落，保持文件顺序。 */
+  readonly comments: readonly string[]
+}
+
+/**
+ * 解析一张本地工单的详情。
+ * 正文取首个标题之后、`## Comments` 之前的内容，保留原始 Markdown；
+ * `## Comments` 之后按空行分段，每段是一条评论。
+ * @param content - 文件全文。
+ * @param fallbackTitle - 没有标题行时的回退标题（通常来自文件名）。
+ * @returns 标题、正文与评论段落。
+ */
+export function parseMarkdownDetail(content: string, fallbackTitle: string): MarkdownDetail {
+  const lines = content.split('\n')
+  const headingIndex = lines.findIndex((line) => HEADING.test(line.trimEnd()))
+  const commentsIndex = lines.findIndex((line) => COMMENTS_HEADING.test(line.trimEnd()))
+
+  const heading =
+    headingIndex === -1 ? undefined : HEADING.exec(lines[headingIndex]?.trimEnd() ?? '')
+  const bodyStart = headingIndex === -1 ? 0 : headingIndex + 1
+  const bodyEnd = commentsIndex === -1 ? lines.length : commentsIndex
+
+  return {
+    title: heading?.[1] ?? fallbackTitle,
+    body: lines.slice(bodyStart, bodyEnd).join('\n').trim(),
+    comments:
+      commentsIndex === -1
+        ? []
+        : lines
+            .slice(commentsIndex + 1)
+            .join('\n')
+            .split(/\n\s*\n/)
+            .map((paragraph) => paragraph.trim())
+            .filter((paragraph) => paragraph.length > 0),
+  }
 }

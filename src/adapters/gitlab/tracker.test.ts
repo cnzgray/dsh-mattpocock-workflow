@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CommandRunner, Tracker } from '../../core/ticket.ts'
+import type { CommandRunner, TicketDetail, Tracker } from '../../core/ticket.ts'
 import { CommandError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
+import {
+  GITLAB_PROJECT_ENDPOINT,
+  gitlabDeleteFailureTracker,
+  gitlabDetailOutput,
+  mutableGitlabTracker,
+} from './detail-fixtures.ts'
 import {
   GITLAB_BLOCKED_BY_OUTPUT,
   GITLAB_ISSUES,
   GITLAB_ISSUES_OUTPUT,
   GITLAB_LINKS,
+  GITLAB_NOTES,
   GITLAB_REMOTES_OUTPUT,
   gitlabIssue,
   issuesJson,
@@ -375,6 +382,243 @@ describe('GitLab 工单后端', () => {
   })
 })
 
+describe('GitLab 工单详情与变更', () => {
+  it('读取 issue 与 notes，跳过 system note 并按时间排序', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      state: 'opened',
+    })
+
+    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
+
+    expect(detail).toMatchObject({
+      ref: '#15',
+      number: 15,
+      title: '右侧栏任务面板 MVP',
+      author: 'dave',
+      body: '## 目标\n\n在面板里看工单。',
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      url: 'https://gitlab.com/cnzgray/platform/dsh-workflow/-/issues/15',
+    })
+    expect(detail?.comments.map((comment) => [comment.author, comment.body])).toEqual([
+      ['bob', '补充验收标准'],
+      ['carol', '上一次失败的原因'],
+    ])
+    expect(calls.filter((call) => call[0] === 'glab').map((call) => call[2])).toEqual([
+      'projects/cnzgray%2Fplatform%2Fdsh-workflow/issues/15',
+      'projects/cnzgray%2Fplatform%2Fdsh-workflow/issues/15/notes?per_page=100&page=1',
+    ])
+  })
+
+  it('评论按页拉取，短页即停止', async () => {
+    const pages = new Map([
+      [1, JSON.stringify(GITLAB_NOTES.slice(0, 2))],
+      [2, JSON.stringify(GITLAB_NOTES.slice(2))],
+    ])
+    const runner: CommandRunner = (command, args) => {
+      if (command === 'git') return Promise.resolve({ stdout: GITLAB_REMOTES_OUTPUT, stderr: '' })
+      const endpoint = args[1] ?? ''
+      if (endpoint === `${GITLAB_PROJECT_ENDPOINT}/issues/15`) {
+        return Promise.resolve({
+          stdout: gitlabDetailOutput({ labels: [], assignees: [], state: 'opened' }),
+          stderr: '',
+        })
+      }
+      const page = /[?&]page=(\d+)/.exec(endpoint)?.[1] ?? '1'
+      return Promise.resolve({ stdout: pages.get(Number(page)) ?? '[]', stderr: '' })
+    }
+    const tracker = createGitlabTracker({ run: runner, now: () => NOW, pageSize: 2 })
+
+    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
+
+    expect(detail?.comments.map((comment) => comment.author)).toEqual(['bob', 'carol'])
+  })
+
+  it('标签用 --label / --unlabel 增量落地', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: [],
+      state: 'opened',
+    })
+
+    await tracker.updateTicket?.('/workspace', { ref: '#15', number: 15 }, { labels: ['bug'] })
+
+    expect(calls.at(-1)).toEqual([
+      'glab',
+      'issue',
+      'update',
+      '15',
+      '--label',
+      'bug',
+      '--unlabel',
+      'enhancement,ready-for-agent',
+    ])
+  })
+
+  it('分配人按整体替换给出完整名单', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: [],
+      assignees: ['alice'],
+      state: 'opened',
+    })
+
+    await tracker.updateTicket?.('/workspace', { ref: '#15', number: 15 }, { assignees: ['bob'] })
+
+    expect(calls.at(-1)).toEqual(['glab', 'issue', 'update', '15', '--assignee', 'bob'])
+  })
+
+  it('清空分配人时用 ! 前缀逐个移除', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: [],
+      assignees: ['alice', 'bob'],
+      state: 'opened',
+    })
+
+    await tracker.updateTicket?.('/workspace', { ref: '#15', number: 15 }, { assignees: [] })
+
+    expect(calls.at(-1)).toEqual([
+      'glab',
+      'issue',
+      'update',
+      '15',
+      '--assignee',
+      '!alice',
+      '--assignee',
+      '!bob',
+    ])
+  })
+
+  it('分配给我先查当前用户再整体替换', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: [],
+      assignees: ['alice'],
+      state: 'opened',
+    })
+
+    await tracker.updateTicket?.('/workspace', { ref: '#15', number: 15 }, { assignSelf: true })
+
+    expect(calls.map((call) => call.slice(0, 3))).toContainEqual(['glab', 'api', 'user'])
+    expect(calls.at(-1)).toEqual(['glab', 'issue', 'update', '15', '--assignee', 'alice,me'])
+  })
+
+  it('关闭与重开各发一条命令', async () => {
+    const closed = mutableGitlabTracker({ labels: [], assignees: [], state: 'opened' })
+    await closed.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        state: 'closed',
+      },
+    )
+    expect(closed.calls.at(-1)).toEqual(['glab', 'issue', 'close', '15'])
+
+    const reopened = mutableGitlabTracker({ labels: [], assignees: [], state: 'closed' })
+    await reopened.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        state: 'open',
+      },
+    )
+    expect(reopened.calls.at(-1)).toEqual(['glab', 'issue', 'reopen', '15'])
+  })
+
+  it('编号不存在时返回 ticket-not-found', async () => {
+    const runner: CommandRunner = (command) => {
+      if (command === 'git') return Promise.resolve({ stdout: GITLAB_REMOTES_OUTPUT, stderr: '' })
+      return Promise.reject(new CommandError('failed', 'glab 退出码 1', 'glab: 404 Not Found', 1))
+    }
+    const tracker = createGitlabTracker({ run: runner, now: () => NOW })
+
+    await expect(
+      tracker.fetchDetail?.('/workspace', { ref: '#99', number: 99 }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+  })
+
+  it('用 labels 与 members/all 接口读取补全候选，跳过非 active 成员', async () => {
+    const { tracker, calls } = mutableGitlabTracker({
+      labels: [],
+      assignees: [],
+      state: 'opened',
+    })
+
+    const options = await tracker.fetchOptions?.('/workspace')
+
+    expect(options).toEqual({
+      labels: [
+        { name: 'bug', color: '#d73a4a', description: "Something isn't working" },
+        { name: 'enhancement', color: '#a2eeef', description: null },
+        { name: 'needs-triage', color: null, description: '需要分诊' },
+      ],
+      assignees: [
+        { username: 'alice', name: 'Alice' },
+        { username: 'bob', name: 'Bob' },
+      ],
+    })
+    expect(calls.map((call) => call[2])).toContain(
+      `${GITLAB_PROJECT_ENDPOINT}/labels?per_page=100&page=1`,
+    )
+    expect(calls.map((call) => call[2])).toContain(
+      `${GITLAB_PROJECT_ENDPOINT}/members/all?per_page=100&page=1`,
+    )
+  })
+
+  it('项目 Owner 或实例管理员才能删除工单', async () => {
+    const owner = mutableGitlabTracker({ labels: [], assignees: [], state: 'opened' })
+    await expect(owner.tracker.canDeleteTickets?.('/workspace')).resolves.toBe(true)
+
+    const developer = mutableGitlabTracker({
+      labels: [],
+      assignees: [],
+      state: 'opened',
+      accessLevel: 30,
+    })
+    await expect(developer.tracker.canDeleteTickets?.('/workspace')).resolves.toBe(false)
+
+    const admin = mutableGitlabTracker({
+      labels: [],
+      assignees: [],
+      state: 'opened',
+      accessLevel: 30,
+      isAdmin: true,
+    })
+    await expect(admin.tracker.canDeleteTickets?.('/workspace')).resolves.toBe(true)
+  })
+
+  it('删除时编号不存在返回 ticket-not-found，没有权限时说明原因', async () => {
+    const missing = gitlabDeleteFailureTracker('glab: 404 Not Found')
+    await expect(
+      missing.deleteTicket?.('/workspace', { ref: '#99', number: 99 }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+
+    const forbidden = gitlabDeleteFailureTracker('HTTP 403: Forbidden')
+    const deletion = forbidden.deleteTicket?.('/workspace', { ref: '#15', number: 15 })
+    await expect(deletion).rejects.toMatchObject({ code: 'fetch-failed' })
+    await expect(deletion).rejects.toThrow(/权限/)
+  })
+})
+
+const GITLAB_DETAIL_REQUEST = { ref: '#15', number: 15 }
+const GITLAB_DETAIL_EXPECTED: TicketDetail = {
+  ref: '#15',
+  number: 15,
+  title: '右侧栏任务面板 MVP',
+  state: 'open',
+  author: 'dave',
+  body: '## 目标\n\n在面板里看工单。',
+  labels: ['enhancement', 'ready-for-agent'],
+  assignees: ['alice'],
+  comments: [
+    { author: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' },
+    { author: 'carol', body: '上一次失败的原因', createdAt: '2026-11-13T10:00:00Z' },
+  ],
+  url: 'https://gitlab.com/cnzgray/platform/dsh-workflow/-/issues/15',
+  createdAt: '2026-11-12T14:11:22Z',
+  updatedAt: '2026-11-13T10:00:00Z',
+}
+
 describeTrackerContract('GitLab', {
   createTracker: () => createGitlabTracker({ run: recordedRunner().runner, now: () => NOW }),
   workspaceRoot: '/workspace',
@@ -403,5 +647,46 @@ describeTrackerContract('GitLab', {
       ['#15', 0],
       ['#16', 1],
     ]),
+  },
+  detail: {
+    createTracker: () =>
+      mutableGitlabTracker({
+        labels: ['enhancement', 'ready-for-agent'],
+        assignees: ['alice'],
+        state: 'opened',
+      }).tracker,
+    request: GITLAB_DETAIL_REQUEST,
+    expected: GITLAB_DETAIL_EXPECTED,
+    change: {
+      createTracker: () =>
+        mutableGitlabTracker({
+          labels: ['enhancement', 'ready-for-agent'],
+          assignees: ['alice'],
+          state: 'opened',
+        }).tracker,
+      patch: { labels: ['bug'], state: 'closed' },
+      expected: { labels: ['bug'], state: 'closed' },
+    },
+  },
+  options: {
+    createTracker: () =>
+      mutableGitlabTracker({ labels: [], assignees: [], state: 'opened' }).tracker,
+    expected: {
+      labels: [
+        { name: 'bug', color: '#d73a4a', description: "Something isn't working" },
+        { name: 'enhancement', color: '#a2eeef', description: null },
+        { name: 'needs-triage', color: null, description: '需要分诊' },
+      ],
+      assignees: [
+        { username: 'alice', name: 'Alice' },
+        { username: 'bob', name: 'Bob' },
+      ],
+    },
+  },
+  delete: {
+    createTracker: () =>
+      mutableGitlabTracker({ labels: [], assignees: [], state: 'opened' }).tracker,
+    request: GITLAB_DETAIL_REQUEST,
+    canDelete: true,
   },
 })

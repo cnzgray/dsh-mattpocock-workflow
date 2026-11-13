@@ -1,16 +1,19 @@
 /**
  * 工单列表视图。只依赖注入的面板客户端与提示词注入函数，不直接接触 DSH，
  * 因此 Vitest + jsdom 就能测统计、过滤、排序、加载与错误状态。
+ *
+ * 点击工单行只打开详情，不注入提示词；注入由操作栏的明确按钮与详情视图触发。
  */
 import * as React from 'react'
 
-import {
-  ENV_ISSUE_ERROR_CODES,
-  type ErrorCode,
-  type RpcErrorBody,
-  type WorkspaceSnapshot,
+import type {
+  ErrorCode,
+  RpcErrorBody,
+  TicketSnapshot,
+  WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
+import { errorText, isEnvIssue } from './error-text.ts'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import type { PanelClient } from './rpc.ts'
@@ -62,6 +65,8 @@ export interface TicketsViewProps {
   readonly now?: (() => number) | undefined
   /** 环境问题导致列表失败时，跳到环境检查视图并带上错误码定位后端。 */
   readonly onOpenEnvCheck: (code: ErrorCode) => void
+  /** 点击工单行：打开这张票的详情，不做提示词注入。 */
+  readonly onOpenTicket: (ticket: TicketSnapshot) => void
 }
 
 type Phase = 'loading' | 'ready' | 'refreshing' | 'error'
@@ -75,24 +80,15 @@ interface SnapshotRequestState {
 
 const AGE_TICK_MS = 30_000
 
-const ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
-  'gh-missing': '未找到 gh 命令，请先安装 GitHub CLI（https://cli.github.com）。',
-  'gh-unauthenticated': 'gh 未登录，请运行 gh auth login 后重试。',
-  'glab-missing': '未找到 glab 命令，请先安装 GitLab CLI（https://gitlab.com/gitlab-org/cli）。',
-  'glab-unauthenticated': 'glab 未登录或令牌已失效，请运行 glab auth login 后重试。',
-  'tea-missing': '未找到 tea 命令，请先安装 Gitea CLI（https://gitea.com/gitea/tea）。',
-  'tea-unauthenticated': 'tea 未登录该实例或令牌已失效，请运行 tea login add 后重试。',
-  'markdown-read-failed': '读取 .scratch 里的工单失败，请检查文件读取权限。',
-}
-
 /** 工单列表视图。 */
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
   const { snapshot, error, phase, refresh } = useSnapshotRequest(props.client, props.workspaceRoot)
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
-  const { selected, injected, notice, inject, onPick, onSkillAction } = useTicketActions(
+  const { injected, notice, inject, onSkillAction } = useTicketActions(
     props.workspaceRoot,
+    props.canInject,
     props.injectDraft,
   )
 
@@ -143,10 +139,9 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
           <TicketList
             tickets={visible}
             emptyText={tickets.length === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
-            selected={selected}
             injected={injected}
             canInject={props.canInject}
-            onPick={onPick}
+            onPick={props.onOpenTicket}
             onSkillAction={onSkillAction}
           />
         </>
@@ -463,8 +458,8 @@ function ErrorBanner(props: {
 }): React.ReactElement {
   return (
     <div role="alert" data-testid="error" style={ERROR_STYLE}>
-      <div>{ERROR_MESSAGES[props.error.code] ?? props.error.message}</div>
-      {ENV_ISSUE_ERROR_CODES.includes(props.error.code) ? (
+      <div>{errorText(props.error)}</div>
+      {isEnvIssue(props.error.code) ? (
         <button
           type="button"
           data-testid="open-env-check"

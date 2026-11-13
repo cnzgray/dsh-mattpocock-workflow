@@ -11,7 +11,7 @@ import {
   waitFor,
   type RenderResult,
 } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
@@ -132,12 +132,21 @@ function fakeClient(
       resolveCalls.push(root)
       return resolveResult()
     },
+    getDetail: () => Promise.reject(new Error('未使用')),
+    updateTicket: () => Promise.reject(new Error('未使用')),
+    getOptions: () =>
+      Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
+    deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck: UNUSED_ENV_CHECK,
   }
   return { client, refreshCalls, resolveCalls }
 }
 
-function viewElement(client: PanelClient, workspaceRoot: string): React.ReactElement {
+function viewElement(
+  client: PanelClient,
+  workspaceRoot: string,
+  onOpenTicket: (ticket: TicketSnapshot) => void = () => undefined,
+): React.ReactElement {
   return (
     <TicketsView
       client={client}
@@ -146,6 +155,7 @@ function viewElement(client: PanelClient, workspaceRoot: string): React.ReactEle
       injectDraft={() => true}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
+      onOpenTicket={onOpenTicket}
     />
   )
 }
@@ -159,7 +169,7 @@ function rowRefs(): readonly (string | null)[] {
 }
 
 function firstRow(): HTMLElement {
-  const row = screen.getAllByTestId('ticket-row').at(0)
+  const row = screen.getAllByTestId('ticket-row')[0]
   if (row === undefined) throw new Error('缺少工单行')
   return row
 }
@@ -219,28 +229,7 @@ describe('工单列表的阻塞补齐', () => {
     expect(screen.getByTestId('stat-ready').textContent).toContain('2')
   })
 
-  it('取消选中的卡片恢复为默认边框色，不残留黑框', async () => {
-    const fake = fakeClient({ ok: true, result: FINAL }, () =>
-      Promise.resolve({ ok: true, result: FINAL }),
-    )
-    renderView(fake.client)
-    await screen.findAllByTestId('ticket-row')
-    // 默认只显示未关闭工单；放开筛选后才能拿到第三张做对照。
-    fireEvent.click(screen.getByTestId('filter-all'))
-    const [first, second, untouched] = await screen.findAllByTestId('ticket-row')
-    if (first === undefined || second === undefined || untouched === undefined) {
-      throw new Error('至少需要三张工单')
-    }
-
-    fireEvent.click(first)
-    fireEvent.click(second)
-
-    expect(first.getAttribute('aria-pressed')).toBe('false')
-    expect(untouched.style.borderColor).not.toBe('')
-    expect(first.style.borderColor).toBe(untouched.style.borderColor)
-  })
-
-  it('补齐不重置过滤、排序与选中项', async () => {
+  it('补齐不重置过滤与排序', async () => {
     const resolvePending = deferred<RpcResult<WorkspaceSnapshot>>()
     const fake = fakeClient({ ok: true, result: phaseOne() }, () => resolvePending.promise)
     renderView(fake.client)
@@ -250,8 +239,6 @@ describe('工单列表的阻塞补齐', () => {
     fireEvent.click(screen.getByTestId('sort-title'))
     fireEvent.click(screen.getByTestId('sort-title'))
     const before = rowRefs()
-    fireEvent.click(firstRow())
-    expect(firstRow().getAttribute('aria-pressed')).toBe('true')
 
     await act(async () => {
       resolvePending.resolve({ ok: true, result: FINAL })
@@ -261,7 +248,6 @@ describe('工单列表的阻塞补齐', () => {
     expect(rowRefs()).toEqual(before)
     expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('sort-title').textContent).toContain('↓')
-    expect(firstRow().getAttribute('aria-pressed')).toBe('true')
   })
 
   it('刷新同样先渲染新列表，再补齐阻塞数字', async () => {
@@ -294,6 +280,33 @@ describe('工单列表的阻塞补齐', () => {
     expect(screen.getByTestId('loaded-total').textContent).toContain('已加载 3 / 共 3')
   })
 
+  it('点击工单行只打开详情，不注入提示词', async () => {
+    const opened: (string | null)[] = []
+    const injectDraft = vi.fn(() => true)
+    const fake = fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    render(
+      <TicketsView
+        client={fake.client}
+        workspaceRoot="/repo"
+        canInject
+        injectDraft={injectDraft}
+        now={() => NOW}
+        onOpenEnvCheck={() => undefined}
+        onOpenTicket={(ticket) => {
+          opened.push(ticket.ref)
+        }}
+      />,
+    )
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(firstRow())
+
+    expect(opened).toEqual(['#1'])
+    expect(injectDraft).not.toHaveBeenCalled()
+  })
+
   it('刷新后旧的补齐结果不会覆盖新列表', async () => {
     const stale = deferred<RpcResult<WorkspaceSnapshot>>()
     const refreshPending = deferred<RpcResult<WorkspaceSnapshot>>()
@@ -301,6 +314,14 @@ describe('工单列表的阻塞补齐', () => {
       get: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
       refresh: () => refreshPending.promise,
       resolveBlockers: () => stale.promise,
+      getDetail: () => Promise.reject(new Error('未使用')),
+      updateTicket: () => Promise.reject(new Error('未使用')),
+      getOptions: () =>
+        Promise.resolve({
+          ok: false,
+          error: { code: 'capability-unsupported', message: '未使用' },
+        }),
+      deleteTicket: () => Promise.reject(new Error('未使用')),
       envCheck: UNUSED_ENV_CHECK,
     }
     renderView(client)

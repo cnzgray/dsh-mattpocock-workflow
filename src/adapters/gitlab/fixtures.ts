@@ -88,3 +88,83 @@ export const GITLAB_BLOCKED_BY_OUTPUT = JSON.stringify({
     },
   },
 })
+/** 构造 `/projects/:id/issues/:iid` 的详情对象。 */
+export function gitlabIssueDetail(overrides: {
+  readonly iid: number
+  readonly title: string
+  readonly state?: 'opened' | 'closed'
+  readonly labels?: readonly string[]
+  readonly assignees?: readonly string[]
+  readonly author?: string
+  readonly description?: string
+  readonly webUrl?: string
+  readonly createdAt?: string
+  readonly updatedAt?: string
+}): Record<string, unknown> {
+  return {
+    iid: overrides.iid,
+    title: overrides.title,
+    state: overrides.state ?? 'opened',
+    labels: overrides.labels ?? [],
+    assignees: (overrides.assignees ?? []).map((username) => ({ username, name: username })),
+    author: { username: overrides.author ?? 'dave', name: overrides.author ?? 'dave' },
+    description: overrides.description ?? '',
+    web_url:
+      overrides.webUrl ??
+      `https://gitlab.com/cnzgray/platform/dsh-workflow/-/issues/${String(overrides.iid)}`,
+    created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
+    updated_at: overrides.updatedAt ?? '2026-11-13T10:00:00Z',
+  }
+}
+
+/** 构造一条 GitLab note；`system` 为 true 的是事件而不是评论。 */
+export function gitlabNote(overrides: {
+  readonly username: string
+  readonly body: string
+  readonly createdAt: string
+  readonly system?: boolean
+}): Record<string, unknown> {
+  return {
+    id: 1,
+    system: overrides.system ?? false,
+    body: overrides.body,
+    author: { username: overrides.username, name: overrides.username },
+    created_at: overrides.createdAt,
+  }
+}
+
+export const GITLAB_NOTES = [
+  gitlabNote({ username: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }),
+  gitlabNote({
+    username: 'alice',
+    body: 'changed the description',
+    createdAt: '2026-11-13T09:30:00Z',
+    system: true,
+  }),
+  gitlabNote({ username: 'carol', body: '上一次失败的原因', createdAt: '2026-11-13T10:00:00Z' }),
+]
+
+export const GITLAB_NOTES_OUTPUT = issuesJson(GITLAB_NOTES)
+
+/** `/projects/:id/labels` 的录制输出：颜色带 `#`，description 可能是空串。 */
+export const GITLAB_LABELS_OUTPUT = JSON.stringify([
+  { name: 'bug', color: '#d73a4a', description: "Something isn't working" },
+  { name: 'enhancement', color: '#A2EEEF', description: '' },
+  { name: 'needs-triage', color: null, description: '需要分诊' },
+])
+
+/** `/projects/:id/members/all` 的录制输出：只保留 active 或没有 state 的成员。 */
+export const GITLAB_MEMBERS_OUTPUT = JSON.stringify([
+  { username: 'alice', name: 'Alice', state: 'active' },
+  { username: 'bob', name: 'Bob' },
+  { username: 'carol', name: 'Carol', state: 'blocked' },
+  { username: 'alice', name: 'Alice Again', state: 'active' },
+])
+
+/** `/projects/:id` 的录制输出：项目 Owner（access_level 50）。 */
+export const GITLAB_PROJECT_OUTPUT = JSON.stringify({
+  permissions: {
+    project_access: { access_level: 50 },
+    group_access: null,
+  },
+})

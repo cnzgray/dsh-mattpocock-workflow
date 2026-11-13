@@ -9,6 +9,16 @@ import type { MarkdownTicketFile } from '../../core/markdown.ts'
 /** 目录项类型。 */
 export type DirectoryEntryKind = 'file' | 'directory'
 
+/**
+ * 把相对路径拼到工作区根目录上，去掉根目录末尾的分隔符。
+ * @param base - 工作区根目录。
+ * @param segments - 相对路径的各段。
+ * @returns 用 `/` 连接的路径；本地工单的 `ref` 也按这个格式。
+ */
+export function joinPath(base: string, ...segments: readonly string[]): string {
+  return [base.replace(/[\\/]+$/, ''), ...segments].join('/')
+}
+
 /** 目录项。 */
 export interface DirectoryEntry {
   readonly name: string
@@ -46,7 +56,7 @@ export function createNodeWorkspaceFiles(): WorkspaceFiles {
           kind: entry.isDirectory() ? 'directory' : 'file',
         }))
       } catch (error) {
-        if (isMissing(error)) return undefined
+        if (isMissingFile(error)) return undefined
         throw error
       }
     },
@@ -115,12 +125,12 @@ function sortEntries(entries: readonly DirectoryEntry[]): DirectoryEntry[] {
   )
 }
 
-function joinPath(base: string, ...segments: readonly string[]): string {
-  const root = base.replace(/[\\/]+$/, '')
-  return [root, ...segments].join('/')
-}
-
-function isMissing(error: unknown): boolean {
+/**
+ * 判断文件系统错误是否只是「文件/目录不存在」。
+ * @param error - 任意错误。
+ * @returns ENOENT 或 ENOTDIR 时为 true。
+ */
+export function isMissingFile(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&

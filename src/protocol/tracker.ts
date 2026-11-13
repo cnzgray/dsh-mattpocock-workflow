@@ -12,7 +12,7 @@ import type { TicketActionReason, TicketSkillAction } from './labels.ts'
 /** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
 
-/** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息与环境检查。 */
+/** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息、环境检查与工单详情。 */
 export const RPC_METHODS = {
   /** 读缓存；没有缓存时拉取一次。阻塞信息可能尚未定稿。 */
   snapshotGet: 'snapshot.get',
@@ -22,6 +22,14 @@ export const RPC_METHODS = {
   snapshotResolveBlockers: 'snapshot.resolveBlockers',
   /** 重新跑一次环境检查；同一工作区的进行中请求会复用。 */
   envCheck: 'env.check',
+  /** 读取单张工单详情；只在打开详情时请求，不进入列表快照。 */
+  ticketGet: 'ticket.get',
+  /** 应用一次工单变更；成功后界面重新读取详情并刷新列表快照。 */
+  ticketUpdate: 'ticket.update',
+  /** 读取仓库的标签与可分配用户，供详情里添加标签、分配人时补全。 */
+  ticketOptions: 'ticket.options',
+  /** 永久删除一张工单；必须带 `confirm: 'delete'`，宿主再按权限拒绝或执行。 */
+  ticketDelete: 'ticket.delete',
 } as const
 
 /** 工单的开闭状态。 */
@@ -97,12 +105,134 @@ export interface SnapshotParams {
   readonly workspaceRoot: string
 }
 
+/** 一条工单评论。本地 Markdown 的评论没有作者与时间，两项为 null。 */
+export interface TicketComment {
+  readonly author: string | null
+  readonly body: string
+  readonly createdAt: string | null
+}
+
+/**
+ * 详情视图的控件能力位。false 表示该后端不提供这项能力，界面禁用对应控件
+ * 并说明是哪个后端、缺哪项能力；宿主不返回空数据冒充成功。
+ */
+export interface DetailCapabilities {
+  /** 能否增删标签。 */
+  readonly labels: boolean
+  /** 能否增删分配人（含「分配给我」）。 */
+  readonly assignees: boolean
+  /** 能否关闭 / 重开。 */
+  readonly state: boolean
+  /** 是否有远端链接地址（本地 Markdown 没有）。 */
+  readonly link: boolean
+  /**
+   * 当前登录用户能否删除这张工单：后端实现了删除，且用户在该仓库有删除权限
+   * （GitHub 仓库管理员、GitLab Owner 或实例管理员、Gitea 仓库管理员）。
+   * 权限查询失败按没有权限处理。
+   */
+  readonly delete: boolean
+}
+
+/** 一张工单的完整详情。 */
+export interface TicketDetail {
+  /** 与列表里的 `TicketSnapshot.ref` 相同。 */
+  readonly ref: string
+  readonly number: number | null
+  readonly title: string
+  readonly state: TicketState
+  /** 创建者的远端用户名；本地 Markdown 没有作者，为 null。 */
+  readonly author: string | null
+  /** 正文原文，保留原始 Markdown；界面渲染时不改写原文。 */
+  readonly body: string
+  readonly labels: readonly string[]
+  /** 分配人的远端用户名。 */
+  readonly assignees: readonly string[]
+  readonly comments: readonly TicketComment[]
+  /** 后端返回的原生链接地址；本地 Markdown 为 null。 */
+  readonly url: string | null
+  readonly createdAt: string
+  readonly updatedAt: string
+  /** 这张详情来自哪个后端；界面用它在禁用控件旁说明原因。 */
+  readonly backend: BackendKind
+  readonly capabilities: DetailCapabilities
+}
+
+/**
+ * 变更补丁：表达属性的期望最终状态，不表达增删指令。
+ * 字段省略表示不改这一项；`assignSelf` 与 `assignees` 同时给出时先取目标集合再加自己。
+ */
+export interface TicketPatch {
+  readonly labels?: readonly string[] | undefined
+  readonly assignees?: readonly string[] | undefined
+  readonly assignSelf?: boolean | undefined
+  readonly state?: TicketState | undefined
+}
+
+/** 详情读取与变更共用的参数。 */
+export interface TicketDetailParams {
+  readonly workspaceRoot: string
+  /** 工单引用：远端后端是 `#15`，本地 Markdown 是相对工作区的文件路径。 */
+  readonly ref: string
+  /** 数字编号；本地 Markdown 为 null。 */
+  readonly number: number | null
+}
+
+/** 工单变更的参数：定位一张票并给出补丁。 */
+export interface TicketUpdateParams extends TicketDetailParams {
+  readonly patch: TicketPatch
+}
+
+/** 变更成功的回执；新值由界面重新读取详情获得，不做乐观更新。 */
+export interface TicketUpdateResult {
+  readonly applied: true
+}
+
+/** 删除工单的参数：定位一张票，并带上用户输入的确认词。 */
+export interface TicketDeleteParams extends TicketDetailParams {
+  /** 必须是字面量 `delete`；界面要求用户手动输入这个词才发出请求。 */
+  readonly confirm: typeof TICKET_DELETE_CONFIRMATION
+}
+
+/** 删除确认词：界面要求用户输入，宿主再校验一次。 */
+export const TICKET_DELETE_CONFIRMATION = 'delete'
+
+/** 删除成功的回执。 */
+export interface TicketDeleteResult {
+  readonly deleted: true
+}
+
+/** 仓库里的一个标签。 */
+export interface LabelOption {
+  readonly name: string
+  /** `#rrggbb` 形式的标签颜色；后端没有颜色时为 null。 */
+  readonly color: string | null
+  readonly description: string | null
+}
+
+/** 仓库里一个可分配的用户。 */
+export interface AssigneeOption {
+  /** 远端用户名：GitHub login、GitLab / Gitea username。 */
+  readonly username: string
+  /** 显示名；后端不提供时为 null。 */
+  readonly name: string | null
+}
+
+/** 详情里添加标签、分配人时的补全候选。 */
+export interface TicketOptions {
+  readonly labels: readonly LabelOption[]
+  readonly assignees: readonly AssigneeOption[]
+}
+
 /** 方法名到参数类型的映射。 */
 export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
   'snapshot.refresh': SnapshotParams
   'snapshot.resolveBlockers': SnapshotParams
   'env.check': EnvCheckParams
+  'ticket.get': TicketDetailParams
+  'ticket.update': TicketUpdateParams
+  'ticket.options': SnapshotParams
+  'ticket.delete': TicketDeleteParams
 }
 
 /** 已支持的方法名。 */
@@ -127,6 +257,10 @@ export const ERROR_CODES = {
   teaUnauthenticated: 'tea-unauthenticated',
   markdownReadFailed: 'markdown-read-failed',
   fetchFailed: 'fetch-failed',
+  /** 编号不存在或工单已被删除。 */
+  ticketNotFound: 'ticket-not-found',
+  /** 当前后端不提供所请求的详情或写能力。 */
+  capabilityUnsupported: 'capability-unsupported',
   invalidParams: 'invalid-params',
   unknownMethod: 'unknown-method',
   invalidRequest: 'invalid-request',

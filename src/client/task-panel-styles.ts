@@ -288,7 +288,7 @@ export const LIST_STYLE: CSSProperties = {
 
 /**
  * 工单卡片：左列是行按钮（编号 + 标题，下面一行是状态与分类），右列是技能按钮或原因徽标，
- * 和标题第一行对齐。卡片表面在容器上，点空白处也算选中。
+ * 和标题第一行对齐。卡片表面在容器上，点空白处也算打开详情。
  */
 export const CARD_ROW_STYLE: CSSProperties = {
   display: 'grid',
@@ -296,19 +296,14 @@ export const CARD_ROW_STYLE: CSSProperties = {
   alignItems: 'start',
   columnGap: 10,
   padding: '7px 10px 8px',
-  // 用边框长属性：选中态只改 borderColor，取消选中时 React 会把它恢复成这里的值，
-  // 若写成 border 简写，取消选中会清空颜色、退回 currentColor（黑框）。
+  // 用边框长属性：悬停只改 borderColor，移开时 React 会把它恢复成这里的值，
+  // 若写成 border 简写，移开会清空颜色、退回 currentColor（黑框）。
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: COLORS.border,
   borderRadius: 8,
   color: COLORS.text,
   cursor: 'pointer',
-}
-
-export const CARD_SELECTED_STYLE: CSSProperties = {
-  borderColor: COLORS.accent,
-  background: `color-mix(in srgb, ${COLORS.accent} 7%, transparent)`,
 }
 
 /** 行按钮：编号一列，标题与元信息共用第二列，标题换行时编号仍贴着第一行。 */
@@ -327,7 +322,6 @@ export const CARD_STYLE: CSSProperties = {
   font: 'inherit',
   textAlign: 'left',
 }
-
 export const NUMBER_BADGE_STYLE: CSSProperties = {
   gridColumn: '1',
   gridRow: '1',
@@ -426,6 +420,47 @@ export const CATEGORY_BADGES: Record<'bug' | 'enhancement', CSSProperties> = {
   },
 }
 
+/** 渲染后的 Markdown 容器标记；样式表据此给其中的标题、列表、代码等元素排版。 */
+export const MARKDOWN_ATTRIBUTE = 'data-markdown'
+
+/**
+ * Markdown 排版，对齐 GitHub issue 的读法：h1/h2 下有分隔线、代码与代码块浅灰底、
+ * 表格斑马纹、引用左侧竖线、任务列表去掉圆点。侧栏窄，字号整体比 GitHub 小一号。
+ * 只作用于 `[data-markdown]` 之内，不影响面板其它部分。
+ */
+const MARKDOWN_SHEET = `
+[data-markdown] { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+[data-markdown] > :first-child { margin-top: 0 !important; }
+[data-markdown] > :last-child { margin-bottom: 0 !important; }
+[data-markdown] p, [data-markdown] ul, [data-markdown] ol, [data-markdown] blockquote, [data-markdown] pre, [data-markdown] table, [data-markdown] details { margin: 0 0 12px; }
+[data-markdown] h1, [data-markdown] h2, [data-markdown] h3, [data-markdown] h4, [data-markdown] h5, [data-markdown] h6 { margin: 20px 0 10px; font-weight: 600; line-height: 1.3; }
+[data-markdown] h1 { font-size: 17px; padding-bottom: 0.3em; border-bottom: 1px solid ${COLORS.border}; }
+[data-markdown] h2 { font-size: 15px; padding-bottom: 0.3em; border-bottom: 1px solid ${COLORS.border}; }
+[data-markdown] h3 { font-size: 14px; }
+[data-markdown] h4 { font-size: 13px; }
+[data-markdown] h5, [data-markdown] h6 { font-size: 12px; color: ${COLORS.secondary}; }
+[data-markdown] ul, [data-markdown] ol { padding-left: 2em; }
+[data-markdown] li + li { margin-top: 0.25em; }
+[data-markdown] li > p { margin: 0; }
+[data-markdown] li > ul, [data-markdown] li > ol { margin: 0.25em 0 0; }
+[data-markdown] li:has(> input[type="checkbox"]) { list-style: none; }
+[data-markdown] li > input[type="checkbox"] { margin: 0 0.35em 0.2em -1.5em; vertical-align: middle; accent-color: ${COLORS.accent}; }
+[data-markdown] a { color: ${COLORS.accent}; text-decoration: none; }
+[data-markdown] a:hover { text-decoration: underline; text-underline-offset: 2px; }
+[data-markdown] strong { font-weight: 600; }
+[data-markdown] code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 85%; padding: 0.2em 0.4em; border-radius: 6px; background: rgba(128, 128, 128, 0.15); }
+[data-markdown] pre { padding: 12px; border-radius: 6px; background: rgba(128, 128, 128, 0.1); overflow-x: auto; font-size: 85%; line-height: 1.45; }
+[data-markdown] pre code { padding: 0; font-size: 100%; background: none; overflow-wrap: normal; white-space: pre; }
+[data-markdown] blockquote { padding: 0 1em; border-left: 0.25em solid ${COLORS.borderStrong}; color: ${COLORS.secondary}; }
+[data-markdown] hr { height: 0.25em; margin: 20px 0; border: none; background: ${COLORS.border}; }
+[data-markdown] img { max-width: 100%; height: auto; border-radius: 6px; }
+[data-markdown] table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 12px; }
+[data-markdown] th, [data-markdown] td { padding: 5px 12px; border: 1px solid ${COLORS.border}; text-align: left; }
+[data-markdown] th { font-weight: 600; }
+[data-markdown] tr:nth-child(2n) { background: rgba(128, 128, 128, 0.06); }
+[data-markdown] kbd { padding: 2px 5px; font: 11px ui-monospace, Menlo, monospace; border: 1px solid ${COLORS.borderStrong}; border-bottom-width: 2px; border-radius: 6px; }
+`
+
 /**
  * 判定依据对应的颜色：不可开工的原因用中性/警告色，三个技能分别用实现（强调）、
  * 诊断（错误）、分流（警告）色。原因徽标与技能按钮共用这一份色相。
@@ -497,12 +532,17 @@ export const SKILL_BADGE_DISABLED_STYLE: CSSProperties = {
 export const PANEL_SHEET = `
 [data-anvil-panel] button { background: transparent; transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out; }
 [data-anvil-panel] [data-hover="card"] { transition: background-color 150ms ease-out, border-color 150ms ease-out; }
-[data-anvil-panel] button:disabled { cursor: default; }
+[data-anvil-panel] button:disabled { cursor: default; opacity: 0.5; }
+[data-anvil-panel] input { transition: border-color 150ms ease-out; }
+[data-anvil-panel] input::placeholder { color: ${COLORS.tertiary}; opacity: 1; }
+[data-anvil-panel] input:disabled { opacity: 0.6; }
+[data-anvil-panel] input:focus { outline: none; }
+[data-anvil-panel] input:focus-visible { border-color: ${COLORS.accent}; box-shadow: 0 0 0 1px ${COLORS.accent}; }
 [data-anvil-panel] button:focus { outline: none; }
 [data-anvil-panel] button:focus-visible { outline: 2px solid ${COLORS.accent}; outline-offset: 1px; }
 [data-anvil-panel] [data-hover="soft"]:not(:disabled):not([aria-pressed="true"]):hover { background: ${COLORS.surfaceActive}; color: ${COLORS.text}; }
 [data-anvil-panel] [data-hover="tab"]:not([aria-pressed="true"]):hover { color: ${COLORS.text}; }
-[data-anvil-panel] [data-hover="card"]:not([data-selected="true"]):hover { border-color: ${COLORS.borderStrong}; background: rgba(128, 128, 128, 0.06); }
+[data-anvil-panel] [data-hover="card"]:hover { border-color: ${COLORS.borderStrong}; background: rgba(128, 128, 128, 0.06); }
 [data-anvil-panel] [data-hover="primary"]:not(:disabled):hover { filter: brightness(1.08); }
 [data-anvil-panel] [data-hover="secondary"]:not(:disabled):hover { background: color-mix(in srgb, ${COLORS.error} 8%, transparent); }
 [data-anvil-panel] [data-hover="action"] { border-color: color-mix(in srgb, currentColor 30%, transparent); background: color-mix(in srgb, currentColor 12%, transparent); }
@@ -510,7 +550,11 @@ export const PANEL_SHEET = `
 [data-anvil-panel] [data-hover="action"]:not(:disabled):active { border-color: color-mix(in srgb, currentColor 65%, transparent); background: color-mix(in srgb, currentColor 28%, transparent); }
 [data-anvil-panel] [data-hover="action"][data-injected="true"]:not(:disabled) { border-color: color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 20%, transparent); }
 [data-anvil-panel] [data-hover="action"]:disabled { border-color: ${COLORS.border}; background: transparent; }
-@media (prefers-reduced-motion: reduce) { [data-anvil-panel] button, [data-anvil-panel] [data-hover="card"] { transition: none; } }
+[data-anvil-panel] [data-hover="link"]:hover { text-decoration: underline; }
+[data-anvil-panel] a:focus { outline: none; }
+[data-anvil-panel] a:focus-visible { outline: 2px solid ${COLORS.accent}; outline-offset: 1px; border-radius: 2px; }
+${MARKDOWN_SHEET}
+@media (prefers-reduced-motion: reduce) { [data-anvil-panel] button, [data-anvil-panel] [data-hover="card"], [data-anvil-panel] input { transition: none; } }
 `
 
 export const ERROR_STYLE: CSSProperties = {

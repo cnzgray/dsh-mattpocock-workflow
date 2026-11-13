@@ -4,9 +4,9 @@ import * as React from 'react'
 
 import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { gestures } from './prompt-test-support.ts'
-import type { PanelClient } from './rpc.ts'
 import {
   badgeFor,
+  clientWith,
   deferred,
   ENV_REPORT,
   fakeClient,
@@ -32,6 +32,7 @@ function lastInjection(injectDraft: Mock): string {
   if (typeof last !== 'string') throw new Error('没有注入文本')
   return last
 }
+
 describe('任务面板', () => {
   it('显示仓库、快照时间、统计与已加载数量', async () => {
     render(<TaskPanel {...panelProps()} />)
@@ -48,14 +49,12 @@ describe('任务面板', () => {
   })
 
   it('首次加载时显示正在读取状态', async () => {
-    const pending = Promise.withResolvers<RpcResult<WorkspaceSnapshot>>()
-    const client: PanelClient = {
+    const pending = deferred<RpcResult<WorkspaceSnapshot>>()
+    const client = clientWith({
       get: () => pending.promise,
       refresh: () => pending.promise,
       resolveBlockers: UNUSED_RESOLVE,
-      envCheck: () =>
-        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
 
     expect(screen.getByTestId('loading').textContent).toContain('正在读取工单')
@@ -161,11 +160,8 @@ describe('任务面板', () => {
       ],
     }
     const injectDraft = vi.fn(() => true)
-    render(
-      <TaskPanel
-        {...panelProps({ client: fakeClient({ ok: true, result: snapshot }).client, injectDraft })}
-      />,
-    )
+    const fake = fakeClient({ ok: true, result: snapshot })
+    render(<TaskPanel {...panelProps({ client: fake.client, injectDraft })} />)
 
     await screen.findAllByTestId('ticket-row')
     const badge = screen.getByTestId('ticket-ref')
@@ -176,6 +172,10 @@ describe('任务面板', () => {
     expect(injectDraft).toHaveBeenLastCalledWith(
       expect.stringMatching(new RegExp(`^/implement 处理工单 ${ref}`)),
     )
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+    expect(fake.detailCalls).toEqual([['/repo', ref, null]])
   })
 
   it('刷新会重新拉取并更新快照', async () => {
@@ -198,13 +198,11 @@ describe('任务面板', () => {
 
   it('刷新进行中时按钮禁用且不能重复触发', async () => {
     const pending = deferred<RpcResult<WorkspaceSnapshot>>()
-    const client: PanelClient = {
+    const client = clientWith({
       get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       refresh: () => pending.promise,
       resolveBlockers: UNUSED_RESOLVE,
-      envCheck: () =>
-        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
     await screen.findAllByTestId('ticket-row')
 
@@ -276,13 +274,11 @@ describe('任务面板', () => {
 
   it('快照还没加载出来时两个入池按钮也能填草稿', () => {
     const pending = deferred<RpcResult<WorkspaceSnapshot>>()
-    const client: PanelClient = {
+    const client = clientWith({
       get: () => pending.promise,
       refresh: () => pending.promise,
       resolveBlockers: UNUSED_RESOLVE,
-      envCheck: () =>
-        Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
-    }
+    })
     const injectDraft = vi.fn(() => true)
     render(<TaskPanel {...panelProps({ client, injectDraft })} />)
 
@@ -309,7 +305,10 @@ describe('任务面板', () => {
     expect(badges[0]?.title).toContain('无法填入提示词')
 
     fireEvent.click(firstRow())
-    fireEvent.click(badgeFor('#1'))
+    await screen.findByTestId('detail-content')
+    const detailBadge = screen.getByTestId<HTMLButtonElement>('skill-badge')
+    expect(detailBadge.disabled).toBe(true)
+    expect(detailBadge.title).toContain('无法填入提示词')
     expect(injectDraft).not.toHaveBeenCalled()
   })
 
@@ -332,9 +331,10 @@ describe('任务面板', () => {
     })
     expect(fake.getCalls).toEqual(['/one', '/two'])
   })
+
   it('点击「环境检查」切换视图并自动检查当前工作区', async () => {
     const envCheckCalls: string[] = []
-    const client: PanelClient = {
+    const client = clientWith({
       get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
       resolveBlockers: UNUSED_RESOLVE,
@@ -342,7 +342,7 @@ describe('任务面板', () => {
         envCheckCalls.push(root)
         return Promise.resolve({ ok: true, result: ENV_REPORT })
       },
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
     await screen.findAllByTestId('ticket-row')
 
@@ -356,14 +356,14 @@ describe('任务面板', () => {
   })
 
   it('列表因环境问题失败时提供「查看环境检查」入口', async () => {
-    const client: PanelClient = {
+    const client = clientWith({
       get: () =>
         Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
       refresh: () =>
         Promise.resolve({ ok: false, error: { code: 'gh-missing', message: '未找到 gh' } }),
       resolveBlockers: UNUSED_RESOLVE,
       envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
 
     await screen.findByTestId('error')
@@ -374,14 +374,14 @@ describe('任务面板', () => {
   })
 
   it('列表因 Gitea 环境问题失败时也提供「查看环境检查」入口', async () => {
-    const client: PanelClient = {
+    const client = clientWith({
       get: () =>
         Promise.resolve({ ok: false, error: { code: 'tea-missing', message: '未找到 tea' } }),
       refresh: () =>
         Promise.resolve({ ok: false, error: { code: 'tea-missing', message: '未找到 tea' } }),
       resolveBlockers: UNUSED_RESOLVE,
       envCheck: () => Promise.resolve({ ok: true, result: GITEA_ENV_REPORT }),
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
 
     await screen.findByTestId('error')
@@ -397,7 +397,7 @@ describe('任务面板', () => {
   })
 
   it('与环境无关的错误不提供环境检查入口', async () => {
-    const client: PanelClient = {
+    const client = clientWith({
       get: () =>
         Promise.resolve({
           ok: false,
@@ -410,10 +410,80 @@ describe('任务面板', () => {
         }),
       resolveBlockers: UNUSED_RESOLVE,
       envCheck: () => Promise.resolve({ ok: true, result: ENV_REPORT }),
-    }
+    })
     render(<TaskPanel {...panelProps({ client })} />)
 
     await screen.findByTestId('error')
     expect(screen.queryByTestId('open-env-check')).toBeNull()
+  })
+
+  it('点击工单行打开详情，点击返回回到列表且筛选保持不变', async () => {
+    const fake = fakeClient({ ok: true, result: SNAPSHOT })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-ready'))
+    fireEvent.click(firstRow())
+
+    await screen.findByTestId('detail-content')
+    expect(screen.getByTestId('detail-ref').textContent).toBe('#1')
+    expect(fake.detailCalls).toEqual([['/repo', '#1', 1]])
+    expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
+
+    fireEvent.click(screen.getByTestId('detail-back'))
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('filter-ready').getAttribute('aria-pressed')).toBe('true')
+    expect(rowRefs()).toEqual(['#1', '#5'])
+  })
+
+  it('Esc 从详情返回列表', async () => {
+    const fake = fakeClient({ ok: true, result: SNAPSHOT })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.queryByTestId('detail-content')).toBeNull()
+  })
+
+  it('切换工作区时详情自动关闭', async () => {
+    const fake = fakeClient((root) => ({
+      ok: true,
+      result: { ...SNAPSHOT, repository: `${root}/repo` },
+    }))
+    const { rerender } = render(
+      <TaskPanel {...panelProps({ client: fake.client, workspaceRoot: '/one' })} />,
+    )
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+
+    rerender(<TaskPanel {...panelProps({ client: fake.client, workspaceRoot: '/two' })} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('repo-name').textContent).toBe('/two/repo')
+    })
+    expect(screen.queryByTestId('detail-content')).toBeNull()
+    // 不会拿新工作区去读上一张票：详情只请求过一次。
+    expect(fake.detailCalls).toHaveLength(1)
+  })
+
+  it('详情里的技能按钮填入这张票的开工提示词', async () => {
+    const injectDraft = vi.fn(() => true)
+    const fake = fakeClient({ ok: true, result: SNAPSHOT })
+    render(<TaskPanel {...panelProps({ client: fake.client, injectDraft })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+    fireEvent.click(screen.getByTestId('skill-badge'))
+
+    expect(injectDraft).toHaveBeenCalledWith(expect.stringMatching(/^\/implement 处理工单 #1/))
   })
 })

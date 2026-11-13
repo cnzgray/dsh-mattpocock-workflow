@@ -13,6 +13,7 @@ export type TrackerErrorCode =
   | 'tea-unauthenticated'
   | 'markdown-read-failed'
   | 'fetch-failed'
+  | 'ticket-not-found'
 
 /** 带稳定错误码的工单读取失败。 */
 export class TrackerError extends Error {

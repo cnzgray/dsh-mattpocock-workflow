@@ -30,6 +30,7 @@ import { createProbeDeadline, ENV_PROBE_TIMEOUT_MS } from './probe-deadline.ts'
 import type { LogSink } from './log.ts'
 import { createRpcFetchHandler, type RpcHandler } from './rpc-http.ts'
 import { createSnapshotService } from './snapshot-service.ts'
+import { createTicketService } from './ticket-service.ts'
 import { createCommandRunner } from './subprocess-runner.ts'
 import { registerWorkflowCommands } from './workflow-commands.ts'
 
@@ -116,6 +117,7 @@ function createRpcHandler(
   const resolveFresh = createBackendResolver({ run, now, files: workspaceFiles, cache: false })
 
   const snapshot = createSnapshotService({ resolve, now, labels: TRACKER_LABELS, log })
+  const ticket = createTicketService({ resolve, now, log })
   const envCheck = createEnvCheckService({
     resolve: resolveFresh,
     github: createGithubEnvProbe({ run }),
@@ -131,10 +133,18 @@ function createRpcHandler(
   })
 
   return {
-    handle: (method, params) =>
-      method === RPC_METHODS.envCheck
-        ? envCheck.handle(method, params)
-        : snapshot.handle(method, params),
+    handle: (method, params) => {
+      if (method === RPC_METHODS.envCheck) return envCheck.handle(method, params)
+      if (
+        method === RPC_METHODS.ticketGet ||
+        method === RPC_METHODS.ticketUpdate ||
+        method === RPC_METHODS.ticketOptions ||
+        method === RPC_METHODS.ticketDelete
+      ) {
+        return ticket.handle(method, params)
+      }
+      return snapshot.handle(method, params)
+    },
   }
 }
 

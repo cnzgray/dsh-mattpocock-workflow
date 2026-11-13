@@ -1,12 +1,15 @@
 /**
  * GitHub 工单后端：通过注入的 {@link CommandRunner} 调用 `git` 与 `gh`，
- * 把输出映射成 core 的工单模型。远端解析复用 core，只接受 `github.com`。只读不写。
+ * 把输出映射成 core 的工单模型。远端解析复用 core，只接受 `github.com`。
+ *
+ * 列表走 GraphQL 一次取全；详情与变更在 `detail.ts`，只在打开详情或提交变更时执行。
  */
-import { GITHUB_HOST } from '../../core/backend.ts'
-import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type { CommandRunner, Tracker, TrackerSnapshot } from '../../core/ticket.ts'
-import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
+import { deleteGithubTicket, readGithubDeletePermission } from './delete.ts'
+import { applyGithubChanges, readGithubDetail } from './detail.ts'
 import { parseIssueGraphql, type ParsedIssues } from './graphql.ts'
+import { readGithubOptions } from './options.ts'
+import { callGh, readRepository, repositoryLabel, type GithubRepository } from './shared.ts'
 
 /** GitHub 后端依赖。 */
 export interface GithubTrackerDeps {
@@ -16,13 +19,6 @@ export interface GithubTrackerDeps {
   readonly limit?: number
 }
 
-/** GitHub 仓库的 owner 与 name。 */
-interface GithubRepository {
-  readonly owner: string
-  readonly name: string
-}
-
-const SEGMENT = /^[A-Za-z0-9_.-]+$/
 const DEFAULT_LIMIT = 100
 const ISSUE_QUERY = `query ($owner: String!, $name: String!, $limit: Int!) {
   repository(owner: $owner, name: $name) {
@@ -51,7 +47,7 @@ export function createGithubTracker(deps: GithubTrackerDeps): Tracker {
 
   return {
     async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
-      const repository = await readRepository(deps, workspaceRoot)
+      const repository = await readRepository(deps.run, workspaceRoot)
       const tickets = await readTickets(deps, workspaceRoot, repository, limit)
 
       return {
@@ -62,36 +58,18 @@ export function createGithubTracker(deps: GithubTrackerDeps): Tracker {
         tickets: tickets.tickets,
       }
     },
-  }
-}
 
-async function readRepository(
-  deps: GithubTrackerDeps,
-  workspaceRoot: string,
-): Promise<GithubRepository> {
-  let output: string
-  try {
-    output = (await deps.run('git', ['remote', '-v'], { cwd: workspaceRoot })).stdout
-  } catch (error) {
-    throw mapGitError(error)
-  }
+    fetchDetail: (workspaceRoot, reference) => readGithubDetail(deps, workspaceRoot, reference),
 
-  const address = pickRemoteAddress(parseRemotes(output))
-  if (address?.host !== GITHUB_HOST) {
-    throw new TrackerError('fetch-failed', '当前仓库的 origin 不是 GitHub 远端。')
-  }
+    updateTicket: (workspaceRoot, reference, patch) =>
+      applyGithubChanges(deps, workspaceRoot, reference, patch),
 
-  const segments = address.path.split('/')
-  const owner = segments[0]
-  const name = segments[1]
-  if (segments.length !== 2 || owner === undefined || name === undefined) {
-    throw new TrackerError('fetch-failed', 'GitHub 远端地址无法识别 owner/name。')
-  }
-  if (!SEGMENT.test(owner) || !SEGMENT.test(name)) {
-    throw new TrackerError('fetch-failed', 'GitHub 远端地址无法识别 owner/name。')
-  }
+    fetchOptions: (workspaceRoot) => readGithubOptions(deps, workspaceRoot),
 
-  return { owner, name }
+    canDeleteTickets: (workspaceRoot) => readGithubDeletePermission(deps, workspaceRoot),
+
+    deleteTicket: (workspaceRoot, reference) => deleteGithubTicket(deps, workspaceRoot, reference),
+  }
 }
 
 async function readTickets(
@@ -113,60 +91,10 @@ async function readTickets(
     `limit=${String(limit)}`,
   ]
 
-  let output: string
-  try {
-    output = (await deps.run('gh', args, { cwd: workspaceRoot })).stdout
-  } catch (error) {
-    throw mapGhError(error)
-  }
-
-  return parseIssueGraphql(output)
+  return parseIssueGraphql(await callGh(deps.run, workspaceRoot, args))
 }
 
 function normalizeLimit(limit: number): number {
   if (!Number.isFinite(limit)) return DEFAULT_LIMIT
   return Math.max(1, Math.min(Math.trunc(limit), DEFAULT_LIMIT))
-}
-
-function mapGitError(error: unknown): TrackerError {
-  if (error instanceof CommandError) {
-    if (error.kind === 'not-found') {
-      return new TrackerError('fetch-failed', '未找到 git 命令，无法识别仓库。', { cause: error })
-    }
-    return new TrackerError('fetch-failed', `读取 git 远端失败：${commandFailureDetail(error)}`, {
-      cause: error,
-    })
-  }
-  return new TrackerError('fetch-failed', '读取 git 远端失败。', { cause: error })
-}
-
-function mapGhError(error: unknown): TrackerError {
-  if (error instanceof CommandError) {
-    if (error.kind === 'not-found') {
-      return new TrackerError(
-        'gh-missing',
-        '未找到 gh 命令，请先安装 GitHub CLI（https://cli.github.com）。',
-        { cause: error },
-      )
-    }
-    if (isAuthenticationFailure(error.stderr)) {
-      return new TrackerError('gh-unauthenticated', 'gh 未登录，请运行 gh auth login。', {
-        cause: error,
-      })
-    }
-    return new TrackerError('fetch-failed', `读取工单失败：${commandFailureDetail(error)}`, {
-      cause: error,
-    })
-  }
-  return new TrackerError('fetch-failed', '读取工单失败。', { cause: error })
-}
-
-function isAuthenticationFailure(stderr: string): boolean {
-  return /gh auth login|not logged in|authentication failed|bad credentials|HTTP 401|requires authentication/i.test(
-    stderr,
-  )
-}
-
-function repositoryLabel(repository: GithubRepository): string {
-  return `${repository.owner}/${repository.name}`
 }

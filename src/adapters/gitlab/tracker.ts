@@ -3,7 +3,8 @@
  *
  * - 仓库标识来自 core 的远端解析，API 里用完整路径的 URL 编码形式寻址，
  *   不依赖当前目录的默认项目推断；
- * - 只读 issue 接口，merge request 不会混进来；
+ * - 只读 issue 接口，merge request 不会混进来；详情、变更、补全候选与删除分别在
+ *   `detail.ts`、`options.ts`、`delete.ts`，只在界面需要时执行；
  * - 首屏只列票，阻塞数先按描述里的 `Blocked by:` 回退；原生阻塞数在
  *   `resolveBlockers` 补齐阶段读取，能力探测不占首屏时间；
  * - 列表响应带 `blocking_issues_count` 时直接判定实例支持原生阻塞；
@@ -14,23 +15,25 @@
  *   不逐票请求 links。
  */
 import { hasDescriptionBlockers, resolveOpenBlockers } from '../../core/blocked-by.ts'
-import { parseRemotes, pickRemoteAddress, type RepositoryAddress } from '../../core/remote.ts'
+import type { RepositoryAddress } from '../../core/remote.ts'
 import type {
-  BlockerTarget,
   CommandRunner,
   Ticket,
+  TicketReference,
   TicketState,
   Tracker,
   TrackerSnapshot,
 } from '../../core/ticket.ts'
-import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
+import { deleteGitlabTicket, readGitlabDeletePermission } from './delete.ts'
+import { applyGitlabChanges, readGitlabDetail } from './detail.ts'
+import { readGitlabOptions } from './options.ts'
 import {
-  encodeProjectPath,
   hasNativeBlockingLinks,
   parseBlockedByCounts,
   parseIssuesPage,
   type ParsedIssue,
 } from './parse.ts'
+import { mapGlabError, projectEndpoint, readProjectAddress } from './shared.ts'
 
 /** GitLab 后端依赖。 */
 export interface GitlabTrackerDeps {
@@ -57,13 +60,14 @@ const BLOCKER_COUNT_BATCH = 100
 export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
   const pageSize = normalizePositive(deps.pageSize ?? DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE)
   const blockerCapability = deps.blockerCapability ?? new Map<string, Promise<boolean>>()
+  const detailDeps = { run: deps.run, pageSize }
 
   // 最近一次列表留下的探测线索，供补齐阶段选探测票；键为工作区根目录。
   const hints = new Map<string, BlockerHint>()
 
   return {
     async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
-      const project = await readProject(deps, workspaceRoot)
+      const project = await readProjectAddress(deps.run, workspaceRoot)
       const issues = await readIssues(deps, workspaceRoot, project.path, pageSize)
       const states = new Map<number, TicketState>()
       for (const issue of issues) {
@@ -85,12 +89,12 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
 
     async resolveBlockers(workspaceRoot, targets) {
       const open = targets.filter(
-        (target): target is BlockerTarget & { readonly number: number } => target.number !== null,
+        (target): target is TicketReference & { readonly number: number } => target.number !== null,
       )
       if (open.length === 0) return new Map()
 
       const hint = hints.get(workspaceRoot) ?? {
-        project: await readProject(deps, workspaceRoot),
+        project: await readProjectAddress(deps.run, workspaceRoot),
         listSupportsNative: false,
         probeTarget: null,
       }
@@ -111,6 +115,18 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
       }
       return native
     },
+
+    fetchDetail: (workspaceRoot, reference) =>
+      readGitlabDetail(detailDeps, workspaceRoot, reference),
+
+    updateTicket: (workspaceRoot, reference, patch) =>
+      applyGitlabChanges(detailDeps, workspaceRoot, reference, patch),
+
+    fetchOptions: (workspaceRoot) => readGitlabOptions(detailDeps, workspaceRoot),
+
+    canDeleteTickets: (workspaceRoot) => readGitlabDeletePermission(deps, workspaceRoot),
+
+    deleteTicket: (workspaceRoot, reference) => deleteGitlabTicket(deps, workspaceRoot, reference),
   }
 }
 
@@ -132,26 +148,6 @@ function blockerHint(project: RepositoryAddress, issues: readonly ParsedIssue[])
     listSupportsNative: open.some((issue) => issue.hasBlockingIssuesCount),
     probeTarget: (described ?? open[0])?.ticket.number ?? null,
   }
-}
-
-async function readProject(
-  deps: GitlabTrackerDeps,
-  workspaceRoot: string,
-): Promise<RepositoryAddress> {
-  let output: string
-  try {
-    output = (await deps.run('git', ['remote', '-v'], { cwd: workspaceRoot })).stdout
-  } catch (error) {
-    throw new TrackerError('fetch-failed', '读取 git 远端失败，无法识别 GitLab 项目。', {
-      cause: error,
-    })
-  }
-
-  const address = pickRemoteAddress(parseRemotes(output))
-  if (address === undefined) {
-    throw new TrackerError('fetch-failed', '当前仓库的 origin 不是可识别的 GitLab 远端。')
-  }
-  return { path: address.path, host: address.host }
 }
 
 async function readIssues(
@@ -186,7 +182,7 @@ async function ensureNativeBlockingSupport(
   blockerCapability: Map<string, Promise<boolean>>,
   workspaceRoot: string,
   hint: BlockerHint,
-  open: readonly (BlockerTarget & { readonly number: number })[],
+  open: readonly (TicketReference & { readonly number: number })[],
 ): Promise<boolean> {
   const host = hint.project.host
   const cached = blockerCapability.get(host)
@@ -234,7 +230,7 @@ async function readBlockedByCounts(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
   project: string,
-  open: readonly (BlockerTarget & { readonly number: number })[],
+  open: readonly (TicketReference & { readonly number: number })[],
 ): Promise<ReadonlyMap<number, number>> {
   const counts = new Map<number, number>()
 
@@ -267,45 +263,8 @@ function withOpenBlockers(issue: ParsedIssue, states: ReadonlyMap<number, Ticket
   }
 }
 
-function mapGlabError(error: unknown): TrackerError {
-  if (error instanceof CommandError) {
-    if (error.kind === 'not-found') {
-      return new TrackerError(
-        'glab-missing',
-        '未找到 glab 命令，请先安装 GitLab CLI（https://gitlab.com/gitlab-org/cli）。',
-        { cause: error },
-      )
-    }
-    if (isAuthenticationFailure(error.stderr)) {
-      return new TrackerError(
-        'glab-unauthenticated',
-        'glab 未登录或令牌已失效，请运行 glab auth login。',
-        { cause: error },
-      )
-    }
-    return new TrackerError(
-      'fetch-failed',
-      `读取 GitLab 工单失败：${commandFailureDetail(error)}`,
-      {
-        cause: error,
-      },
-    )
-  }
-  return new TrackerError('fetch-failed', '读取 GitLab 工单失败。', { cause: error })
-}
-
-function isAuthenticationFailure(stderr: string): boolean {
-  return /glab auth login|not logged in|no token|token.*(?:expired|invalid)|authentication failed|bad credentials|HTTP 401|Unauthorized/i.test(
-    stderr,
-  )
-}
-
 function issuesEndpoint(project: string, pageSize: number, page: number): string {
   return `${projectEndpoint(project)}/issues?state=all&per_page=${String(pageSize)}&page=${String(page)}`
-}
-
-function projectEndpoint(project: string): string {
-  return `projects/${encodeProjectPath(project)}`
 }
 
 function normalizePositive(value: number, fallback: number): number {

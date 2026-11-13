@@ -5,7 +5,12 @@
 import { screen } from '@testing-library/react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
-import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type {
+  RpcResult,
+  TicketDetail,
+  TicketSnapshot,
+  WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
 import type { PanelClient } from './rpc.ts'
 import type { TaskPanelProps } from './task-panel.tsx'
 
@@ -143,10 +148,29 @@ export const SNAPSHOT: WorkspaceSnapshot = {
 export const UNUSED_RESOLVE = (): Promise<RpcResult<WorkspaceSnapshot>> =>
   Promise.resolve({ ok: true, result: SNAPSHOT })
 
+export const DETAIL: TicketDetail = {
+  ref: '#1',
+  number: 1,
+  title: 'Bravo',
+  state: 'open',
+  author: 'carol',
+  body: '正文',
+  labels: ['enhancement'],
+  assignees: [],
+  comments: [{ author: 'bob', body: '补充验收标准', createdAt: '2026-11-12T10:00:00Z' }],
+  url: 'https://github.com/cnzgray/dsh-mattpocock-workflow/issues/1',
+  createdAt: '2026-11-01T00:00:00Z',
+  updatedAt: '2026-11-05T00:00:00Z',
+  backend: 'github',
+  capabilities: { labels: true, assignees: true, state: true, link: true, delete: false },
+}
+
 export interface FakeClient {
   readonly client: PanelClient
   readonly getCalls: string[]
   readonly refreshCalls: string[]
+  /** 详情请求的参数：工作区、引用、编号。 */
+  readonly detailCalls: (readonly [string, string, number | null])[]
 }
 
 export function fakeClient(
@@ -156,6 +180,7 @@ export function fakeClient(
 ): FakeClient {
   const getCalls: string[] = []
   const refreshCalls: string[] = []
+  const detailCalls: (readonly [string, string, number | null])[] = []
   const get = (root: string): RpcResult<WorkspaceSnapshot> =>
     typeof getResult === 'function' ? getResult(root) : getResult
   const client: PanelClient = {
@@ -168,9 +193,33 @@ export function fakeClient(
       return Promise.resolve(refreshResult ?? get(root))
     },
     resolveBlockers: () => resolveResult(),
+    getDetail(root, ref, number) {
+      detailCalls.push([root, ref, number])
+      return Promise.resolve({ ok: true, result: { ...DETAIL, ref, number } })
+    },
+    updateTicket: () => Promise.resolve({ ok: true, result: { applied: true } }),
+    getOptions: () =>
+      Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
+    deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
-  return { client, getCalls, refreshCalls }
+  return { client, getCalls, refreshCalls, detailCalls }
+}
+
+/** 只覆盖用得到的方法；其余方法被调用即视为测试写错。 */
+export function clientWith(overrides: Partial<PanelClient>): PanelClient {
+  return {
+    get: () => Promise.reject(new Error('未使用')),
+    refresh: () => Promise.reject(new Error('未使用')),
+    resolveBlockers: () => Promise.reject(new Error('未使用')),
+    getDetail: () => Promise.reject(new Error('未使用')),
+    updateTicket: () => Promise.reject(new Error('未使用')),
+    getOptions: () =>
+      Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
+    deleteTicket: () => Promise.reject(new Error('未使用')),
+    envCheck: () => Promise.reject(new Error('未使用')),
+    ...overrides,
+  }
 }
 
 export function deferred<T>(): { readonly promise: Promise<T>; resolve: (value: T) => void } {

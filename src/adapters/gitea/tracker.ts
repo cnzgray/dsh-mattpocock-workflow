@@ -5,11 +5,11 @@
  * - 分页：总条数取自 `X-Total-Count`（`tea api --include` 写到标准错误里），
  *   按页拉到拿全为止；
  * - 阻塞：优先读 Gitea 原生 issue 依赖，只查开放的工单，并发有上限；
- *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行。
+ *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行；
+ * - 详情与变更在 `detail.ts`，只在打开详情或提交变更时执行。
  */
 import { resolveOpenBlockers } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
-import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
 import type {
   CommandRunner,
   Ticket,
@@ -17,14 +17,11 @@ import type {
   Tracker,
   TrackerSnapshot,
 } from '../../core/ticket.ts'
-import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
-import {
-  parseApiResponse,
-  parseDependencies,
-  parseIssuesPage,
-  type ApiResponse,
-  type ParsedIssue,
-} from './parse.ts'
+import { deleteGiteaTicket, readGiteaDeletePermission } from './delete.ts'
+import { applyGiteaChanges, readGiteaDetail } from './detail.ts'
+import { readGiteaOptions } from './options.ts'
+import { parseDependencies, parseIssuesPage, type ParsedIssue } from './parse.ts'
+import { callGiteaApi, ensureSuccess, readRepository, type GiteaRepository } from './shared.ts'
 
 /** Gitea 后端依赖。 */
 export interface GiteaTrackerDeps {
@@ -36,18 +33,9 @@ export interface GiteaTrackerDeps {
   readonly concurrency?: number
 }
 
-/** Gitea 仓库的 owner 与 name。 */
-interface GiteaRepository {
-  readonly owner: string
-  readonly name: string
-}
-
 const DEFAULT_PAGE_SIZE = 50
 const DEFAULT_CONCURRENCY = 4
 const MAX_PAGES = 200
-const SEGMENT = /^[A-Za-z0-9_.-]+$/
-const AUTH_FAILURE =
-  /tea login add|not logged in|no token|token.*(?:expired|invalid)|authentication failed|bad credentials|HTTP 401|HTTP 403|Unauthorized|Forbidden/i
 
 /**
  * 创建 Gitea 工单后端。
@@ -60,10 +48,11 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
     deps.concurrency ?? DEFAULT_CONCURRENCY,
     DEFAULT_CONCURRENCY,
   )
+  const detailDeps = { run: deps.run, pageSize }
 
   return {
     async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
-      const repository = await readRepository(deps, workspaceRoot)
+      const repository = await readRepository(deps.run, workspaceRoot)
       const issues = await readIssues(deps, workspaceRoot, repository, pageSize)
       const states = new Map<number, TicketState>()
       for (const issue of issues.items) {
@@ -96,39 +85,19 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         tickets,
       }
     },
-  }
-}
 
-async function readRepository(
-  deps: GiteaTrackerDeps,
-  workspaceRoot: string,
-): Promise<GiteaRepository> {
-  let output: string
-  try {
-    output = (await deps.run('git', ['remote', '-v'], { cwd: workspaceRoot })).stdout
-  } catch (error) {
-    throw new TrackerError('fetch-failed', '读取 git 远端失败，无法识别 Gitea 仓库。', {
-      cause: error,
-    })
-  }
+    fetchDetail: (workspaceRoot, reference) =>
+      readGiteaDetail(detailDeps, workspaceRoot, reference),
 
-  const address = pickRemoteAddress(parseRemotes(output))
-  if (address === undefined) {
-    throw new TrackerError('fetch-failed', '当前仓库的 origin 不是可识别的 Gitea 远端。')
-  }
+    updateTicket: (workspaceRoot, reference, patch) =>
+      applyGiteaChanges(detailDeps, workspaceRoot, reference, patch),
 
-  const segments = address.path.split('/')
-  const owner = segments[0]
-  const name = segments[1]
-  // Gitea 只有 owner/name 两层，子路径不是合法仓库地址。
-  if (segments.length !== 2 || owner === undefined || name === undefined) {
-    throw new TrackerError('fetch-failed', 'Gitea 远端地址无法识别 owner/name。')
-  }
-  if (!SEGMENT.test(owner) || !SEGMENT.test(name)) {
-    throw new TrackerError('fetch-failed', 'Gitea 远端地址无法识别 owner/name。')
-  }
+    fetchOptions: (workspaceRoot) => readGiteaOptions(deps, workspaceRoot),
 
-  return { owner, name }
+    canDeleteTickets: (workspaceRoot) => readGiteaDeletePermission(deps, workspaceRoot),
+
+    deleteTicket: (workspaceRoot, reference) => deleteGiteaTicket(deps, workspaceRoot, reference),
+  }
 }
 
 async function readIssues(
@@ -141,7 +110,11 @@ async function readIssues(
   let total: number | undefined
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const response = await callApi(deps, workspaceRoot, issuesEndpoint(repository, pageSize, page))
+    const response = await callGiteaApi(
+      deps.run,
+      workspaceRoot,
+      issuesEndpoint(repository, pageSize, page),
+    )
     ensureSuccess(response, '读取 Gitea 工单')
 
     const parsed = parseIssuesPage(response.body)
@@ -201,8 +174,8 @@ async function readDependencies(
   let total: number | undefined
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const response = await callApi(
-      deps,
+    const response = await callGiteaApi(
+      deps.run,
       workspaceRoot,
       dependenciesEndpoint(repository, index, pageSize, page),
     )
@@ -224,60 +197,6 @@ async function readDependencies(
 
 /** 依赖功能未启用。只用于在读取阶段区分 404，不向外暴露。 */
 class DependenciesUnavailable extends Error {}
-
-async function callApi(
-  deps: GiteaTrackerDeps,
-  workspaceRoot: string,
-  endpoint: string,
-): Promise<ApiResponse> {
-  let stdout: string
-  let stderr: string
-  try {
-    const output = await deps.run('tea', ['api', '--include', endpoint], { cwd: workspaceRoot })
-    stdout = output.stdout
-    stderr = output.stderr
-  } catch (error) {
-    throw mapTeaError(error)
-  }
-  return parseApiResponse(stdout, stderr)
-}
-
-function ensureSuccess(response: ApiResponse, action: string): void {
-  if (response.status < 400) return
-  if (response.status === 401 || response.status === 403) {
-    throw new TrackerError(
-      'tea-unauthenticated',
-      'tea 未登录该实例或令牌已失效，请运行 tea login add。',
-    )
-  }
-  throw new TrackerError(
-    'fetch-failed',
-    `${action}失败：Gitea 返回 HTTP ${String(response.status)}。`,
-  )
-}
-
-function mapTeaError(error: unknown): TrackerError {
-  if (error instanceof CommandError) {
-    if (error.kind === 'not-found') {
-      return new TrackerError(
-        'tea-missing',
-        '未找到 tea 命令，请先安装 Gitea CLI（https://gitea.com/gitea/tea）。',
-        { cause: error },
-      )
-    }
-    if (AUTH_FAILURE.test(error.stderr)) {
-      return new TrackerError(
-        'tea-unauthenticated',
-        'tea 未登录该实例或令牌已失效，请运行 tea login add。',
-        { cause: error },
-      )
-    }
-    return new TrackerError('fetch-failed', `读取 Gitea 工单失败：${commandFailureDetail(error)}`, {
-      cause: error,
-    })
-  }
-  return new TrackerError('fetch-failed', '读取 Gitea 工单失败。', { cause: error })
-}
 
 function issuesEndpoint(repository: GiteaRepository, pageSize: number, page: number): string {
   return `/repos/${repository.owner}/${repository.name}/issues?state=all&type=issues&page=${String(page)}&limit=${String(pageSize)}`

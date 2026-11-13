@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
-import { RPC_PATH, type RpcResult, type WorkspaceSnapshot } from '../protocol/tracker.ts'
+import {
+  RPC_PATH,
+  type RpcResult,
+  type TicketDetail,
+  type WorkspaceSnapshot,
+} from '../protocol/tracker.ts'
 import { createPanelClient, type FetchLike, type HttpResponseLike } from './rpc.ts'
 
 const ENV_REPORT: EnvCheckReport = {
@@ -36,6 +41,23 @@ const TICKET = {
   updatedAt: '2026-01-01T00:00:00Z',
   openBlockers: 0,
 } as const
+
+const DETAIL: TicketDetail = {
+  ref: '#25',
+  number: 25,
+  title: '工单详情视图',
+  state: 'open',
+  author: 'carol',
+  body: '正文',
+  labels: ['enhancement'],
+  assignees: ['alice'],
+  comments: [{ author: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }],
+  url: 'https://github.com/cnzgray/dsh-mattpocock-workflow/issues/25',
+  createdAt: '2026-11-12T09:00:00Z',
+  updatedAt: '2026-11-13T09:00:00Z',
+  backend: 'github',
+  capabilities: { labels: true, assignees: true, state: true, link: true, delete: false },
+}
 
 function response(body: unknown, ok = true, status = 200): HttpResponseLike {
   return {
@@ -234,6 +256,108 @@ describe('快照 RPC 客户端', () => {
     )
 
     await expect(client.envCheck('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+})
+
+describe('工单详情 RPC 客户端', () => {
+  it('向插件私有路由发送 ticket.get', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: DETAIL }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.getDetail('/repo', '#25', 25)
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'ticket.get',
+      params: { workspaceRoot: '/repo', ref: '#25', number: 25 },
+    })
+  })
+
+  it('向插件私有路由发送 ticket.update 并带上补丁', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: { applied: true } }))
+    const client = createPanelClient(fetchImpl)
+
+    await client.updateTicket('/repo', '#25', 25, { labels: ['bug', 'ready-for-agent'] })
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'ticket.update',
+      params: {
+        workspaceRoot: '/repo',
+        ref: '#25',
+        number: 25,
+        patch: { labels: ['bug', 'ready-for-agent'] },
+      },
+    })
+  })
+
+  it('详情缺少能力位时返回 fetch-failed', async () => {
+    const incomplete = { ...DETAIL, capabilities: undefined }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: incomplete })).fetchImpl,
+    )
+
+    await expect(client.getDetail('/repo', '#25', 25)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('变更回执缺少 applied 时返回 fetch-failed', async () => {
+    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+
+    await expect(
+      client.updateTicket('/repo', '#25', 25, { state: 'closed' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'fetch-failed' } })
+  })
+})
+
+describe('补全候选与删除 RPC 客户端', () => {
+  it('ticket.options 只带工作区，并接受标签颜色与用户显示名', async () => {
+    const options = {
+      labels: [{ name: 'bug', color: '#d73a4a', description: null }],
+      assignees: [{ username: 'alice', name: 'Alice' }],
+    }
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: options }))
+
+    const result = await createPanelClient(fetchImpl).getOptions('/repo')
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'ticket.options',
+      params: { workspaceRoot: '/repo' },
+    })
+    expect(result).toEqual({ ok: true, result: options })
+  })
+
+  it('候选形状不对时返回 fetch-failed', async () => {
+    const malformed = { labels: [{ name: 1 }], assignees: [] }
+    const client = createPanelClient(
+      recordingFetch(response({ ok: true, result: malformed })).fetchImpl,
+    )
+
+    await expect(client.getOptions('/repo')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'fetch-failed' },
+    })
+  })
+
+  it('ticket.delete 总是带上确认词 delete', async () => {
+    const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: { deleted: true } }))
+
+    const result = await createPanelClient(fetchImpl).deleteTicket('/repo', '#25', 25)
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      method: 'ticket.delete',
+      params: { workspaceRoot: '/repo', ref: '#25', number: 25, confirm: 'delete' },
+    })
+    expect(result).toEqual({ ok: true, result: { deleted: true } })
+  })
+
+  it('删除回执缺少 deleted 时返回 fetch-failed', async () => {
+    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+
+    await expect(client.deleteTicket('/repo', '#25', 25)).resolves.toMatchObject({
       ok: false,
       error: { code: 'fetch-failed' },
     })

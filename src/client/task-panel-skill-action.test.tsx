@@ -137,6 +137,11 @@ function fakeClient(): PanelClient {
     get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     resolveBlockers: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+    getDetail: () => Promise.reject(new Error('未使用')),
+    updateTicket: () => Promise.reject(new Error('未使用')),
+    getOptions: () =>
+      Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
+    deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck: UNUSED_ENV_CHECK,
   }
 }
@@ -145,6 +150,7 @@ function renderView(
   options: {
     readonly canInject?: boolean
     readonly injectDraft?: (text: string) => boolean
+    readonly onOpenTicket?: (ticket: TicketSnapshot) => void
   } = {},
 ): void {
   render(
@@ -155,6 +161,7 @@ function renderView(
       injectDraft={options.injectDraft ?? (() => true)}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
+      onOpenTicket={options.onOpenTicket ?? (() => undefined)}
     />,
   )
 }
@@ -255,14 +262,15 @@ describe('工单行的技能徽标', () => {
     expect(badgeFor('#18').textContent).toBe('implement')
   })
 
-  it('点击工单行只选中，不填入提示词', async () => {
+  it('点击工单行只打开详情，不填入提示词', async () => {
     const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const onOpenTicket = vi.fn<(ticket: TicketSnapshot) => void>()
+    renderView({ injectDraft, onOpenTicket })
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(rowFor('#10'))
 
-    expect(rowFor('#10').getAttribute('aria-pressed')).toBe('true')
+    expect(onOpenTicket).toHaveBeenCalledWith(expect.objectContaining({ ref: '#10' }))
     expect(injectDraft).not.toHaveBeenCalled()
   })
 
@@ -320,18 +328,11 @@ describe('工单行的技能徽标', () => {
     expect(badgeFor('#10').getAttribute('data-injected')).toBeNull()
   })
 
-  it('选中行与最近一次注入的行在视觉上可区分', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+  it('注入标记只跟着最近一次填入的票走', async () => {
+    renderView()
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(badgeFor('#10'))
-    expect(rowFor('#10').getAttribute('aria-pressed')).toBe('true')
-    expect(badgeFor('#10').getAttribute('data-injected')).toBe('true')
-
-    fireEvent.click(rowFor('#11'))
-    expect(rowFor('#11').getAttribute('aria-pressed')).toBe('true')
-    expect(rowFor('#10').getAttribute('aria-pressed')).toBe('false')
     expect(badgeFor('#10').getAttribute('data-injected')).toBe('true')
 
     fireEvent.click(badgeFor('#13'))

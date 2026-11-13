@@ -15,6 +15,12 @@ import {
   RPC_PATH,
   type ErrorCode,
   type RpcResult,
+  TICKET_DELETE_CONFIRMATION,
+  type TicketDeleteResult,
+  type TicketDetail,
+  type TicketOptions,
+  type TicketPatch,
+  type TicketUpdateResult,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 
@@ -35,7 +41,7 @@ export type FetchLike = (
   },
 ) => Promise<HttpResponseLike>
 
-/** 面板客户端：界面只依赖这四个方法。 */
+/** 面板客户端：界面只依赖这些方法。 */
 export interface PanelClient {
   get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   refresh(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
@@ -43,6 +49,27 @@ export interface PanelClient {
   resolveBlockers(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /** 重新跑一次环境检查；宿主不缓存结果。 */
   envCheck(workspaceRoot: string): Promise<RpcResult<EnvCheckReport>>
+  /** 读取单张工单详情；打开详情时按需请求，不进入列表快照。 */
+  getDetail(
+    workspaceRoot: string,
+    ref: string,
+    number: number | null,
+  ): Promise<RpcResult<TicketDetail>>
+  /** 提交一次变更；成功后由调用方重新读取详情。 */
+  updateTicket(
+    workspaceRoot: string,
+    ref: string,
+    number: number | null,
+    patch: TicketPatch,
+  ): Promise<RpcResult<TicketUpdateResult>>
+  /** 读取仓库的标签与可分配用户，供补全使用；不支持时返回 capability-unsupported。 */
+  getOptions(workspaceRoot: string): Promise<RpcResult<TicketOptions>>
+  /** 永久删除一张工单；确认词由界面在用户输入后传入。 */
+  deleteTicket(
+    workspaceRoot: string,
+    ref: string,
+    number: number | null,
+  ): Promise<RpcResult<TicketDeleteResult>>
 }
 
 /**
@@ -53,27 +80,45 @@ export interface PanelClient {
 export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelClient {
   return {
     get: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotGet, workspaceRoot, isSnapshotResult),
+      call(fetchImpl, RPC_METHODS.snapshotGet, { workspaceRoot }, isSnapshotResult),
     refresh: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotRefresh, workspaceRoot, isSnapshotResult),
+      call(fetchImpl, RPC_METHODS.snapshotRefresh, { workspaceRoot }, isSnapshotResult),
     resolveBlockers: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotResolveBlockers, workspaceRoot, isSnapshotResult),
+      call(fetchImpl, RPC_METHODS.snapshotResolveBlockers, { workspaceRoot }, isSnapshotResult),
     envCheck: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.envCheck, workspaceRoot, isEnvCheckResult),
+      call(fetchImpl, RPC_METHODS.envCheck, { workspaceRoot }, isEnvCheckResult),
+    getDetail: (workspaceRoot, ref, number) =>
+      call(fetchImpl, RPC_METHODS.ticketGet, { workspaceRoot, ref, number }, isTicketDetailResult),
+    updateTicket: (workspaceRoot, ref, number, patch) =>
+      call(
+        fetchImpl,
+        RPC_METHODS.ticketUpdate,
+        { workspaceRoot, ref, number, patch },
+        isTicketUpdateResult,
+      ),
+    getOptions: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.ticketOptions, { workspaceRoot }, isTicketOptionsResult),
+    deleteTicket: (workspaceRoot, ref, number) =>
+      call(
+        fetchImpl,
+        RPC_METHODS.ticketDelete,
+        { workspaceRoot, ref, number, confirm: TICKET_DELETE_CONFIRMATION },
+        isTicketDeleteResult,
+      ),
   }
 }
 
 async function call<T>(
   fetchImpl: FetchLike,
   method: string,
-  workspaceRoot: string,
+  params: unknown,
   isResult: (value: unknown) => value is RpcResult<T>,
 ): Promise<RpcResult<T>> {
   try {
     const response = await fetchImpl(RPC_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method, params: { workspaceRoot } }),
+      body: JSON.stringify({ method, params }),
     })
 
     if (!response.ok) {
@@ -173,4 +218,86 @@ function isEnvCheckReport(value: unknown): value is EnvCheckReport {
   if (!('items' in value) || !Array.isArray(value.items)) return false
   if (!('capabilities' in value) || !Array.isArray(value.capabilities)) return false
   return true
+}
+
+function isTicketDetailResult(value: unknown): value is RpcResult<TicketDetail> {
+  return isRpcResult(value, isTicketDetail)
+}
+
+function isTicketDetail(value: unknown): value is TicketDetail {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('ref' in value) || typeof value.ref !== 'string') return false
+  if (!('number' in value) || !(value.number === null || typeof value.number === 'number')) {
+    return false
+  }
+  if (!('title' in value) || typeof value.title !== 'string') return false
+  if (!('state' in value) || !(value.state === 'open' || value.state === 'closed')) return false
+  if (!('author' in value) || !(value.author === null || typeof value.author === 'string')) {
+    return false
+  }
+  if (!('body' in value) || typeof value.body !== 'string') return false
+  if (!('labels' in value) || !Array.isArray(value.labels)) return false
+  if (!('assignees' in value) || !Array.isArray(value.assignees)) return false
+  if (!('comments' in value) || !Array.isArray(value.comments)) return false
+  if (!('url' in value) || !(value.url === null || typeof value.url === 'string')) return false
+  if (!('createdAt' in value) || typeof value.createdAt !== 'string') return false
+  if (!('updatedAt' in value) || typeof value.updatedAt !== 'string') return false
+  if (!('backend' in value) || typeof value.backend !== 'string') return false
+  if (!('capabilities' in value) || typeof value.capabilities !== 'object') return false
+  if (value.capabilities === null) return false
+  const capabilities = value.capabilities as Record<string, unknown>
+  for (const key of ['labels', 'assignees', 'state', 'link', 'delete'] as const) {
+    if (typeof capabilities[key] !== 'boolean') return false
+  }
+  return true
+}
+
+function isTicketUpdateResult(value: unknown): value is RpcResult<TicketUpdateResult> {
+  return isRpcResult(
+    value,
+    (payload): payload is TicketUpdateResult =>
+      typeof payload === 'object' &&
+      payload !== null &&
+      'applied' in payload &&
+      payload.applied === true,
+  )
+}
+
+function isTicketDeleteResult(value: unknown): value is RpcResult<TicketDeleteResult> {
+  return isRpcResult(
+    value,
+    (payload): payload is TicketDeleteResult =>
+      typeof payload === 'object' &&
+      payload !== null &&
+      'deleted' in payload &&
+      payload.deleted === true,
+  )
+}
+
+function isTicketOptionsResult(value: unknown): value is RpcResult<TicketOptions> {
+  return isRpcResult(value, isTicketOptions)
+}
+
+function isTicketOptions(value: unknown): value is TicketOptions {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('labels' in value) || !Array.isArray(value.labels)) return false
+  if (!('assignees' in value) || !Array.isArray(value.assignees)) return false
+  const labelsValid = value.labels.every(
+    (label: unknown) =>
+      isObject(label) &&
+      typeof label.name === 'string' &&
+      (label.color === null || typeof label.color === 'string') &&
+      (label.description === null || typeof label.description === 'string'),
+  )
+  const assigneesValid = value.assignees.every(
+    (user: unknown) =>
+      isObject(user) &&
+      typeof user.username === 'string' &&
+      (user.name === null || typeof user.name === 'string'),
+  )
+  return labelsValid && assigneesValid
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }

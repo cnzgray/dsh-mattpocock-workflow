@@ -9,3 +9,14 @@
  * protocol 模块互相引用。
  */
 export type BackendKind = 'github' | 'gitlab' | 'gitea' | 'markdown'
+
+/**
+ * 后端在界面与错误提示里的显示名。宿主写「哪个后端不支持哪项能力」、
+ * 界面画后端徽标都用这一份，两处文案不会脱节。
+ */
+export const BACKEND_LABELS: Record<BackendKind, string> = {
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  gitea: 'Gitea',
+  markdown: '本地',
+}

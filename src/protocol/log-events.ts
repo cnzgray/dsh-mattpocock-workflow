@@ -7,6 +7,8 @@
 export const LOG_EVENTS = {
   /** 一次工单拉取或阻塞补齐；`stage` 区分列表与补齐两段耗时。 */
   snapshot: 'tracker.snapshot',
+  /** 一次工单详情读取或变更提交。 */
+  ticket: 'tracker.ticket',
   /** 一次环境检查。 */
   envCheck: 'env.check',
 } as const
@@ -18,4 +20,12 @@ export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
 export const SNAPSHOT_STAGES = {
   list: 'list',
   blockers: 'blockers',
+} as const
+
+/** 工单日志的动作：读详情或提交变更。 */
+export const TICKET_ACTIONS = {
+  get: 'get',
+  update: 'update',
+  options: 'options',
+  delete: 'delete',
 } as const

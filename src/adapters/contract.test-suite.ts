@@ -5,7 +5,37 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import type { BlockerTarget, Tracker } from '../core/ticket.ts'
+import type {
+  TicketDetail,
+  TicketOptions,
+  TicketPatch,
+  TicketReference,
+  TicketState,
+  Tracker,
+} from '../core/ticket.ts'
+
+/** 后端实现详情能力时给出的读取请求与期望输出。 */
+export interface TicketDetailFixture {
+  /** 详情读取用的工厂；每次返回一份独立的可读后端。 */
+  readonly createTracker: () => Tracker
+  /** 读取哪张票。 */
+  readonly request: TicketReference
+  /** 期望的详情；`ref` 与 `number` 会按请求回填后整份比对。 */
+  readonly expected: TicketDetail
+  /**
+   * 后端实现变更能力时给出工厂、补丁与期望结果；省略表示不实现。
+   * 工厂每次返回一份可变的独立后端，变更不污染其他断言。
+   */
+  readonly change?: {
+    readonly createTracker: () => Tracker
+    readonly patch: TicketPatch
+    readonly expected: {
+      readonly labels?: readonly string[]
+      readonly assignees?: readonly string[]
+      readonly state: TicketState
+    }
+  }
+}
 
 /**
  * 后端的原生阻塞能力，必须由各后端显式声明：
@@ -17,10 +47,23 @@ export type NativeBlockersFixture =
   | { readonly kind: 'snapshot'; readonly expected: readonly number[] }
   | {
       readonly kind: 'deferred'
-      readonly request: readonly BlockerTarget[]
+      readonly request: readonly TicketReference[]
       readonly expected: ReadonlyMap<string, number>
     }
   | { readonly kind: 'none'; readonly expected: readonly number[] }
+/** 后端实现补全候选能力时给出的工厂与期望输出。 */
+export interface TicketOptionsFixture {
+  readonly createTracker: () => Tracker
+  readonly expected: TicketOptions
+}
+
+/** 后端实现删除能力时给出的工厂、目标票与权限期望。 */
+export interface TicketDeleteFixture {
+  readonly createTracker: () => Tracker
+  readonly request: TicketReference
+  /** `canDeleteTickets` 应返回的结果。 */
+  readonly canDelete: boolean
+}
 
 /** 一个后端跑契约所需的工厂与期望值。 */
 export interface TrackerContractFixture {
@@ -44,6 +87,12 @@ export interface TrackerContractFixture {
    * 避免新增后端时悄悄漏掉阻塞能力。
    */
   readonly nativeBlockers: NativeBlockersFixture
+  /** 后端实现可选详情能力时的读取请求、期望输出与可选变更；省略表示不实现。 */
+  readonly detail?: TicketDetailFixture
+  /** 后端实现可选补全候选能力时的期望输出；省略表示不实现。 */
+  readonly options?: TicketOptionsFixture
+  /** 后端实现可选删除能力时的目标票与权限期望；省略表示不实现。 */
+  readonly delete?: TicketDeleteFixture
 }
 
 /**
@@ -53,69 +102,188 @@ export interface TrackerContractFixture {
  */
 export function describeTrackerContract(backend: string, fixture: TrackerContractFixture): void {
   describe(`${backend} 工单后端契约`, () => {
-    it('返回仓库标识、总数与按输入顺序排列的工单', async () => {
-      const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
+    describeListContract(fixture)
+    describeBlockerContract(fixture)
+    describeDetailContract(fixture)
+    describeOptionsContract(fixture)
+    describeDeleteContract(fixture)
+  })
+}
 
-      expect(snapshot.repository).toBe(fixture.expected.repository)
-      expect(snapshot.total).toBe(fixture.expected.total)
-      expect(snapshot.loaded).toBe(snapshot.tickets.length)
-      expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual(fixture.expected.refs)
-    })
+function describeListContract(fixture: TrackerContractFixture): void {
+  it('返回仓库标识、总数与按输入顺序排列的工单', async () => {
+    const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 
-    it('使用注入的时钟作为快照时间', async () => {
-      const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
+    expect(snapshot.repository).toBe(fixture.expected.repository)
+    expect(snapshot.total).toBe(fixture.expected.total)
+    expect(snapshot.loaded).toBe(snapshot.tickets.length)
+    expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual(fixture.expected.refs)
+  })
 
-      expect(snapshot.fetchedAt).toBe(fixture.expected.fetchedAt)
-    })
+  it('使用注入的时钟作为快照时间', async () => {
+    const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 
-    it('空仓库返回空列表与零计数', async () => {
-      const snapshot = await fixture.empty.createTracker().fetchSnapshot(fixture.workspaceRoot)
+    expect(snapshot.fetchedAt).toBe(fixture.expected.fetchedAt)
+  })
 
-      expect(snapshot.tickets).toEqual([])
-      expect(snapshot.loaded).toBe(0)
-      expect(snapshot.total).toBe(0)
-      expect(snapshot.repository).toBe(fixture.empty.repository)
-      expect(snapshot.fetchedAt).toBe(fixture.empty.fetchedAt)
-    })
+  it('空仓库返回空列表与零计数', async () => {
+    const snapshot = await fixture.empty.createTracker().fetchSnapshot(fixture.workspaceRoot)
 
-    it('按声明提供原生阻塞数', async () => {
-      const tracker = fixture.createTracker()
-      const nativeBlockers = fixture.nativeBlockers
+    expect(snapshot.tickets).toEqual([])
+    expect(snapshot.loaded).toBe(0)
+    expect(snapshot.total).toBe(0)
+    expect(snapshot.repository).toBe(fixture.empty.repository)
+    expect(snapshot.fetchedAt).toBe(fixture.empty.fetchedAt)
+  })
 
-      if (nativeBlockers.kind === 'snapshot') {
-        expect(tracker.resolveBlockers).toBeUndefined()
-        const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
-        expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(
-          nativeBlockers.expected,
-        )
-        return
-      }
+  it('每张票都带 ref 与判定所需的字段', async () => {
+    const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 
-      if (nativeBlockers.kind === 'deferred') {
-        expect(typeof tracker.resolveBlockers).toBe('function')
-        const native = await tracker.resolveBlockers?.(
-          fixture.workspaceRoot,
-          nativeBlockers.request,
-        )
-        expect(native).toEqual(nativeBlockers.expected)
-        return
-      }
+    for (const ticket of snapshot.tickets) {
+      expect(ticket.ref.length).toBeGreaterThan(0)
+      expect(ticket.number === null || ticket.number > 0).toBe(true)
+      expect(ticket.title.length).toBeGreaterThan(0)
+      expect(['open', 'closed']).toContain(ticket.state)
+      expect(Array.isArray(ticket.labels)).toBe(true)
+      expect(ticket.openBlockers).toBeGreaterThanOrEqual(0)
+    }
+  })
+}
 
+function describeBlockerContract(fixture: TrackerContractFixture): void {
+  it('按声明提供原生阻塞数', async () => {
+    const tracker = fixture.createTracker()
+    const nativeBlockers = fixture.nativeBlockers
+
+    if (nativeBlockers.kind === 'snapshot') {
       expect(tracker.resolveBlockers).toBeUndefined()
       const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
       expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(nativeBlockers.expected)
-    })
-    it('每张票都带 ref 与判定所需的字段', async () => {
-      const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
+      return
+    }
 
-      for (const ticket of snapshot.tickets) {
-        expect(ticket.ref.length).toBeGreaterThan(0)
-        expect(ticket.number === null || ticket.number > 0).toBe(true)
-        expect(ticket.title.length).toBeGreaterThan(0)
-        expect(['open', 'closed']).toContain(ticket.state)
-        expect(Array.isArray(ticket.labels)).toBe(true)
-        expect(ticket.openBlockers).toBeGreaterThanOrEqual(0)
-      }
+    if (nativeBlockers.kind === 'deferred') {
+      expect(typeof tracker.resolveBlockers).toBe('function')
+      const native = await tracker.resolveBlockers?.(fixture.workspaceRoot, nativeBlockers.request)
+      expect(native).toEqual(nativeBlockers.expected)
+      return
+    }
+
+    expect(tracker.resolveBlockers).toBeUndefined()
+    const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
+    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(nativeBlockers.expected)
+  })
+}
+
+function describeDetailContract(fixture: TrackerContractFixture): void {
+  const detail = fixture.detail
+  const change = detail?.change
+
+  it(detail === undefined ? '不声明详情能力' : '声明详情能力', () => {
+    const tracker = fixture.createTracker()
+
+    expect(typeof tracker.fetchDetail).toBe(detail === undefined ? 'undefined' : 'function')
+  })
+
+  it(change === undefined ? '不声明变更能力' : '声明变更能力', () => {
+    const tracker = fixture.createTracker()
+
+    expect(typeof tracker.updateTicket).toBe(change === undefined ? 'undefined' : 'function')
+  })
+
+  if (detail === undefined) return
+  describeDetailReads(fixture.workspaceRoot, detail)
+  if (change !== undefined) describeDetailChange(fixture.workspaceRoot, detail.request, change)
+}
+
+function describeDetailReads(workspaceRoot: string, detail: TicketDetailFixture): void {
+  it('详情返回正文、标签、分配人、评论、链接与时间', async () => {
+    const tracker = detail.createTracker()
+
+    const observed = await tracker.fetchDetail?.(workspaceRoot, detail.request)
+
+    expect(observed).toEqual({
+      ...detail.expected,
+      ref: detail.request.ref,
+      number: detail.request.number,
     })
+  })
+
+  it('评论按时间升序排列', async () => {
+    const tracker = detail.createTracker()
+
+    const observed = await tracker.fetchDetail?.(workspaceRoot, detail.request)
+    const times = (observed?.comments ?? []).map((comment) => comment.createdAt ?? '')
+
+    expect([...times].sort()).toEqual(times)
+  })
+}
+
+function describeOptionsContract(fixture: TrackerContractFixture): void {
+  const options = fixture.options
+
+  it(options === undefined ? '不声明补全候选能力' : '声明补全候选能力', () => {
+    const tracker = fixture.createTracker()
+
+    expect(typeof tracker.fetchOptions).toBe(options === undefined ? 'undefined' : 'function')
+  })
+
+  if (options === undefined) return
+  it('补全候选返回标签与可分配用户', async () => {
+    const tracker = options.createTracker()
+
+    const observed = await tracker.fetchOptions?.(fixture.workspaceRoot)
+
+    expect(observed).toEqual(options.expected)
+  })
+}
+
+function describeDeleteContract(fixture: TrackerContractFixture): void {
+  const remove = fixture.delete
+
+  it(remove === undefined ? '不声明删除能力' : '声明删除能力', () => {
+    const tracker = fixture.createTracker()
+    const expected = remove === undefined ? 'undefined' : 'function'
+
+    expect(typeof tracker.canDeleteTickets).toBe(expected)
+    expect(typeof tracker.deleteTicket).toBe(expected)
+  })
+
+  if (remove === undefined) return
+  it('按后端权限规则报告能否删除', async () => {
+    const tracker = remove.createTracker()
+
+    await expect(tracker.canDeleteTickets?.(fixture.workspaceRoot)).resolves.toBe(remove.canDelete)
+  })
+
+  it('删除后重新读取详情返回 ticket-not-found', async () => {
+    const tracker = remove.createTracker()
+
+    await tracker.deleteTicket?.(fixture.workspaceRoot, remove.request)
+
+    await expect(
+      tracker.fetchDetail?.(fixture.workspaceRoot, remove.request),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+  })
+}
+
+function describeDetailChange(
+  workspaceRoot: string,
+  request: TicketReference,
+  change: NonNullable<TicketDetailFixture['change']>,
+): void {
+  it('变更后重新读取详情能看到新值', async () => {
+    const tracker = change.createTracker()
+
+    await tracker.updateTicket?.(workspaceRoot, request, change.patch)
+    const observed = await tracker.fetchDetail?.(workspaceRoot, request)
+
+    expect(observed?.state).toBe(change.expected.state)
+    if (change.expected.labels !== undefined) {
+      expect(observed?.labels).toEqual(change.expected.labels)
+    }
+    if (change.expected.assignees !== undefined) {
+      expect(observed?.assignees).toEqual(change.expected.assignees)
+    }
   })
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { BlockerTarget, Ticket, Tracker, TrackerSnapshot } from '../core/ticket.ts'
+import type { TicketReference, Ticket, Tracker, TrackerSnapshot } from '../core/ticket.ts'
 import { TrackerError, type TrackerErrorCode } from '../core/tracker-error.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
@@ -48,11 +48,11 @@ const TICKETS: readonly Ticket[] = [
 interface FakeResolver {
   readonly resolve: BackendResolver
   readonly calls: string[]
-  readonly blockerCalls: (readonly BlockerTarget[])[]
+  readonly blockerCalls: (readonly TicketReference[])[]
 }
 
 /** 假的阻塞补齐实现；抛错用来覆盖补齐失败。 */
-type BlockerResolver = (tickets: readonly BlockerTarget[]) => Promise<ReadonlyMap<string, number>>
+type BlockerResolver = (tickets: readonly TicketReference[]) => Promise<ReadonlyMap<string, number>>
 
 function fakeResolver(
   responses: readonly (TrackerSnapshot | Error)[],
@@ -60,7 +60,7 @@ function fakeResolver(
   resolveBlockers?: BlockerResolver,
 ): FakeResolver {
   const calls: string[] = []
-  const blockerCalls: (readonly BlockerTarget[])[] = []
+  const blockerCalls: (readonly TicketReference[])[] = []
   let index = 0
   const resolve: BackendResolver = (workspaceRoot) => {
     calls.push(workspaceRoot)
@@ -74,7 +74,7 @@ function fakeResolver(
       ...(resolveBlockers === undefined
         ? {}
         : {
-            resolveBlockers: (_root: string, targets: readonly BlockerTarget[]) => {
+            resolveBlockers: (_root: string, targets: readonly TicketReference[]) => {
               blockerCalls.push(targets)
               return resolveBlockers(targets)
             },
@@ -108,7 +108,7 @@ function serviceWith(
 ): {
   readonly service: SnapshotService
   readonly calls: string[]
-  readonly blockerCalls: (readonly BlockerTarget[])[]
+  readonly blockerCalls: (readonly TicketReference[])[]
   readonly logs: readonly { level: string; event: string; fields: Record<string, unknown> }[]
 } {
   const { resolve, calls, blockerCalls } = fakeResolver(responses, kind, resolveBlockers)

@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CommandRunner } from '../../core/ticket.ts'
+import type { CommandRunner, TicketDetail, Tracker } from '../../core/ticket.ts'
 import { CommandError, TrackerError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
-import { GH_ISSUES_OUTPUT, GIT_REMOTES_OUTPUT } from './fixtures.ts'
+import {
+  GH_ASSIGNEES_OUTPUT,
+  GH_ISSUE_DETAIL,
+  GH_ISSUES_OUTPUT,
+  GH_LABELS_OUTPUT,
+  GH_VIEWER_PERMISSION_OUTPUT,
+  GIT_REMOTES_OUTPUT,
+} from './fixtures.ts'
 import { createGithubTracker } from './tracker.ts'
 
 const NOW = 1_700_000_000_000
@@ -181,6 +188,353 @@ const EMPTY_ISSUES_OUTPUT = JSON.stringify({
   data: { repository: { issues: { totalCount: 0, nodes: [] } } },
 })
 
+interface MutableGithubIssue {
+  labels: string[]
+  assignees: string[]
+  state: 'OPEN' | 'CLOSED'
+  /** 删除后详情按编号不存在处理。 */
+  deleted?: boolean
+  /** `gh repo view --json viewerPermission` 的返回值；默认仓库管理员。 */
+  viewerPermission?: string
+}
+
+const REPO = 'cnzgray/dsh-mattpocock-workflow'
+
+function detailOutput(issue: MutableGithubIssue): string {
+  return JSON.stringify({
+    ...GH_ISSUE_DETAIL,
+    state: issue.state,
+    labels: issue.labels.map((name) => ({ name })),
+    assignees: issue.assignees.map((login) => ({ login })),
+  })
+}
+
+/** 一个会真正落地 `gh issue edit` / `close` / `reopen` 的假后端。 */
+function mutableGithubRunner(issue: MutableGithubIssue): {
+  readonly runner: CommandRunner
+  readonly calls: string[][]
+} {
+  const calls: string[][] = []
+  const runner: CommandRunner = (command, args) => {
+    calls.push([command, ...args])
+    if (command === 'git') return Promise.resolve({ stdout: GIT_REMOTES_OUTPUT, stderr: '' })
+
+    if (args[0] === 'repo' && args[1] === 'view') {
+      return Promise.resolve({
+        stdout:
+          issue.viewerPermission === undefined
+            ? GH_VIEWER_PERMISSION_OUTPUT
+            : JSON.stringify({ viewerPermission: issue.viewerPermission }),
+        stderr: '',
+      })
+    }
+    if (args[0] === 'label' && args[1] === 'list') {
+      return Promise.resolve({ stdout: GH_LABELS_OUTPUT, stderr: '' })
+    }
+    if (args[0] === 'api' && (args[1] ?? '').endsWith('/assignees')) {
+      return Promise.resolve({ stdout: GH_ASSIGNEES_OUTPUT, stderr: '' })
+    }
+    if (args[0] !== 'issue') {
+      return Promise.reject(
+        new CommandError('failed', 'unexpected', `unexpected gh ${args.join(' ')}`, 1),
+      )
+    }
+    if (issue.deleted === true) {
+      return Promise.reject(
+        new CommandError(
+          'failed',
+          'gh 退出码 1',
+          'Could not resolve to an Issue or PullRequest with the number of 15.',
+          1,
+        ),
+      )
+    }
+
+    switch (args[1] ?? '') {
+      case 'view':
+        return Promise.resolve({ stdout: detailOutput(issue), stderr: '' })
+      case 'edit':
+        applyGithubEdit(issue, args)
+        return Promise.resolve({ stdout: '', stderr: '' })
+      case 'close':
+        issue.state = 'CLOSED'
+        return Promise.resolve({ stdout: '', stderr: '' })
+      case 'reopen':
+        issue.state = 'OPEN'
+        return Promise.resolve({ stdout: '', stderr: '' })
+      case 'delete':
+        issue.deleted = true
+        return Promise.resolve({ stdout: '', stderr: '' })
+      default:
+        return Promise.reject(
+          new CommandError('failed', 'unexpected', `unexpected gh ${args.join(' ')}`, 1),
+        )
+    }
+  }
+  return { runner, calls }
+}
+
+function applyGithubEdit(issue: MutableGithubIssue, args: readonly string[]): void {
+  for (let index = 3; index + 1 < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1] ?? ''
+    if (flag === '--add-label' && !issue.labels.includes(value)) issue.labels.push(value)
+    if (flag === '--remove-label') issue.labels = issue.labels.filter((label) => label !== value)
+    if (flag === '--add-assignee' && !issue.assignees.includes(value)) {
+      issue.assignees.push(value)
+    }
+    if (flag === '--remove-assignee') {
+      issue.assignees = issue.assignees.filter((login) => login !== value)
+    }
+  }
+}
+
+function mutableTracker(issue: MutableGithubIssue): { tracker: Tracker; calls: string[][] } {
+  const recorded = mutableGithubRunner(issue)
+  return {
+    tracker: createGithubTracker({ run: recorded.runner, now: () => NOW }),
+    calls: recorded.calls,
+  }
+}
+
+describe('GitHub 工单详情与变更', () => {
+  it('用一条 gh issue view 读取详情与评论', async () => {
+    const { tracker, calls } = mutableTracker({
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      state: 'OPEN',
+    })
+
+    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
+
+    expect(detail).toMatchObject({
+      ref: '#15',
+      number: 15,
+      title: '右侧栏任务面板 MVP',
+      state: 'open',
+      author: 'dave',
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      url: `https://github.com/${REPO}/issues/15`,
+    })
+    expect(detail?.comments.map((comment) => [comment.author, comment.body])).toEqual([
+      ['bob', '补充验收标准'],
+      ['carol', '上一次失败的原因'],
+    ])
+    expect(calls[1]?.slice(0, 4)).toEqual(['gh', 'issue', 'view', '15'])
+    expect(calls[1]).toContain('--repo')
+    expect(calls[1]).toContain(REPO)
+  })
+
+  it('标签按增删差异落地，目标集合相同时不发编辑命令', async () => {
+    const same = mutableTracker({
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      state: 'OPEN',
+    })
+
+    await same.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        labels: ['enhancement', 'ready-for-agent'],
+      },
+    )
+
+    expect(same.calls).toHaveLength(2)
+
+    const changed = mutableTracker({
+      labels: ['enhancement', 'ready-for-agent'],
+      assignees: ['alice'],
+      state: 'OPEN',
+    })
+    await changed.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        labels: ['bug'],
+      },
+    )
+
+    expect(changed.calls[2]).toEqual([
+      'gh',
+      'issue',
+      'edit',
+      '15',
+      '--add-label',
+      'bug',
+      '--remove-label',
+      'enhancement',
+      '--remove-label',
+      'ready-for-agent',
+      '--repo',
+      REPO,
+    ])
+  })
+
+  it('分配人用增量增删，分配给我用 @me', async () => {
+    const { tracker, calls } = mutableTracker({
+      labels: [],
+      assignees: ['alice'],
+      state: 'OPEN',
+    })
+
+    await tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        assignees: ['bob'],
+        assignSelf: true,
+      },
+    )
+
+    expect(calls[2]).toEqual([
+      'gh',
+      'issue',
+      'edit',
+      '15',
+      '--add-assignee',
+      'bob',
+      '--add-assignee',
+      '@me',
+      '--remove-assignee',
+      'alice',
+      '--repo',
+      REPO,
+    ])
+  })
+
+  it('关闭与重开各发一条独立命令，状态没变时不发命令', async () => {
+    const closed = mutableTracker({ labels: [], assignees: [], state: 'OPEN' })
+    await closed.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        state: 'closed',
+      },
+    )
+    expect(closed.calls[2]).toEqual(['gh', 'issue', 'close', '15', '--repo', REPO])
+
+    const reopened = mutableTracker({ labels: [], assignees: [], state: 'CLOSED' })
+    await reopened.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        state: 'open',
+      },
+    )
+    expect(reopened.calls[2]).toEqual(['gh', 'issue', 'reopen', '15', '--repo', REPO])
+
+    const unchanged = mutableTracker({ labels: [], assignees: [], state: 'OPEN' })
+    await unchanged.tracker.updateTicket?.(
+      '/workspace',
+      { ref: '#15', number: 15 },
+      {
+        state: 'open',
+      },
+    )
+    expect(unchanged.calls).toHaveLength(2)
+  })
+
+  it('编号不存在时返回 ticket-not-found', async () => {
+    const { runner } = recordedRunner({
+      gh: () => {
+        throw new CommandError(
+          'failed',
+          'gh 退出码 1',
+          'Could not resolve to an Issue or PullRequest with the number of 99.',
+          1,
+        )
+      },
+    })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    await expect(
+      tracker.fetchDetail?.('/workspace', { ref: '#99', number: 99 }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+  })
+
+  it('用 label list 与 assignees 接口读取补全候选', async () => {
+    const { tracker, calls } = mutableTracker({
+      labels: [],
+      assignees: [],
+      state: 'OPEN',
+    })
+
+    const options = await tracker.fetchOptions?.('/workspace')
+
+    expect(options).toEqual({
+      labels: [
+        { name: 'bug', color: '#d73a4a', description: "Something isn't working" },
+        { name: 'enhancement', color: '#a2eeef', description: null },
+        { name: 'needs-triage', color: null, description: '需要分诊' },
+      ],
+      assignees: [
+        { username: 'alice', name: null },
+        { username: 'bob', name: null },
+        { username: 'carol', name: null },
+      ],
+    })
+    const labelCall = calls.find((call) => call[1] === 'label')
+    expect(labelCall).toContain('--limit')
+    expect(labelCall).toContain('1000')
+    expect(calls.some((call) => call.includes('--paginate') && call.includes('--slurp'))).toBe(true)
+  })
+
+  it('只有 ADMIN 权限才能删除工单', async () => {
+    const admin = mutableTracker({ labels: [], assignees: [], state: 'OPEN' })
+    await expect(admin.tracker.canDeleteTickets?.('/workspace')).resolves.toBe(true)
+
+    const maintainer = mutableTracker({
+      labels: [],
+      assignees: [],
+      state: 'OPEN',
+      viewerPermission: 'MAINTAIN',
+    })
+    await expect(maintainer.tracker.canDeleteTickets?.('/workspace')).resolves.toBe(false)
+  })
+
+  it('删除时编号不存在返回 ticket-not-found，没有权限时说明原因', async () => {
+    const missing = deleteFailureTracker('HTTP 404: Not Found')
+    await expect(
+      missing.deleteTicket?.('/workspace', { ref: '#99', number: 99 }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+
+    const forbidden = deleteFailureTracker('HTTP 403: Must have admin rights to Repository.')
+    const deletion = forbidden.deleteTicket?.('/workspace', { ref: '#15', number: 15 })
+    await expect(deletion).rejects.toMatchObject({ code: 'fetch-failed' })
+    await expect(deletion).rejects.toThrow(/权限/)
+  })
+})
+
+/** 删除命令固定失败，用于验证 404 / 403 的映射。 */
+function deleteFailureTracker(stderr: string): Tracker {
+  const runner: CommandRunner = (command) => {
+    if (command === 'git') return Promise.resolve({ stdout: GIT_REMOTES_OUTPUT, stderr: '' })
+    return Promise.reject(new CommandError('failed', 'gh 退出码 1', stderr, 1))
+  }
+  return createGithubTracker({ run: runner, now: () => NOW })
+}
+
+const GH_DETAIL_REQUEST = { ref: '#15', number: 15 }
+const GH_DETAIL_EXPECTED: TicketDetail = {
+  ref: '#15',
+  number: 15,
+  title: '右侧栏任务面板 MVP',
+  state: 'open',
+  author: 'dave',
+  body: '## 目标\n\n在面板里看工单。',
+  labels: ['enhancement', 'ready-for-agent'],
+  assignees: ['alice'],
+  comments: [
+    { author: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' },
+    { author: 'carol', body: '上一次失败的原因', createdAt: '2026-11-13T10:00:00Z' },
+  ],
+  url: `https://github.com/${REPO}/issues/15`,
+  createdAt: '2026-11-12T14:11:22Z',
+  updatedAt: '2026-11-13T10:00:00Z',
+}
+
 describeTrackerContract('GitHub', {
   createTracker: () => createGithubTracker({ run: recordedRunner({}).runner, now: () => NOW }),
   workspaceRoot: '/workspace',
@@ -200,4 +554,44 @@ describeTrackerContract('GitHub', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0, 0, 2] },
+  detail: {
+    createTracker: () =>
+      mutableTracker({
+        labels: ['enhancement', 'ready-for-agent'],
+        assignees: ['alice'],
+        state: 'OPEN',
+      }).tracker,
+    request: GH_DETAIL_REQUEST,
+    expected: GH_DETAIL_EXPECTED,
+    change: {
+      createTracker: () =>
+        mutableTracker({
+          labels: ['enhancement', 'ready-for-agent'],
+          assignees: ['alice'],
+          state: 'OPEN',
+        }).tracker,
+      patch: { labels: ['bug'], state: 'closed' },
+      expected: { labels: ['bug'], state: 'closed' },
+    },
+  },
+  options: {
+    createTracker: () => mutableTracker({ labels: [], assignees: [], state: 'OPEN' }).tracker,
+    expected: {
+      labels: [
+        { name: 'bug', color: '#d73a4a', description: "Something isn't working" },
+        { name: 'enhancement', color: '#a2eeef', description: null },
+        { name: 'needs-triage', color: null, description: '需要分诊' },
+      ],
+      assignees: [
+        { username: 'alice', name: null },
+        { username: 'bob', name: null },
+        { username: 'carol', name: null },
+      ],
+    },
+  },
+  delete: {
+    createTracker: () => mutableTracker({ labels: [], assignees: [], state: 'OPEN' }).tracker,
+    request: GH_DETAIL_REQUEST,
+    canDelete: true,
+  },
 })

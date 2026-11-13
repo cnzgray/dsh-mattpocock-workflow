@@ -36,12 +36,76 @@ export interface TrackerSnapshot {
 }
 
 /**
- * 需要补齐原生阻塞信息的票。`ref` 与 {@link Ticket.ref} 相同，用于把补齐结果
- * 对回快照；`number` 为 null 的票（本地 Markdown）没有原生链接。
+ * 工单引用：`ref` 与 {@link Ticket.ref} 相同，`number` 为 null 表示本地 Markdown。
+ * 阻塞补齐、详情读取与变更提交都用它把结果对回同一张票。
  */
-export type BlockerTarget = Pick<Ticket, 'ref' | 'number'>
+export type TicketReference = Pick<Ticket, 'ref' | 'number'>
 
-/** 工单后端。GitHub / GitLab / 本地 Markdown 都实现同一契约。 */
+/** 一条工单评论。本地 Markdown 的评论没有作者与时间，两项为 null。 */
+export interface TicketComment {
+  readonly author: string | null
+  readonly body: string
+  readonly createdAt: string | null
+}
+
+/** 一张工单的完整详情。写能力不在这里：宿主按后端是否实现变更能力附加。 */
+export interface TicketDetail {
+  /** 与列表里的 {@link Ticket.ref} 相同，界面用它把详情对回选中的票。 */
+  readonly ref: string
+  readonly number: number | null
+  readonly title: string
+  readonly state: TicketState
+  /** 创建者的远端用户名；本地 Markdown 没有作者，为 null。 */
+  readonly author: string | null
+  /** 正文原文，保留原始 Markdown，不做二次渲染。 */
+  readonly body: string
+  readonly labels: readonly string[]
+  /** 分配人的远端用户名：GitHub login / GitLab、Gitea username。 */
+  readonly assignees: readonly string[]
+  readonly comments: readonly TicketComment[]
+  /** 后端返回的原生链接；本地 Markdown 没有链接地址，为 null。 */
+  readonly url: string | null
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/**
+ * 变更补丁：表达属性的期望最终状态，不表达「加一个 / 删一个」的指令。
+ *
+ * 各后端的 CLI 语义不一致（增量、整体替换、带前缀的增删），补丁只给目标集合，
+ * 语义差异全部收敛在适配器一层。字段省略表示不改这一项。
+ */
+export interface TicketPatch {
+  /** 期望的标签集合。 */
+  readonly labels?: readonly string[] | undefined
+  /** 期望的分配人集合（远端用户名）。 */
+  readonly assignees?: readonly string[] | undefined
+  /** 把当前登录用户并入分配人集合；用户名由适配器按后端解析。 */
+  readonly assignSelf?: boolean | undefined
+  /** 期望的开闭状态。 */
+  readonly state?: TicketState | undefined
+}
+
+/** 仓库里的一个标签；颜色统一为 `#rrggbb`，没有颜色时为 null。 */
+export interface LabelOption {
+  readonly name: string
+  readonly color: string | null
+  readonly description: string | null
+}
+
+/** 仓库里一个可分配的用户。 */
+export interface AssigneeOption {
+  readonly username: string
+  readonly name: string | null
+}
+
+/** 添加标签、分配人时的补全候选。 */
+export interface TicketOptions {
+  readonly labels: readonly LabelOption[]
+  readonly assignees: readonly AssigneeOption[]
+}
+
+/** 工单后端。GitHub / GitLab / Gitea / 本地 Markdown 都实现同一契约。 */
 export interface Tracker {
   /** 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。 */
   fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot>
@@ -55,8 +119,40 @@ export interface Tracker {
    */
   resolveBlockers?: (
     workspaceRoot: string,
-    tickets: readonly BlockerTarget[],
+    tickets: readonly TicketReference[],
   ) => Promise<ReadonlyMap<string, number>>
+  /**
+   * 可选能力：读取单张工单的详情（正文、评论、标签、分配人、链接与时间）。
+   * 不实现该能力的后端没有「工单详情」；业务失败抛 {@link TrackerError}。
+   */
+  fetchDetail?: (workspaceRoot: string, reference: TicketReference) => Promise<TicketDetail>
+  /**
+   * 可选能力：应用一次变更补丁（标签、分配人、开闭状态）。
+   *
+   * 补丁表达目标集合；适配器按各自 CLI 的语义落地，成功后不返回新值——
+   * 界面会重新读取详情，确认后端真的接受了这次变更。不实现该能力的后端
+   * 没有任何写操作；业务失败抛 {@link TrackerError}。
+   */
+  updateTicket?: (
+    workspaceRoot: string,
+    reference: TicketReference,
+    patch: TicketPatch,
+  ) => Promise<void>
+  /**
+   * 可选能力：读取仓库的标签（含颜色）与可分配用户，供补全使用。
+   * 不实现该能力的后端没有补全；业务失败抛 {@link TrackerError}。
+   */
+  fetchOptions?: (workspaceRoot: string) => Promise<TicketOptions>
+  /**
+   * 可选能力：当前登录用户能否删除这个仓库的工单。与 {@link Tracker.deleteTicket} 成对实现；
+   * 宿主在读取详情时并行调用，失败按没有权限处理。
+   */
+  canDeleteTickets?: (workspaceRoot: string) => Promise<boolean>
+  /**
+   * 可选能力：永久删除一张工单。不可撤销；宿主只在请求带确认词时调用。
+   * 业务失败（含没有权限）抛 {@link TrackerError}。
+   */
+  deleteTicket?: (workspaceRoot: string, reference: TicketReference) => Promise<void>
 }
 
 /** 一次命令的标准输出与标准错误。 */

@@ -33,6 +33,11 @@ function fakeClient(envCheck: (root: string) => Promise<RpcResult<EnvCheckReport
     get: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
     resolveBlockers: () => Promise.reject(new Error('未使用')),
+    getDetail: () => Promise.reject(new Error('未使用')),
+    updateTicket: () => Promise.reject(new Error('未使用')),
+    getOptions: () =>
+      Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
+    deleteTicket: () => Promise.reject(new Error('未使用')),
     envCheck(root) {
       calls.push(root)
       return envCheck(root)

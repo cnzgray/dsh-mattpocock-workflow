@@ -40,9 +40,12 @@ export default defineConfig(
     rules: { 'no-console': 'off' },
   },
   {
-    // 测试里一个 describe 往往很长，不限制函数长度。
+    // 测试里一个 describe 往往很长，不限制函数长度；文件上限也放宽，覆盖用例比拆分更有价值。
     files: ['**/*.test.ts', '**/*.test.tsx'],
-    rules: { 'max-lines-per-function': 'off' },
+    rules: {
+      'max-lines-per-function': 'off',
+      'max-lines': ['error', { max: 700, skipBlankLines: true, skipComments: true }],
+    },
   },
   prettier,
 )

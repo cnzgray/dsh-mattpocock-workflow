@@ -23,6 +23,7 @@ export function includeHeaders(options: {
 
 const STATUS_TEXT: Readonly<Record<number, string>> = {
   200: 'OK',
+  204: 'No Content',
   401: 'Unauthorized',
   403: 'Forbidden',
   404: 'Not Found',
@@ -153,3 +154,85 @@ export const GITEA_LOGINS_OUTPUT = JSON.stringify([
     default: false,
   },
 ])
+
+/** 构造 `/repos/:owner/:repo/issues/:index` 的详情对象。 */
+export function giteaIssueDetail(overrides: {
+  readonly number: number
+  readonly title: string
+  readonly state?: 'open' | 'closed'
+  readonly labels?: readonly string[]
+  readonly assignees?: readonly string[]
+  readonly author?: string
+  readonly body?: string
+  readonly htmlUrl?: string
+  readonly createdAt?: string
+  readonly updatedAt?: string
+}): Record<string, unknown> {
+  return {
+    number: overrides.number,
+    title: overrides.title,
+    state: overrides.state ?? 'open',
+    labels: (overrides.labels ?? []).map((name, index) => ({ id: index + 1, name })),
+    assignees: (overrides.assignees ?? []).map((login, index) => ({ id: index + 1, login })),
+    user: { id: 1, login: overrides.author ?? 'dave' },
+    body: overrides.body ?? '',
+    html_url:
+      overrides.htmlUrl ??
+      `https://gitea.example.com/cnzgray/dsh-workflow/issues/${String(overrides.number)}`,
+    created_at: overrides.createdAt ?? '2026-11-12T14:11:22Z',
+    updated_at: overrides.updatedAt ?? '2026-11-13T10:00:00Z',
+  }
+}
+
+/** 构造一条 Gitea 评论。 */
+export function giteaComment(overrides: {
+  readonly login: string
+  readonly body: string
+  readonly createdAt: string
+}): Record<string, unknown> {
+  return {
+    id: 1,
+    user: { login: overrides.login },
+    body: overrides.body,
+    created_at: overrides.createdAt,
+  }
+}
+
+export const GITEA_COMMENTS = [
+  giteaComment({ login: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }),
+  giteaComment({ login: 'carol', body: '上一次失败的原因', createdAt: '2026-11-13T10:00:00Z' }),
+]
+
+/** 标签分两页返回，总条数由 `X-Total-Count` 给出。 */
+export const GITEA_LABEL_PAGES = new Map<number, RecordedApiCall>([
+  [
+    1,
+    apiCall(
+      [
+        { id: 1, name: 'bug', color: 'd73a4a', description: "Something isn't working" },
+        { id: 2, name: 'enhancement', color: 'A2EEEF', description: '' },
+      ],
+      4,
+    ),
+  ],
+  [
+    2,
+    apiCall(
+      [
+        { id: 3, name: 'needs-triage', color: '', description: '需要分诊' },
+        { id: 4, name: 'bug', color: '000000', description: '重复标签' },
+      ],
+      4,
+    ),
+  ],
+])
+
+/** `/repos/:owner/:repo/assignees` 的录制输出：full_name 为空串时显示名为 null。 */
+export const GITEA_ASSIGNEES_OUTPUT = apiCall([
+  { id: 1, login: 'alice', full_name: 'Alice' },
+  { id: 2, login: 'bob', full_name: '' },
+  { id: 3, login: 'alice', full_name: 'Alice Again' },
+])
+
+/** `/repos/:owner/:repo` 的录制输出：当前用户是仓库管理员。 */
+export const GITEA_REPO_PERMISSION_OUTPUT = apiCall({ permissions: { admin: true } })

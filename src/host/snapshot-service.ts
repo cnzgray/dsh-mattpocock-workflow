@@ -11,7 +11,7 @@
 import { mergeNativeBlockers } from '../core/blockers.ts'
 import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
 import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
-import type { BlockerTarget, TicketLabelNames, TrackerSnapshot } from '../core/ticket.ts'
+import type { TicketLabelNames, TicketReference, TrackerSnapshot } from '../core/ticket.ts'
 import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
@@ -24,6 +24,7 @@ import {
 } from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
 import type { LogSink } from './log.ts'
+import { readWorkspaceRoot } from './rpc-params.ts'
 
 /** 快照服务依赖。 */
 export interface SnapshotServiceDeps {
@@ -63,7 +64,7 @@ interface CachedWorkspace {
 
 type BlockerResolver = (
   workspaceRoot: string,
-  tickets: readonly BlockerTarget[],
+  tickets: readonly TicketReference[],
 ) => Promise<ReadonlyMap<string, number>>
 
 /**
@@ -228,7 +229,7 @@ async function finalize(
   resolver: BlockerResolver,
 ): Promise<RpcResult<WorkspaceSnapshot>> {
   const startedAt = deps.now()
-  const targets: BlockerTarget[] = entry.snapshot.tickets
+  const targets: TicketReference[] = entry.snapshot.tickets
     .filter((ticket) => ticket.state === 'open')
     .map((ticket) => ({ ref: ticket.ref, number: ticket.number }))
 
@@ -297,13 +298,6 @@ function buildSnapshot(
       openBlockers: ticket.openBlockers,
     })),
   }
-}
-
-function readWorkspaceRoot(params: unknown): string | undefined {
-  if (typeof params !== 'object' || params === null) return undefined
-  if (!('workspaceRoot' in params)) return undefined
-  const root = params.workspaceRoot
-  return typeof root === 'string' && root.length > 0 ? root : undefined
 }
 
 function mapError(error: unknown): { readonly code: ErrorCode; readonly message: string } {

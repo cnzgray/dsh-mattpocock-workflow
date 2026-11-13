@@ -40,19 +40,22 @@ function memoryFiles(tree: TreeSpec): WorkspaceFiles {
         return Promise.reject(new Error('permission denied'))
       }
       const file = tree.files[path]
-      return file === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(file.content)
+      return file === undefined ? Promise.reject(missingFile(path)) : Promise.resolve(file.content)
     },
     statFile(path) {
       const file = tree.files[path]
-      if (file === undefined) return Promise.reject(new Error(`ENOENT: ${path}`))
+      if (file === undefined) return Promise.reject(missingFile(path))
       return Promise.resolve({
         createdAt: file.createdAt ?? CREATED,
         updatedAt: file.updatedAt ?? UPDATED,
       })
     },
   }
+}
+
+/** 与 node:fs 一致：文件不存在时错误带 ENOENT 码。 */
+function missingFile(path: string): Error {
+  return Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' })
 }
 
 const TREE: TreeSpec = {
@@ -73,7 +76,8 @@ const TREE: TreeSpec = {
       content: '# 会话 bug\n\nStatus: ready-for-agent\nBlocked by: 01, 03\n',
     },
     '/ws/.scratch/login/issues/03-session.md': {
-      content: '# 会话过期处理\n\nStatus: ready-for-agent\n',
+      content:
+        '# 会话过期处理\n\nStatus: ready-for-agent\n\n正文第一段。\n\n## Comments\n\n维护者补充：先修列表。\n\n第二条评论。\n',
     },
     '/ws/.scratch/billing/issues/05-refund.md': {
       content: '# 退款流程\n\nStatus: claimed\n',
@@ -151,6 +155,89 @@ describe('本地 Markdown 工单后端', () => {
   })
 })
 
+describe('本地 Markdown 工单详情', () => {
+  const REF = '.scratch/login/issues/03-session.md'
+
+  it('读取正文与 Comments 段，链接与分配人为空', async () => {
+    const tracker = trackerFor()
+
+    const detail = await tracker.fetchDetail?.('/ws', { ref: REF, number: null })
+
+    expect(detail).toEqual({
+      ref: REF,
+      number: null,
+      title: '会话过期处理',
+      state: 'open',
+      author: null,
+      body: 'Status: ready-for-agent\n\n正文第一段。',
+      labels: ['ready-for-agent'],
+      assignees: [],
+      comments: [
+        { author: null, body: '维护者补充：先修列表。', createdAt: null },
+        { author: null, body: '第二条评论。', createdAt: null },
+      ],
+      url: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    })
+  })
+
+  it('没有 Comments 段时评论为空', async () => {
+    const tracker = trackerFor({
+      directories: TREE.directories,
+      files: {
+        ...TREE.files,
+        '/ws/.scratch/login/issues/03-session.md': {
+          content: '# 会话过期处理\n\nStatus: ready-for-agent\n',
+        },
+      },
+    })
+
+    const detail = await tracker.fetchDetail?.('/ws', { ref: REF, number: null })
+
+    expect(detail?.comments).toEqual([])
+    expect(detail?.body).toBe('Status: ready-for-agent')
+  })
+
+  it('引用越界时拒绝读取，返回 ticket-not-found', async () => {
+    const tracker = trackerFor()
+
+    await expect(
+      tracker.fetchDetail?.('/ws', { ref: '../../etc/passwd.md', number: null }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+    await expect(
+      tracker.fetchDetail?.('/ws', { ref: '.scratch/login/issues/../../secret.md', number: null }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+    await expect(
+      tracker.fetchDetail?.('/ws', { ref: '.scratch/../issues/secret.md', number: null }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+  })
+
+  it('文件不存在时返回 ticket-not-found', async () => {
+    const tracker = trackerFor()
+
+    await expect(
+      tracker.fetchDetail?.('/ws', {
+        ref: '.scratch/login/issues/09-missing.md',
+        number: null,
+      }),
+    ).rejects.toMatchObject({ code: 'ticket-not-found' })
+  })
+
+  it('权限或 IO 失败时返回 markdown-read-failed，不冒充票不存在', async () => {
+    const tracker = trackerFor({
+      ...TREE,
+      failRead: ['/ws/.scratch/login/issues/03-session.md'],
+    })
+
+    await expect(tracker.fetchDetail?.('/ws', { ref: REF, number: null })).rejects.toMatchObject({
+      code: 'markdown-read-failed',
+    })
+  })
+})
+
+const MARKDOWN_DETAIL_REF = '.scratch/login/issues/03-session.md'
+
 describeTrackerContract('本地 Markdown', {
   createTracker: () => trackerFor(),
   workspaceRoot: '/ws',
@@ -171,4 +258,25 @@ describeTrackerContract('本地 Markdown', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'none', expected: [0, 0, 1, 0] },
+  detail: {
+    createTracker: () => trackerFor(),
+    request: { ref: MARKDOWN_DETAIL_REF, number: null },
+    expected: {
+      ref: MARKDOWN_DETAIL_REF,
+      number: null,
+      title: '会话过期处理',
+      state: 'open',
+      author: null,
+      body: 'Status: ready-for-agent\n\n正文第一段。',
+      labels: ['ready-for-agent'],
+      assignees: [],
+      comments: [
+        { author: null, body: '维护者补充：先修列表。', createdAt: null },
+        { author: null, body: '第二条评论。', createdAt: null },
+      ],
+      url: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    },
+  },
 })
