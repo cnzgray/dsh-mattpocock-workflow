@@ -41,9 +41,13 @@ export const METRIC_GAP_TEXT: Readonly<Record<MetricGap, string>> = {
   'no-dependency-edges': '后端不提供阻塞依赖边，最长阻塞链不可用。',
 }
 
+/** 构成条每段的稳定键；颜色与计数都按它对齐。 */
+export type DistributionKey =
+  'ready' | 'blocked' | 'open' | 'closed' | 'bug' | 'enhancement' | 'untriaged'
+
 /** 构成条的一段。 */
 export interface DistributionSegment {
-  readonly key: string
+  readonly key: DistributionKey
   readonly label: string
   readonly count: number
 }

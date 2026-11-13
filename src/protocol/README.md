@@ -27,6 +27,9 @@ RPC 方法：
   能给才给；GitHub 列表查询没有依赖边）；
 - 快照级：仓库标识、后端、实例主机、拉取时间、已加载数与总数、阻塞是否定稿；
 - 指标级：`metrics`，含三个压力维度（`PressureDimension` / `PressureTier`）、关键数字、样本覆盖度
-  （`coverage`）与关注清单（`attention`）。`MetricValue` 用 `value: null` + `gap` 表示后端给不出的指标。
+  （`coverage`）与关注清单（`attention`）。`MetricValue` 用 `value: null` + `gap` 表示后端给不出的指标；
+  维度数据不足时 `PressureDimensionReport.tier` 为 `null`，总档位只合并可判档的维度。
 
 指标由宿主在列表返回时算一次、阻塞补齐完成后重算，界面只渲染，不重复判定。阈值与判定规则在 core。
+
+`snapshot-test-support.ts` 只是测试夹具（全零指标载荷），生产代码不导入；它和消息类型放在一起，是为了让 host 与 client 的测试共用同一份默认值。

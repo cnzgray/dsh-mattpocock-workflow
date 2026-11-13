@@ -87,7 +87,7 @@ describe('快照指标', () => {
       openedLast30Days: { value: 2, gap: null },
       closedLast30Days: { value: 1, gap: null },
       netFlow: { value: 1, gap: null },
-      coverage: { loaded: 4, total: 10, truncated: true },
+      coverage: { truncated: true },
     })
   })
 
@@ -140,7 +140,7 @@ describe('快照指标', () => {
     expect(result.metrics.netFlow).toEqual({ value: null, gap: 'no-timestamps' })
     expect(result.metrics.pressure.dimensions.find((d) => d.dimension === 'freshness')).toEqual({
       dimension: 'freshness',
-      tier: 'light',
+      tier: null,
       signals: [{ metric: 'stalled', value: 0 }],
       triggers: [],
       gaps: ['no-timestamps'],

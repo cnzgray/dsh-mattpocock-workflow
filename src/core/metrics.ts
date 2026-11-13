@@ -48,7 +48,6 @@ export const PRESSURE_THRESHOLDS = {
 
 const DAY_MS = 86_400_000
 const MAX_ATTENTION = 5
-const MAX_STALE_ATTENTION = 2
 
 /** 计算指标所需的输入。 */
 export interface MetricsInput {
@@ -113,8 +112,7 @@ export function computeMetrics(input: MetricsInput): SnapshotMetrics {
     : unavailable('no-dependency-edges')
 
   const coverage = {
-    loaded: tickets.length,
-    total: Math.max(input.total, tickets.length),
+    // 已加载数与总数直接用快照字段，指标里只记样本是否被后端上限截断。
     truncated: input.total > tickets.length,
   }
 
@@ -142,7 +140,7 @@ export function computeMetrics(input: MetricsInput): SnapshotMetrics {
     netFlow,
     coverage,
     pressure,
-    attention: attentionOf(input, windowMs),
+    attention: attentionOf(input, open, windowMs),
   }
 }
 
@@ -161,8 +159,9 @@ function pressureOf(input: PressureInput): PressureReport {
   const blocking = blockingDimension(input.blockedRatio, input.blockersFinalized)
   const freshness = freshnessDimension(input.staleRatio, input.stalled)
   const dimensions = [scale, blocking, freshness]
+  const tiers = dimensions.flatMap((dimension) => (dimension.tier === null ? [] : [dimension.tier]))
 
-  return { tier: worstTier(dimensions.map((dimension) => dimension.tier)), dimensions }
+  return { tier: worstTier(tiers), dimensions }
 }
 
 /** 一个维度里参与判档的指标。 */
@@ -210,26 +209,40 @@ function blockingDimension(
 }
 
 function freshnessDimension(staleRatio: MetricValue, stalled: number): PressureDimensionReport {
-  const metrics: DimensionMetric[] = [
-    { metric: 'stalled', value: stalled, tier: tierByStalled(stalled) },
-  ]
-  const gaps: MetricGap[] = []
-
-  if (staleRatio.value === null) {
-    gaps.push('no-timestamps')
-  } else {
-    metrics.push({
-      metric: 'staleRatio',
-      value: staleRatio.value,
-      tier: tierByRatio(
-        staleRatio.value,
-        PRESSURE_THRESHOLDS.staleRatioLightUnder,
-        PRESSURE_THRESHOLDS.staleRatioTightOver,
-      ),
-    })
+  const stale = staleRatio.value
+  // 没有工单时间时，规格要求时效维度整体不可用；停滞票仍作为支撑数字展示，
+  // 但不参与判档，避免把“刚开的新票”误算成时效压力。
+  if (stale === null) {
+    return {
+      dimension: 'freshness',
+      tier: null,
+      signals: [{ metric: 'stalled', value: stalled }],
+      triggers: [],
+      gaps: [staleRatio.gap ?? 'no-timestamps'],
+      provisional: false,
+    }
   }
 
-  return dimensionReport('freshness', metrics, gaps)
+  return dimensionReport(
+    'freshness',
+    [
+      {
+        metric: 'stalled',
+        value: stalled,
+        tier: tierByStalled(stalled),
+      },
+      {
+        metric: 'staleRatio',
+        value: stale,
+        tier: tierByRatio(
+          stale,
+          PRESSURE_THRESHOLDS.staleRatioLightUnder,
+          PRESSURE_THRESHOLDS.staleRatioTightOver,
+        ),
+      },
+    ],
+    [],
+  )
 }
 
 function dimensionReport(
@@ -402,9 +415,12 @@ function longestChain(open: readonly ClassifiedTicket[]): number {
   return longest
 }
 
-function attentionOf(input: MetricsInput, windowMs: number): readonly AttentionItem[] {
-  const { tickets, now } = input
-  const open = tickets.filter((ticket) => ticket.state === 'open')
+function attentionOf(
+  input: MetricsInput,
+  open: readonly ClassifiedTicket[],
+  windowMs: number,
+): readonly AttentionItem[] {
+  const { now } = input
   const items: AttentionItem[] = []
   const seen = new Set<string>()
 
@@ -418,44 +434,34 @@ function attentionOf(input: MetricsInput, windowMs: number): readonly AttentionI
     items.push({ ref: ticket.ref, title: ticket.title, reason, evidence })
   }
 
-  // 1. 开放、缺陷分类、但还没被定性为可接：最该先做 triage 决定。
-  const untriagedBug = open
+  // 固定优先级依次补位到 5 张；每一类内部按严重程度排序。
+  const untriagedBugs = open
     .filter(
       (ticket) => ticket.category === 'bug' && !ticket.labels.includes(input.labels.readyForAgent),
     )
-    .sort(compareCreatedAsc)[0]
-  if (untriagedBug !== undefined) push(untriagedBug, 'untriaged-bug', null)
+    .sort(compareCreatedAsc)
+  for (const ticket of untriagedBugs) push(ticket, 'untriaged-bug', null)
 
-  // 2. 开放且超过 30 天没更新：最陈旧，最多列两张。
   if (input.timestamps) {
     const stale = open
       .filter((ticket) => olderThan(ticket.updatedAt, now, windowMs))
       .sort(byUpdatedAsc)
-      .slice(0, MAX_STALE_ATTENTION)
     for (const ticket of stale) {
       push(ticket, 'stale', daysBetween(now, timestampOf(ticket.updatedAt) ?? now))
     }
   }
 
-  // 3. 未关闭阻塞数最多：挡得最多的一张。
-  const mostBlocking = open
+  const blocking = open
     .filter((ticket) => ticket.openBlockers > 0)
     .sort((left, right) => right.openBlockers - left.openBlockers || compareCreatedAsc(left, right))
-    .at(0)
-  if (mostBlocking !== undefined) push(mostBlocking, 'most-blocking', mostBlocking.openBlockers)
+  for (const ticket of blocking) {
+    push(ticket, 'most-blocking', ticket.openBlockers)
+  }
 
-  // 4. 停滞票里创建最早的：躺着最久又没人管。没有时间数据时无法比较先后。
   if (input.timestamps) {
-    const oldestStalled = open
-      .filter((ticket) => ticket.status === 'open')
-      .sort(compareCreatedAsc)
-      .at(0)
-    if (oldestStalled !== undefined) {
-      push(
-        oldestStalled,
-        'oldest-stalled',
-        daysBetween(now, timestampOf(oldestStalled.createdAt) ?? now),
-      )
+    const stalled = open.filter((ticket) => ticket.status === 'open').sort(compareCreatedAsc)
+    for (const ticket of stalled) {
+      push(ticket, 'oldest-stalled', daysBetween(now, timestampOf(ticket.createdAt) ?? now))
     }
   }
 

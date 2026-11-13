@@ -1,11 +1,13 @@
 /**
  * 概览视图：一屏之内回答项目概况与压力。只渲染宿主附在快照上的指标，
- * 不自己算判定，也不发起写操作；关注清单点击复用列表的定位行为。
+ * 不自己算判定，也不发起写操作；关注清单点击只切到列表并定位，不写提示词。
  */
 import * as React from 'react'
 
 import type {
   ErrorCode,
+  MetricGap,
+  MetricValue,
   PressureDimensionReport,
   SnapshotMetrics,
   WorkspaceSnapshot,
@@ -44,6 +46,7 @@ import {
   SECTION_TITLE_STYLE,
   SEGMENT_COLORS,
   TIER_BADGE_STYLES,
+  UNAVAILABLE_BADGE_STYLE,
 } from './overview-styles.ts'
 import {
   attentionText,
@@ -65,7 +68,6 @@ import { useSnapshotRequest } from './snapshot-request.ts'
 import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
-  COLORS,
   EMPTY_STYLE,
   REFRESH_BUTTON_STYLE,
   REPO_CHIP_STYLE,
@@ -112,8 +114,8 @@ export function OverviewView(props: OverviewViewProps): React.ReactElement {
         ) : null
       ) : (
         <div style={OVERVIEW_STYLE}>
-          <PressureSection metrics={snapshot.metrics} />
-          <MetricsGrid metrics={snapshot.metrics} />
+          <PressureSection snapshot={snapshot} />
+          <MetricsGrid snapshot={snapshot} />
           <CompositionSection snapshot={snapshot} />
           <AttentionSection items={snapshot.metrics.attention} onOpenTicket={props.onOpenTicket} />
         </div>
@@ -183,8 +185,8 @@ function Identity(props: {
   )
 }
 
-function PressureSection(props: { readonly metrics: SnapshotMetrics }): React.ReactElement {
-  const { pressure } = props.metrics
+function PressureSection(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement {
+  const { pressure } = props.snapshot.metrics
 
   return (
     <section data-testid="pressure-overview" style={SECTION_STYLE}>
@@ -199,10 +201,9 @@ function PressureSection(props: { readonly metrics: SnapshotMetrics }): React.Re
           <PressureCard key={report.dimension} report={report} />
         ))}
       </div>
-      {props.metrics.coverage.truncated ? (
+      {props.snapshot.metrics.coverage.truncated ? (
         <div data-testid="pressure-coverage" style={NOTE_STYLE}>
-          按已加载的 {String(props.metrics.coverage.loaded)} / 共{' '}
-          {String(props.metrics.coverage.total)} 张判定。
+          按已加载的 {String(props.snapshot.loaded)} / 共 {String(props.snapshot.total)} 张判定。
         </div>
       ) : null}
     </section>
@@ -221,12 +222,18 @@ function PressureCard(props: { readonly report: PressureDimensionReport }): Reac
     >
       <div style={CARD_HEADING_STYLE}>
         <span style={CARD_NAME_STYLE}>{PRESSURE_DIMENSION_LABELS[report.dimension]}</span>
-        <span
-          data-testid={`pressure-tier-${report.dimension}`}
-          style={TIER_BADGE_STYLES[report.tier]}
-        >
-          {PRESSURE_TIER_LABELS[report.tier]}
-        </span>
+        {report.tier === null ? (
+          <span data-testid={`pressure-tier-${report.dimension}`} style={UNAVAILABLE_BADGE_STYLE}>
+            不可用
+          </span>
+        ) : (
+          <span
+            data-testid={`pressure-tier-${report.dimension}`}
+            style={TIER_BADGE_STYLES[report.tier]}
+          >
+            {PRESSURE_TIER_LABELS[report.tier]}
+          </span>
+        )}
         {report.provisional ? (
           <span data-testid={`pressure-provisional-${report.dimension}`} style={PROVISIONAL_STYLE}>
             暂估
@@ -246,12 +253,10 @@ function PressureCard(props: { readonly report: PressureDimensionReport }): Reac
   )
 }
 
-function MetricsGrid(props: { readonly metrics: SnapshotMetrics }): React.ReactElement {
-  const { metrics } = props
+function MetricsGrid(props: { readonly snapshot: WorkspaceSnapshot }): React.ReactElement {
+  const { metrics, loaded, total } = props.snapshot
   const truncated = metrics.coverage.truncated
-  const sample = truncated
-    ? `样本 ${String(metrics.coverage.loaded)}/${String(metrics.coverage.total)}`
-    : undefined
+  const sample = truncated ? `样本 ${String(loaded)}/${String(total)}` : undefined
 
   return (
     <section style={SECTION_STYLE}>
@@ -301,7 +306,7 @@ function MetricsGrid(props: { readonly metrics: SnapshotMetrics }): React.ReactE
           testId="metric-net-flow"
           label="净流入"
           value={metricText(metrics.netFlow, (value) => `${value > 0 ? '+' : ''}${String(value)}`)}
-          note={joinNotes(gapNote(metrics.netFlow), sample)}
+          note={joinNotes(gapNote(metrics.netFlow), truncated ? '可能高估' : undefined, sample)}
         />
         <MetricCard
           testId="metric-oldest-update"
@@ -381,7 +386,7 @@ function DistributionBar(props: {
           y={0}
           width={width}
           height={8}
-          fill={SEGMENT_COLORS[segment.key] ?? COLORS.secondary}
+          fill={SEGMENT_COLORS[segment.key]}
         />
       )
       offset += width
@@ -414,7 +419,7 @@ function DistributionBar(props: {
               aria-hidden="true"
               style={{
                 ...LEGEND_DOT_STYLE,
-                background: SEGMENT_COLORS[segment.key] ?? COLORS.secondary,
+                background: SEGMENT_COLORS[segment.key],
               }}
             />
             {segment.label} {String(segment.count)}（{formatPercent(segmentRatio(segment, total))}）
@@ -476,9 +481,13 @@ function displayRef(item: { readonly ref: string }): string {
   return name.length > 0 ? name : item.ref
 }
 
-function gapNote(value: { readonly gap: string | null }): string | undefined {
-  if (value.gap === null) return undefined
-  if (value.gap === 'no-timestamps') return '缺时间数据'
-  if (value.gap === 'no-closed-time') return '缺关闭时间'
-  return '缺依赖边'
+/** 缺口在关键数字卡片里的短说明。 */
+const GAP_NOTES: Readonly<Record<MetricGap, string>> = {
+  'no-timestamps': '缺时间数据',
+  'no-closed-time': '缺关闭时间',
+  'no-dependency-edges': '缺依赖边',
+}
+
+function gapNote(value: MetricValue): string | undefined {
+  return value.gap === null ? undefined : GAP_NOTES[value.gap]
 }

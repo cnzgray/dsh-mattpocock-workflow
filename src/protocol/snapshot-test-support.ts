@@ -34,7 +34,7 @@ export function emptyMetrics(overrides: Partial<SnapshotMetrics> = {}): Snapshot
     openedLast30Days: { value: 0, gap: null },
     closedLast30Days: { value: 0, gap: null },
     netFlow: { value: 0, gap: null },
-    coverage: { loaded: 0, total: 0, truncated: false },
+    coverage: { truncated: false },
     pressure: {
       tier: 'light',
       dimensions: [dimension('scale'), dimension('blocking'), dimension('freshness')],

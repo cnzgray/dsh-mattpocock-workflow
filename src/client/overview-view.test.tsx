@@ -104,7 +104,7 @@ const METRICS: SnapshotMetrics = emptyMetrics({
   openedLast30Days: { value: 6, gap: null },
   closedLast30Days: { value: 1, gap: null },
   netFlow: { value: 5, gap: null },
-  coverage: { loaded: 4, total: 10, truncated: true },
+  coverage: { truncated: true },
   pressure: {
     tier: 'tight',
     dimensions: [
@@ -271,6 +271,7 @@ describe('概览视图', () => {
     expect(screen.getByTestId('metric-closed').textContent).toContain('1 张')
     expect(screen.getByTestId('metric-closed').textContent).toContain('可能低估')
     expect(screen.getByTestId('metric-net-flow').textContent).toContain('+5')
+    expect(screen.getByTestId('metric-net-flow').textContent).toContain('可能高估')
     expect(screen.getByTestId('metric-oldest-update').textContent).toContain('45 天')
     expect(screen.getByTestId('metric-chain').textContent).toContain('3 层')
 
@@ -340,6 +341,7 @@ describe('概览视图', () => {
             }),
             dimension('blocking'),
             dimension('freshness', {
+              tier: null,
               signals: [{ metric: 'stalled', value: 1 }],
               gaps: ['no-timestamps'],
             }),
@@ -356,6 +358,7 @@ describe('概览视图', () => {
     expect(screen.getByTestId('metric-chain').textContent).toContain('缺依赖边')
     expect(screen.getByTestId('pressure-gap-scale').textContent).toContain('后端不提供工单时间')
     expect(screen.getByTestId('pressure-gap-freshness').textContent).toContain('后端不提供工单时间')
+    expect(screen.getByTestId('pressure-tier-freshness').textContent).toBe('不可用')
     expect(screen.queryByTestId('overview-host')).toBeNull()
   })
 

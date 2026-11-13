@@ -6,6 +6,7 @@ import type { CSSProperties } from 'react'
 
 import type { PressureTier } from '../protocol/tracker.ts'
 import { COLORS } from './task-panel-styles.ts'
+import type { DistributionKey } from './overview-text.ts'
 
 /** 档位颜色：轻松用成功色，正常用中性色，吃紧用错误色。 */
 export const TIER_COLORS: Readonly<Record<PressureTier, string>> = {
@@ -94,6 +95,12 @@ export const TIER_BADGE_STYLES: Readonly<Record<PressureTier, CSSProperties>> = 
   light: { ...TIER_BADGE_BASE_STYLE, color: COLORS.success },
   normal: { ...TIER_BADGE_BASE_STYLE, color: COLORS.secondary },
   tight: { ...TIER_BADGE_BASE_STYLE, color: COLORS.error },
+}
+
+/** 维度数据不足、判不了档时的标记。 */
+export const UNAVAILABLE_BADGE_STYLE: CSSProperties = {
+  ...TIER_BADGE_BASE_STYLE,
+  color: COLORS.tertiary,
 }
 
 export const PROVISIONAL_STYLE: CSSProperties = {
@@ -207,7 +214,7 @@ export const LEGEND_DOT_STYLE: CSSProperties = {
 }
 
 /** 构成条每段的颜色键与状态/分类对齐。 */
-export const SEGMENT_COLORS: Readonly<Record<string, string>> = {
+export const SEGMENT_COLORS: Readonly<Record<DistributionKey, string>> = {
   ready: COLORS.success,
   blocked: COLORS.warn,
   open: COLORS.secondary,

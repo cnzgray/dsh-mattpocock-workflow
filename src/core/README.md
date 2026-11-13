@@ -36,6 +36,10 @@
 积压 10 张判“正常”、净流入 +10 判“吃紧”；结论是初稿对刚建立、票全在窗口内的仓库偏严。阈值是初稿，后续校准只改
 `PRESSURE_THRESHOLDS`，判定逻辑与界面文案不动。
 
-数据诚实性：本地 Markdown 的文件时间不算工单时间（`timestamps: false`），时效与流量指标整体标“不可用”；
-后端不给关闭时间时关闭类指标标 `no-closed-time`；GitHub 列表查询给不出依赖边时链深度标 `no-dependency-edges`。
-不可得指标一律用 `null` + `gap` 表达，不用 0 冒充。
+数据诚实性：本地 Markdown 的文件时间不算工单时间（`timestamps: false`），时效维度整体标“不可用”（`tier: null`），
+流量指标也标不可用；后端不给关闭时间时关闭类指标标 `no-closed-time`；GitHub 列表查询给不出依赖边时链深度标
+`no-dependency-edges`。不可得指标一律用 `null` + `gap` 表达，不用 0 冒充。样本被截断时，关闭类指标可能低估，
+由关闭数派生的净流入可能高估，界面分别标注。
+
+阻塞依赖边用 `Ticket.ref` 而不是裸编号：远端是 `#15`，本地 Markdown 是相对路径。本地编号只在同一个 feature 内唯一，
+裸编号无法跨 feature 找回票，链深度也就无从计算。

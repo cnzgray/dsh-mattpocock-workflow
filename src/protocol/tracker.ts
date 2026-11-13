@@ -83,7 +83,8 @@ export interface PressureSignal {
 /** 一个维度的判档结果。 */
 export interface PressureDimensionReport {
   readonly dimension: PressureDimension
-  readonly tier: PressureTier
+  /** 判档结果；时间数据缺失导致该维度无法判档时为 null。 */
+  readonly tier: PressureTier | null
   /** 参与这一维判档的指标取值。 */
   readonly signals: readonly PressureSignal[]
   /**
@@ -103,10 +104,8 @@ export interface PressureReport {
   readonly dimensions: readonly PressureDimensionReport[]
 }
 
-/** 指标覆盖的样本范围。 */
+/** 指标覆盖的样本范围。已加载数与总数直接复用快照字段，这里只记录是否被截断。 */
 export interface MetricsCoverage {
-  readonly loaded: number
-  readonly total: number
   /** 总数大于已加载数：基于票集合的指标只覆盖样本，关闭类指标可能低估。 */
   readonly truncated: boolean
 }
@@ -154,7 +153,7 @@ export interface SnapshotMetrics {
   readonly netFlow: MetricValue
   readonly coverage: MetricsCoverage
   readonly pressure: PressureReport
-  /** 最该先看的 3–5 张票，按固定优先级挑选。 */
+  /** 最该先看的票（最多 5 张），按固定优先级挑选；没有候选时为空。 */
   readonly attention: readonly AttentionItem[]
 }
 

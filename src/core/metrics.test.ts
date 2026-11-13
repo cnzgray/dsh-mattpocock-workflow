@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import type { PressureDimensionReport, SnapshotMetrics } from '../protocol/tracker.ts'
 import type { ClassifiedTicket } from './classify.ts'
-import { PRESSURE_THRESHOLDS, computeMetrics, type MetricsInput } from './metrics.ts'
+import { computeMetrics, type MetricsInput } from './metrics.ts'
 
 const NOW = Date.parse('2026-11-13T00:00:00Z')
 const DAY_MS = 86_400_000
@@ -168,20 +168,6 @@ describe('压力档位阈值', () => {
     expect(dimension(metrics, 'freshness').tier).toBe('tight')
     expect(metrics.pressure.tier).toBe('tight')
   })
-
-  it('阈值集中在一处，方便后续校准', () => {
-    expect(PRESSURE_THRESHOLDS).toMatchObject({
-      backlogLightUnder: 10,
-      backlogTightFrom: 30,
-      netFlowTightFrom: 6,
-      blockedRatioLightUnder: 0.15,
-      blockedRatioTightOver: 0.35,
-      staleRatioLightUnder: 0.2,
-      staleRatioTightOver: 0.4,
-      stalledTightFrom: 11,
-      windowDays: 30,
-    })
-  })
 })
 
 describe('指标可得性', () => {
@@ -205,6 +191,9 @@ describe('指标可得性', () => {
     expect(metrics.openedLast30Days).toEqual({ value: null, gap: 'no-timestamps' })
     expect(metrics.closedLast30Days).toEqual({ value: null, gap: 'no-timestamps' })
     expect(metrics.netFlow).toEqual({ value: null, gap: 'no-timestamps' })
+    expect(dimension(metrics, 'freshness').tier).toBeNull()
+    expect(dimension(metrics, 'freshness').signals).toEqual([{ metric: 'stalled', value: 2 }])
+    expect(metrics.pressure.tier).toBe('light')
     expect(dimension(metrics, 'freshness').gaps).toEqual(['no-timestamps'])
     expect(dimension(metrics, 'scale').gaps).toEqual(['no-timestamps'])
   })
@@ -233,10 +222,9 @@ describe('指标可得性', () => {
     })
   })
 
-  it('样本被截断时覆盖度记录已加载数与总数', () => {
-    const metrics = metricsOf(tickets(3), { total: 10 })
-
-    expect(metrics.coverage).toEqual({ loaded: 3, total: 10, truncated: true })
+  it('样本被截断时覆盖度只记录截断标记，计数复用快照字段', () => {
+    expect(metricsOf(tickets(3), { total: 10 }).coverage).toEqual({ truncated: true })
+    expect(metricsOf(tickets(3)).coverage).toEqual({ truncated: false })
   })
 })
 
@@ -304,7 +292,7 @@ describe('关注清单', () => {
     ])
   })
 
-  it('陈旧票最多列两张，按最久未更新排序', () => {
+  it('陈旧票按最久未更新排序，可以补位到 5 张', () => {
     const entries = [
       ticket({ ref: '#1', number: 1, status: 'ready', updatedAt: daysAgo(50) }),
       ticket({ ref: '#2', number: 2, status: 'ready', updatedAt: daysAgo(70) }),
@@ -314,35 +302,32 @@ describe('关注清单', () => {
     expect(metricsOf(entries).attention).toEqual([
       { ref: '#2', title: '一张票', reason: 'stale', evidence: 70 },
       { ref: '#1', title: '一张票', reason: 'stale', evidence: 50 },
+      { ref: '#3', title: '一张票', reason: 'stale', evidence: 40 },
     ])
   })
 
-  it('列出未关闭阻塞数最多的一张', () => {
+  it('按未关闭阻塞数从多到少列出阻塞票', () => {
     const entries = [
       ticket({ ref: '#1', number: 1, status: 'blocked', openBlockers: 2 }),
       ticket({ ref: '#2', number: 2, status: 'blocked', openBlockers: 5 }),
     ]
 
-    expect(metricsOf(entries).attention).toContainEqual({
-      ref: '#2',
-      title: '一张票',
-      reason: 'most-blocking',
-      evidence: 5,
-    })
+    expect(metricsOf(entries).attention).toEqual([
+      { ref: '#2', title: '一张票', reason: 'most-blocking', evidence: 5 },
+      { ref: '#1', title: '一张票', reason: 'most-blocking', evidence: 2 },
+    ])
   })
 
-  it('列出停滞票里创建最早的一张', () => {
+  it('按创建时间从早到晚列出停滞票', () => {
     const entries = [
       ticket({ ref: '#1', number: 1, createdAt: daysAgo(20) }),
       ticket({ ref: '#2', number: 2, createdAt: daysAgo(90) }),
     ]
 
-    expect(metricsOf(entries).attention).toContainEqual({
-      ref: '#2',
-      title: '一张票',
-      reason: 'oldest-stalled',
-      evidence: 90,
-    })
+    expect(metricsOf(entries).attention).toEqual([
+      { ref: '#2', title: '一张票', reason: 'oldest-stalled', evidence: 90 },
+      { ref: '#1', title: '一张票', reason: 'oldest-stalled', evidence: 20 },
+    ])
   })
 
   it('同一张票只出现一次，保留优先级更高的原因', () => {
