@@ -74,3 +74,17 @@ export const GITLAB_LINKS = new Map<number, string>([
     ]),
   ],
 ])
+
+/** 批量 GraphQL 查询的录制响应：`blockedByCount` 只统计未关闭的阻塞票。 */
+export const GITLAB_BLOCKED_BY_OUTPUT = JSON.stringify({
+  data: {
+    project: {
+      issues: {
+        nodes: [
+          { iid: '15', blockedByCount: 0 },
+          { iid: '16', blockedByCount: 1 },
+        ],
+      },
+    },
+  },
+})

@@ -44,6 +44,8 @@ export interface SubprocessSpawnSpecLike {
   }
   readonly graceMs: number
   readonly signal?: AbortSignal
+  /** 合并到 DSH 清理后父进程环境之上的显式变量。 */
+  readonly env?: Readonly<Record<string, string>>
 }
 
 /** DSH 子进程服务。 */

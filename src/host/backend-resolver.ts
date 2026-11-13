@@ -74,7 +74,11 @@ export interface BackendCandidate {
  */
 export function createBackendResolver(deps: BackendResolverDeps): BackendResolver {
   const files = deps.files ?? createNodeWorkspaceFiles()
-  if (deps.cache === false) return (workspaceRoot) => resolveBackend(deps, files, workspaceRoot)
+  // 原生阻塞能力按实例主机缓存，同一进程里的多个工作区共享探测结果。
+  const blockerCapability = new Map<string, Promise<boolean>>()
+  if (deps.cache === false) {
+    return (workspaceRoot) => resolveBackend(deps, files, blockerCapability, workspaceRoot)
+  }
 
   const cache = new Map<string, Promise<ResolvedBackend>>()
 
@@ -82,7 +86,7 @@ export function createBackendResolver(deps: BackendResolverDeps): BackendResolve
     const cached = cache.get(workspaceRoot)
     if (cached !== undefined) return cached
 
-    const pending = resolveBackend(deps, files, workspaceRoot)
+    const pending = resolveBackend(deps, files, blockerCapability, workspaceRoot)
     cache.set(workspaceRoot, pending)
     // 解析失败（例如 glab 还没装）不缓存，刷新时可以重新探测。
     void pending.catch(() => {
@@ -95,6 +99,7 @@ export function createBackendResolver(deps: BackendResolverDeps): BackendResolve
 async function resolveBackend(
   deps: BackendResolverDeps,
   files: WorkspaceFiles,
+  blockerCapability: Map<string, Promise<boolean>>,
   workspaceRoot: string,
 ): Promise<ResolvedBackend> {
   const address = await readAddress(deps.run, workspaceRoot)
@@ -140,7 +145,7 @@ async function resolveBackend(
       kind: choice.kind,
       choice,
       address,
-      tracker: createTracker(choice.kind, deps, files),
+      tracker: createTracker(choice.kind, deps, files, blockerCapability),
     }
     return candidate === undefined ? base : { ...base, candidate }
   }
@@ -164,12 +169,13 @@ function createTracker(
   kind: BackendKind,
   deps: BackendResolverDeps,
   files: WorkspaceFiles,
+  blockerCapability: Map<string, Promise<boolean>>,
 ): Tracker {
   switch (kind) {
     case 'github':
       return createGithubTracker({ run: deps.run, now: deps.now })
     case 'gitlab':
-      return createGitlabTracker({ run: deps.run, now: deps.now })
+      return createGitlabTracker({ run: deps.run, now: deps.now, blockerCapability })
     case 'gitea':
       return createGiteaTracker({ run: deps.run, now: deps.now })
     case 'markdown':

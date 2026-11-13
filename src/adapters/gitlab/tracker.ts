@@ -4,12 +4,17 @@
  * - 仓库标识来自 core 的远端解析，API 里用完整路径的 URL 编码形式寻址，
  *   不依赖当前目录的默认项目推断；
  * - 只读 issue 接口，merge request 不会混进来；
- * - 列表阶段只读描述顶部的 `Blocked by:` 行；原生 blocking link 逐票请求昂贵，
- *   放到可选的 {@link Tracker.resolveBlockers} 里，在首屏之后补齐。
+ * - 首屏只列票，阻塞数先按描述里的 `Blocked by:` 回退；原生阻塞数在
+ *   `resolveBlockers` 补齐阶段读取，能力探测不占首屏时间；
+ * - 列表响应带 `blocking_issues_count` 时直接判定实例支持原生阻塞；
+ *   否则按实例主机只探测一次：一次 `/issues/:iid/links` 返回
+ *   `200` + 空数组、`403`/`404` 或异常都判定为不支持，之后只用描述里的
+ *   `Blocked by:` 回退，不再逐票试探；
+ * - 支持的实例用一次批量 GraphQL 查询取回所有开放票的 `blockedByCount`，
+ *   不逐票请求 links。
  */
-import { countDescriptionBlockers } from '../../core/blocked-by.ts'
-import { mapWithConcurrency } from '../../core/concurrency.ts'
-import { parseRemotes, pickRemoteAddress } from '../../core/remote.ts'
+import { hasDescriptionBlockers, resolveOpenBlockers } from '../../core/blocked-by.ts'
+import { parseRemotes, pickRemoteAddress, type RepositoryAddress } from '../../core/remote.ts'
 import type {
   BlockerTarget,
   CommandRunner,
@@ -20,8 +25,9 @@ import type {
 } from '../../core/ticket.ts'
 import { CommandError, TrackerError, commandFailureDetail } from '../../core/tracker-error.ts'
 import {
-  countNativeBlockers,
   encodeProjectPath,
+  hasNativeBlockingLinks,
+  parseBlockedByCounts,
   parseIssuesPage,
   type ParsedIssue,
 } from './parse.ts'
@@ -32,38 +38,44 @@ export interface GitlabTrackerDeps {
   readonly now: () => number
   /** 单页大小；默认 100，测试可以调小以便构造分页。 */
   readonly pageSize?: number
-  /** 补齐阶段逐票查询 blocking link 的并发上限。 */
-  readonly concurrency?: number
+  /**
+   * 原生阻塞能力探测缓存，键为实例主机。生产环境由后端解析器共享，
+   * 同一实例上的多个工作区只探测一次；单独创建 tracker 时默认各自一份。
+   */
+  readonly blockerCapability?: Map<string, Promise<boolean>>
 }
 
 const DEFAULT_PAGE_SIZE = 100
-const DEFAULT_CONCURRENCY = 8
+/** GraphQL 的 `first` 上限；开放票更多时分批查询。 */
+const BLOCKER_COUNT_BATCH = 100
 
 /**
  * 创建 GitLab 工单后端。
- * @param deps - 命令执行器、时钟与可选的页大小、并发上限。
+ * @param deps - 命令执行器、时钟与可选的页大小、能力探测缓存。
  * @returns 满足 core `Tracker` 契约的后端。
  */
 export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
   const pageSize = normalizePositive(deps.pageSize ?? DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE)
-  const concurrency = normalizePositive(
-    deps.concurrency ?? DEFAULT_CONCURRENCY,
-    DEFAULT_CONCURRENCY,
-  )
+  const blockerCapability = deps.blockerCapability ?? new Map<string, Promise<boolean>>()
+
+  // 最近一次列表留下的探测线索，供补齐阶段选探测票；键为工作区根目录。
+  const hints = new Map<string, BlockerHint>()
 
   return {
     async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
-      const project = await readProjectPath(deps, workspaceRoot)
-      const issues = await readIssues(deps, workspaceRoot, project, pageSize)
+      const project = await readProject(deps, workspaceRoot)
+      const issues = await readIssues(deps, workspaceRoot, project.path, pageSize)
       const states = new Map<number, TicketState>()
       for (const issue of issues) {
         if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
       }
+      hints.set(workspaceRoot, blockerHint(project, issues))
 
-      const tickets = issues.map((issue) => withDescriptionBlockers(issue, states))
+      // 首屏只等列表：阻塞数先按描述回退，原生计数留给补齐阶段。
+      const tickets = issues.map((issue) => withOpenBlockers(issue, states))
 
       return {
-        repository: project,
+        repository: project.path,
         fetchedAt: deps.now(),
         loaded: tickets.length,
         total: tickets.length,
@@ -71,35 +83,61 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
       }
     },
 
-    resolveBlockers: async (
-      workspaceRoot: string,
-      targets: readonly BlockerTarget[],
-    ): Promise<ReadonlyMap<string, number>> => {
-      const resolvable = targets.filter(
+    async resolveBlockers(workspaceRoot, targets) {
+      const open = targets.filter(
         (target): target is BlockerTarget & { readonly number: number } => target.number !== null,
       )
-      if (resolvable.length === 0) return new Map()
+      if (open.length === 0) return new Map()
 
-      const project = await readProjectPath(deps, workspaceRoot)
-
-      try {
-        const counts = await mapWithConcurrency(resolvable, concurrency, async (target) => {
-          const endpoint = `${projectEndpoint(project)}/issues/${String(target.number)}/links`
-          const output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
-          return [target.ref, countNativeBlockers(output)] as const
-        })
-
-        return new Map(counts)
-      } catch (error) {
-        // 免费套餐、无权限或实例不支持原生链接：退回描述回退结果，不再重试。
-        if (isBlockingUnavailable(error)) return new Map()
-        throw mapGlabError(error)
+      const hint = hints.get(workspaceRoot) ?? {
+        project: await readProject(deps, workspaceRoot),
+        listSupportsNative: false,
+        probeTarget: null,
       }
+      const supported = await ensureNativeBlockingSupport(
+        deps,
+        blockerCapability,
+        workspaceRoot,
+        hint,
+        open,
+      )
+      if (!supported) return new Map()
+
+      const counts = await readBlockedByCounts(deps, workspaceRoot, hint.project.path, open)
+      const native = new Map<string, number>()
+      for (const target of open) {
+        const count = counts.get(target.number)
+        if (count !== undefined) native.set(target.ref, count)
+      }
+      return native
     },
   }
 }
 
-async function readProjectPath(deps: GitlabTrackerDeps, workspaceRoot: string): Promise<string> {
+/** 列表阶段为补齐阶段留下的线索：项目地址、列表是否已表明支持、优先探测哪张票。 */
+interface BlockerHint {
+  readonly project: RepositoryAddress
+  readonly listSupportsNative: boolean
+  readonly probeTarget: number | null
+}
+
+function blockerHint(project: RepositoryAddress, issues: readonly ParsedIssue[]): BlockerHint {
+  const open = issues.filter(
+    (issue) => issue.ticket.state === 'open' && issue.ticket.number !== null,
+  )
+  // 优先选正文里写了 `Blocked by:` 的票：支持原生阻塞的实例上，这类票更可能已经有 blocking link。
+  const described = open.find((issue) => hasDescriptionBlockers(issue.description))
+  return {
+    project,
+    listSupportsNative: open.some((issue) => issue.hasBlockingIssuesCount),
+    probeTarget: (described ?? open[0])?.ticket.number ?? null,
+  }
+}
+
+async function readProject(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+): Promise<RepositoryAddress> {
   let output: string
   try {
     output = (await deps.run('git', ['remote', '-v'], { cwd: workspaceRoot })).stdout
@@ -113,7 +151,7 @@ async function readProjectPath(deps: GitlabTrackerDeps, workspaceRoot: string): 
   if (address === undefined) {
     throw new TrackerError('fetch-failed', '当前仓库的 origin 不是可识别的 GitLab 远端。')
   }
-  return address.path
+  return { path: address.path, host: address.host }
 }
 
 async function readIssues(
@@ -139,15 +177,93 @@ async function readIssues(
   }
 }
 
-function withDescriptionBlockers(
-  issue: ParsedIssue,
-  states: ReadonlyMap<number, TicketState>,
-): Ticket {
-  if (issue.ticket.state !== 'open') return { ...issue.ticket, openBlockers: 0 }
+/**
+ * 保证同一实例主机只探测一次。探测结果（包括失败）都写入缓存，
+ * 后续刷新直接复用，不再请求 links。
+ */
+async function ensureNativeBlockingSupport(
+  deps: GitlabTrackerDeps,
+  blockerCapability: Map<string, Promise<boolean>>,
+  workspaceRoot: string,
+  hint: BlockerHint,
+  open: readonly (BlockerTarget & { readonly number: number })[],
+): Promise<boolean> {
+  const host = hint.project.host
+  const cached = blockerCapability.get(host)
+  if (cached !== undefined) return cached
 
+  // 列表自带 blocking_issues_count 说明实例是 EE：无需再花一次 links 请求探测。
+  if (hint.listSupportsNative) {
+    const supported = Promise.resolve(true)
+    blockerCapability.set(host, supported)
+    return supported
+  }
+
+  const target = hint.probeTarget ?? open[0]?.number ?? null
+  const pending = probeNativeBlockingSupport(deps, workspaceRoot, hint.project.path, target)
+  blockerCapability.set(host, pending)
+  return pending
+}
+
+/**
+ * 一次探测请求。空数组、403/404 与异常都判定为不支持，不再重试，
+ * 也不逐票试探。
+ */
+async function probeNativeBlockingSupport(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  target: number | null,
+): Promise<boolean> {
+  if (target === null) return false
+
+  try {
+    const endpoint = `${projectEndpoint(project)}/issues/${String(target)}/links`
+    const output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
+    return hasNativeBlockingLinks(output)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 分批读取开放票的 `blockedByCount`。GraphQL 的 `first` 上限是 100，
+ * 开放票更多时按 100 一批查询，仍然不产生逐票请求。
+ */
+async function readBlockedByCounts(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  open: readonly (BlockerTarget & { readonly number: number })[],
+): Promise<ReadonlyMap<number, number>> {
+  const counts = new Map<number, number>()
+
+  for (let start = 0; start < open.length; start += BLOCKER_COUNT_BATCH) {
+    const batch = open.slice(start, start + BLOCKER_COUNT_BATCH)
+    const iids = batch.map((target) => `"${String(target.number)}"`).join(', ')
+    const query = `query ($project: ID!) { project(fullPath: $project) { issues(iids: [${iids}], first: ${String(batch.length)}) { nodes { iid blockedByCount } } } }`
+    const output = (
+      await deps.run(
+        'glab',
+        ['api', 'graphql', '-f', `query=${query}`, '-f', `project=${project}`],
+        { cwd: workspaceRoot },
+      )
+    ).stdout
+
+    for (const [iid, count] of parseBlockedByCounts(output)) counts.set(iid, count)
+  }
+  return counts
+}
+
+function withOpenBlockers(issue: ParsedIssue, states: ReadonlyMap<number, TicketState>): Ticket {
   return {
     ...issue.ticket,
-    openBlockers: countDescriptionBlockers(issue.description, states),
+    openBlockers: resolveOpenBlockers({
+      ticket: issue.ticket,
+      nativeBlockers: undefined,
+      text: issue.description,
+      states,
+    }),
   }
 }
 
@@ -181,13 +297,6 @@ function mapGlabError(error: unknown): TrackerError {
 function isAuthenticationFailure(stderr: string): boolean {
   return /glab auth login|not logged in|no token|token.*(?:expired|invalid)|authentication failed|bad credentials|HTTP 401|Unauthorized/i.test(
     stderr,
-  )
-}
-
-function isBlockingUnavailable(error: unknown): boolean {
-  if (!(error instanceof CommandError)) return false
-  return /HTTP 403|403 Forbidden|HTTP 404|404 Not Found|not available|not supported|premium|blocking|blocked_by/i.test(
-    error.stderr,
   )
 }
 

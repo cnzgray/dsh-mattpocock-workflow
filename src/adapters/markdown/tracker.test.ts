@@ -170,4 +170,5 @@ describeTrackerContract('本地 Markdown', {
     repository: 'ws',
     fetchedAt: NOW,
   },
+  nativeBlockers: { kind: 'none', expected: [0, 0, 1, 0] },
 })

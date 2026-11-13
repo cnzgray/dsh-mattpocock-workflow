@@ -199,4 +199,5 @@ describeTrackerContract('GitHub', {
     repository: 'cnzgray/dsh-mattpocock-workflow',
     fetchedAt: NOW,
   },
+  nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0, 0, 2] },
 })

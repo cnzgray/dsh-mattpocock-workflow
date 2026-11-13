@@ -117,6 +117,19 @@ describe('命令执行器', () => {
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/tea', 'logins', 'list', '--output', 'json'])
   })
 
+  it('子进程关闭 glab 的遥测上报与更新检查', async () => {
+    const { subprocess, specs } = fakeSubprocess({ resolve: (command) => command, stdout: 'ok' })
+    const { timer } = fakeTimer()
+    const run = createCommandRunner(subprocess, timer)
+
+    await run('glab', ['api', 'projects/1/issues'], { cwd: '/repo' })
+
+    expect(specs[0]?.env).toMatchObject({
+      GLAB_SEND_TELEMETRY: 'false',
+      GLAB_CHECK_UPDATE: 'false',
+    })
+  })
+
   it('命令非零退出时抛带标准错误的 CommandError', async () => {
     const { subprocess } = fakeSubprocess({
       resolve: () => '/usr/bin/gh',

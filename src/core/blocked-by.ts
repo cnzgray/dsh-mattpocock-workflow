@@ -1,5 +1,5 @@
 /**
- * 解析工单正文顶部的 `Blocked by:` 行。GitLab 的 blocking link 不可用、
+ * 解析工单正文顶部的 `Blocked by:` 行。GitLab 的原生 blocking link 不可用、
  * Gitea 关闭了 issue 依赖时，两个后端都退回到这一行；这里只实现一次。
  */
 import type { Ticket, TicketState } from './ticket.ts'
@@ -30,6 +30,16 @@ export function countDescriptionBlockers(
     if (states.get(number) !== 'closed') count += 1
   }
   return count
+}
+
+/**
+ * 正文顶部是否有 `Blocked by:` 行，不判断被引用票的状态。
+ * GitLab 能力探测用它挑一张更可能带原生阻塞关系的票。
+ * @param description - 工单正文，可以为空。
+ * @returns 是否存在这一行。
+ */
+export function hasDescriptionBlockers(description: string): boolean {
+  return BLOCKED_BY.test(preambleOf(description))
 }
 
 /** 判定一张远端工单的阻塞数所需的最小输入。 */

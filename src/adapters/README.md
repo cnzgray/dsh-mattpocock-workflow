@@ -3,7 +3,7 @@
 对接外部系统，每个后端一个子目录：
 
 - `github/`：通过 `git` 与 `gh` 读取 `github.com` 仓库的 issue；
-- `gitlab/`：通过 `git` 与 `glab` 读取 GitLab issue 与原生 blocking link；要求 `glab` >= 1.126，更早版本未验证；
+- `gitlab/`：通过 `git` 与 `glab` 读取 GitLab issue；列表带 `blocking_issues_count` 时直接判定支持原生阻塞，原生阻塞数在 `resolveBlockers` 补齐阶段读取：否则按实例主机只探测一次，支持时用一次批量 GraphQL 取回阻塞数，失败或空数组时退回 `Blocked by:` 行；要求 `glab` >= 1.126，更早版本未验证；
 - `gitea/`：通过 `git` 与 `tea` 读取 Gitea issue 与原生 issue 依赖（只读 `tea api --include`）；
   依赖功能关闭时退回 `Blocked by:` 行。宿主选择后端时探测 `tea logins list --output json`；
 - `markdown/`：读取工作区里 `.scratch/<feature>/issues/*.md` 的本地工单；`env.ts` 供环境检查确认工单目录与文件可解析；

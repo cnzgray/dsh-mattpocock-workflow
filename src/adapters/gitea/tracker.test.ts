@@ -274,4 +274,5 @@ describeTrackerContract('Gitea', {
     repository: 'cnzgray/dsh-workflow',
     fetchedAt: NOW,
   },
+  nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0] },
 })

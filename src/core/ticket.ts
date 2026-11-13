@@ -18,8 +18,9 @@ export interface Ticket {
   readonly createdAt: string
   readonly updatedAt: string
   /**
-   * 未关闭的阻塞票数量。来源由后端决定：GitHub 原生 issue dependencies、
-   * GitLab 原生 blocking link（退回 `Blocked by:` 行）、本地 Markdown 的 `Blocked by:` 行。
+   * 未关闭的阻塞票数量。来源由后端决定：GitHub 的 issue dependencies、
+   * GitLab 的原生 blocking link（实例不支持时退回 `Blocked by:` 行）、
+   * Gitea 的 issue 依赖、本地 Markdown 的 `Blocked by:` 行。
    */
   readonly openBlockers: number
 }

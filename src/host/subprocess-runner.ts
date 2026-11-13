@@ -25,6 +25,15 @@ const EXECUTABLE_FALLBACKS: Readonly<Record<string, readonly string[]>> = {
 }
 
 /**
+ * 面板在后台调用 CLI，不需要遥测上报与更新检查。`glab` 默认每次调用都同步
+ * 上报遥测，实测每次多花 120–170 ms；首屏要串行调用好几次 `glab`。
+ */
+const QUIET_CLI_ENV: Readonly<Record<string, string>> = {
+  GLAB_SEND_TELEMETRY: 'false',
+  GLAB_CHECK_UPDATE: 'false',
+}
+
+/**
  * 创建命令执行器。
  * @param subprocess - DSH 子进程服务。
  * @param timer - DSH 计时服务，用于命令超时。
@@ -50,6 +59,7 @@ export function createCommandRunner(subprocess: SubprocessLike, timer: TimerLike
         },
         graceMs: TERMINATION_GRACE_MS,
         signal: abort.signal,
+        env: QUIET_CLI_ENV,
       })
 
       const outcome = await handle.done

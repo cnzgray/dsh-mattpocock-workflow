@@ -86,7 +86,7 @@ export interface WorkspaceSnapshot {
   /**
    * 阻塞信息是否已定稿。为 false 时部分票的 `openBlockers` 来自描述回退，
    * 界面应在首屏之后请求一次 {@link RPC_METHODS.snapshotResolveBlockers}。
-   * 后端不支持原生阻塞、补齐完成或补齐失败后都为 true。
+   * 原生阻塞随列表返回、后端不支持原生阻塞、补齐完成或补齐失败后都为 true。
    */
   readonly blockersFinalized: boolean
 }

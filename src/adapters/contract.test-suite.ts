@@ -7,6 +7,21 @@ import { describe, expect, it } from 'vitest'
 
 import type { BlockerTarget, Tracker } from '../core/ticket.ts'
 
+/**
+ * 后端的原生阻塞能力，必须由各后端显式声明：
+ * - `snapshot`：阻塞数在 `fetchSnapshot` 内取回；
+ * - `deferred`：列表返回后通过 `resolveBlockers` 补齐；
+ * - `none`：只用描述里的 `Blocked by:` 回退。
+ */
+export type NativeBlockersFixture =
+  | { readonly kind: 'snapshot'; readonly expected: readonly number[] }
+  | {
+      readonly kind: 'deferred'
+      readonly request: readonly BlockerTarget[]
+      readonly expected: ReadonlyMap<string, number>
+    }
+  | { readonly kind: 'none'; readonly expected: readonly number[] }
+
 /** 一个后端跑契约所需的工厂与期望值。 */
 export interface TrackerContractFixture {
   /** 各后端在自己的测试里绑定依赖；套件只拿一个无参工厂。 */
@@ -25,13 +40,10 @@ export interface TrackerContractFixture {
     readonly fetchedAt: number
   }
   /**
-   * 后端实现可选的原生阻塞补齐能力时给出请求与期望；省略表示不实现。
-   * 契约套件只约束这个可选能力的存在性与返回形状，不规定它怎么拿到数据。
+   * 原生阻塞能力的显式声明。每个后端都必须填写，
+   * 避免新增后端时悄悄漏掉阻塞能力。
    */
-  readonly blockers?: {
-    readonly request: readonly BlockerTarget[]
-    readonly expected: ReadonlyMap<string, number>
-  }
+  readonly nativeBlockers: NativeBlockersFixture
 }
 
 /**
@@ -66,22 +78,33 @@ export function describeTrackerContract(backend: string, fixture: TrackerContrac
       expect(snapshot.fetchedAt).toBe(fixture.empty.fetchedAt)
     })
 
-    const blockers = fixture.blockers
-    it(blockers === undefined ? '不声明原生阻塞补齐能力' : '声明原生阻塞补齐能力', () => {
+    it('按声明提供原生阻塞数', async () => {
       const tracker = fixture.createTracker()
+      const nativeBlockers = fixture.nativeBlockers
 
-      expect(typeof tracker.resolveBlockers).toBe(blockers === undefined ? 'undefined' : 'function')
+      if (nativeBlockers.kind === 'snapshot') {
+        expect(tracker.resolveBlockers).toBeUndefined()
+        const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
+        expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(
+          nativeBlockers.expected,
+        )
+        return
+      }
+
+      if (nativeBlockers.kind === 'deferred') {
+        expect(typeof tracker.resolveBlockers).toBe('function')
+        const native = await tracker.resolveBlockers?.(
+          fixture.workspaceRoot,
+          nativeBlockers.request,
+        )
+        expect(native).toEqual(nativeBlockers.expected)
+        return
+      }
+
+      expect(tracker.resolveBlockers).toBeUndefined()
+      const snapshot = await tracker.fetchSnapshot(fixture.workspaceRoot)
+      expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual(nativeBlockers.expected)
     })
-
-    if (blockers !== undefined) {
-      it('补齐能力返回每张票的未关闭原生阻塞数', async () => {
-        const tracker = fixture.createTracker()
-
-        const native = await tracker.resolveBlockers?.(fixture.workspaceRoot, blockers.request)
-
-        expect(native).toEqual(blockers.expected)
-      })
-    }
     it('每张票都带 ref 与判定所需的字段', async () => {
       const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
 

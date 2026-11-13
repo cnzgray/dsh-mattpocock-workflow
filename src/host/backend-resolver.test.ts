@@ -356,6 +356,21 @@ describe('宿主后端选择', () => {
     expect(authCalls).toHaveLength(1)
   })
 
+  it('同一实例的多个工作区共享原生阻塞能力探测', async () => {
+    const { run, calls } = hostRunner({
+      git: () => 'origin\tgit@gitlab.example.com:group/sub/repo.git (fetch)',
+      auth: () => '  ✓ Logged in to gitlab.example.com as someone',
+      links: () => JSON.stringify([{ iid: 1, state: 'opened', link_type: 'is_blocked_by' }]),
+    })
+    const service = serviceWith(run)
+
+    await service.handle('snapshot.resolveBlockers', { workspaceRoot: '/one' })
+    await service.handle('snapshot.resolveBlockers', { workspaceRoot: '/two' })
+
+    const linkCalls = calls.filter((call) => (call[2] ?? '').endsWith('/links'))
+    expect(linkCalls).toHaveLength(1)
+  })
+
   it('解析失败不缓存，装好 glab 后刷新可以恢复', async () => {
     let installed = false
     const { run } = hostRunner({
