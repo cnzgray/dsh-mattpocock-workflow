@@ -14,6 +14,7 @@ import type {
   TicketSnapshot,
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
 
@@ -129,8 +130,7 @@ async function renderRows(): Promise<void> {
     <TicketsView
       client={fakeClient()}
       workspaceRoot="/repo"
-      canInject
-      injectDraft={() => true}
+      injection={fakeInjection()}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
       onOpenTicket={() => undefined}

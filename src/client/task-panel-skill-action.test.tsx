@@ -9,6 +9,8 @@ import * as React from 'react'
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
 
@@ -165,8 +167,7 @@ function fakeClient(): PanelClient {
 
 function renderView(
   options: {
-    readonly canInject?: boolean
-    readonly injectDraft?: (text: string) => boolean
+    readonly injection?: PromptInjection
     readonly onOpenTicket?: (ticket: TicketSnapshot) => void
   } = {},
 ): void {
@@ -174,8 +175,7 @@ function renderView(
     <TicketsView
       client={fakeClient()}
       workspaceRoot="/repo"
-      canInject={options.canInject ?? true}
-      injectDraft={options.injectDraft ?? (() => true)}
+      injection={options.injection ?? fakeInjection()}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
       onOpenTicket={options.onOpenTicket ?? (() => undefined)}
@@ -209,8 +209,10 @@ function reasonFor(ref: string): HTMLElement {
 
 describe('工单行的技能徽标', () => {
   it('可接的需求显示 implement 徽标，点徽标填入实现提示词', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     const badge = badgeFor('#10')
@@ -220,15 +222,29 @@ describe('工单行的技能徽标', () => {
     fireEvent.click(badge)
 
     expect(injectDraft).toHaveBeenCalledTimes(1)
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/implement 处理工单 #10/))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('复述标题'))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('pnpm check'))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('code-review'))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/implement 处理工单 #10/),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('复述标题'),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('pnpm check'),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('code-review'),
+      'current-session',
+    )
   })
 
   it('可接的缺陷显示 diagnosing-bugs 徽标并填入先复现的提示词', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     const badge = badgeFor('#11')
@@ -238,13 +254,16 @@ describe('工单行的技能徽标', () => {
 
     expect(injectDraft).toHaveBeenLastCalledWith(
       expect.stringMatching(/^\/diagnosing-bugs 处理工单 #11/),
+      'current-session',
     )
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('复现'))
+    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('复现'), 'current-session')
   })
 
   it('带 needs-triage 的票显示 triage 徽标并填入分流提示词', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     const badge = badgeFor('#12')
@@ -252,13 +271,21 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(badge)
 
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/triage 处理工单 #12/))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('状态机'))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/triage 处理工单 #12/),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('状态机'),
+      'current-session',
+    )
   })
 
   it('带 needs-info 的票显示 triage 徽标并先追问缺失信息', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     const badge = badgeFor('#13')
@@ -267,9 +294,15 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(badge)
 
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/triage 处理工单 #13/))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('缺信息'))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('追问'))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/triage 处理工单 #13/),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('缺信息'),
+      'current-session',
+    )
+    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('追问'), 'current-session')
   })
 
   it('可接但没有分类标签的票仍然显示 implement 徽标', async () => {
@@ -280,9 +313,11 @@ describe('工单行的技能徽标', () => {
   })
 
   it('点击工单行只打开详情，不填入提示词', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
     const onOpenTicket = vi.fn<(ticket: TicketSnapshot) => void>()
-    renderView({ injectDraft, onOpenTicket })
+    renderView({ injection: fakeInjection({ inject: injectDraft }), onOpenTicket })
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(rowFor('#10'))
@@ -297,8 +332,10 @@ describe('工单行的技能徽标', () => {
     ['#16', 'wontfix', 'wontfix'],
     ['#17', '需人工实现', 'ready-for-human'],
   ] as const)('%s 显示原因徽标且没有注入入口', async (ref, label, hint) => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
     // 默认视图只看未关闭工单；原因徽标要覆盖已关闭的票，先放开筛选。
     fireEvent.click(screen.getByTestId('filter-all'))
@@ -317,8 +354,10 @@ describe('工单行的技能徽标', () => {
   })
 
   it('没有可用会话时技能徽标不可点', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ canInject: false, injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ canInjectCurrent: false, inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     const badges = screen.getAllByTestId<HTMLButtonElement>('skill-badge')
@@ -332,8 +371,10 @@ describe('工单行的技能徽标', () => {
   })
 
   it('新建入口会清掉工单的已填入标记', async () => {
-    const injectDraft = vi.fn<(text: string) => boolean>(() => true)
-    renderView({ injectDraft })
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    renderView({ injection: fakeInjection({ inject: injectDraft }) })
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(badgeFor('#10'))
@@ -341,7 +382,10 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(screen.getByTestId('new-bug'))
 
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('/mattwf-bug'))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringContaining('/mattwf-bug'),
+      'current-session',
+    )
     expect(badgeFor('#10').getAttribute('data-injected')).toBeNull()
   })
 

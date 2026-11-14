@@ -48,6 +48,35 @@ export function PlusIcon(): React.ReactElement {
   )
 }
 
+/** 分裂动作右侧的小箭头：把同一段提示词带到新会话，不是展开菜单。 */
+export function NewSessionIcon(): React.ReactElement {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      style={{ flex: 'none' }}
+    >
+      <path
+        d="M9.6 3.2h3.2v3.2M12.8 3.2 7.4 8.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.6 9.6v2.3a1.1 1.1 0 0 1-1.1 1.1H4.1A1.1 1.1 0 0 1 3 11.9V5.5a1.1 1.1 0 0 1 1.1-1.1h2.3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 /** 技能按钮的“填入输入框”：箭头进入右侧括号，说明点击是往会话输入框里放提示词。 */
 export function InsertDraftIcon(): React.ReactElement {
   return (

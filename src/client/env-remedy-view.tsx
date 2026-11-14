@@ -16,13 +16,13 @@ import {
   ENV_SKIP_STYLE,
 } from './env-check-styles.ts'
 import { envCheckTitle } from './env-check-text.ts'
+import type { PromptInjection } from './injection.ts'
 import { remedyContent, type RemedyAction } from './env-remedy-text.ts'
 import { BUTTON_STYLE } from './task-panel-styles.ts'
 
 /** 解决动作需要的界面能力与回调。 */
 export interface RemedyHandlers {
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
   readonly busy: boolean
   readonly onRetry: () => void
 }
@@ -89,13 +89,7 @@ function RemedyActionView(props: {
         </div>
       )
     case 'session':
-      return (
-        <SessionAction
-          prompt={props.action.prompt}
-          canInject={props.handlers.canInject}
-          injectDraft={props.handlers.injectDraft}
-        />
-      )
+      return <SessionAction prompt={props.action.prompt} injection={props.handlers.injection} />
     case 'retry':
       return (
         <button
@@ -113,10 +107,10 @@ function RemedyActionView(props: {
 
 function SessionAction(props: {
   readonly prompt: string
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
 }): React.ReactElement {
   const [fillFailed, setFillFailed] = React.useState(false)
+  const canInject = props.injection.canInjectCurrent
 
   return (
     <div style={ENV_REMEDY_ACTIONS_STYLE}>
@@ -124,9 +118,9 @@ function SessionAction(props: {
         type="button"
         data-testid="env-remedy-fill"
         aria-label="填入输入框，把解决提示词放进当前会话"
-        disabled={!props.canInject}
+        disabled={!canInject}
         onClick={() => {
-          setFillFailed(!props.injectDraft(props.prompt))
+          setFillFailed(props.injection.inject(props.prompt, 'current-session') !== 'filled')
         }}
         style={BUTTON_STYLE}
       >
@@ -138,7 +132,7 @@ function SessionAction(props: {
         noun="提示词"
         testId="env-remedy-copy-prompt"
       />
-      {props.canInject ? null : (
+      {canInject ? null : (
         <div data-testid="env-remedy-no-session" style={ENV_SKIP_STYLE}>
           当前没有可用会话，无法填入输入框；可以复制提示词。
         </div>

@@ -22,6 +22,7 @@ import type {
 } from '../protocol/tracker.ts'
 import { errorText } from './error-text.ts'
 import { ChevronLeftIcon } from './icons.tsx'
+import type { PromptInjection } from './injection.ts'
 import type { PanelClient } from './rpc.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
 import {
@@ -74,8 +75,7 @@ export interface TicketDetailViewProps {
   readonly workspaceRoot: string
   /** 列表里选中的那张票：详情按它的引用加载，技能动作也来自它（写操作后按刷新结果更新）。 */
   readonly ticket: TicketSnapshot
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
   /** 返回列表；Esc、返回按钮与删除成功后都走这里。 */
   readonly onBack: () => void
 }
@@ -109,11 +109,7 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
     onDeleted: props.onBack,
   })
   const options = useTicketOptions(client, workspaceRoot, detail?.capabilities.labels === true)
-  const { injected, notice, onSkillAction } = useTicketActions(
-    workspaceRoot,
-    props.canInject,
-    props.injectDraft,
-  )
+  const { injected, notice, onSkillAction } = useTicketActions(workspaceRoot, props.injection)
   const link = useCopyLink(detail?.url ?? null)
   const busy = mutation.busy || deletion.deleting
   useEscapeKey(props.onBack)
@@ -124,7 +120,7 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
         <SkillActionBadge
           ticket={currentTicket}
           injected={injected === currentTicket.ref && currentTicket.skillAction !== 'none'}
-          canInject={props.canInject}
+          injection={props.injection}
           onSkillAction={onSkillAction}
         />
         {detail === null ? null : (

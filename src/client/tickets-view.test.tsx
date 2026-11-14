@@ -16,6 +16,7 @@ import * as React from 'react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketsView } from './tickets-view.tsx'
@@ -176,8 +177,7 @@ function viewElement(
     <TicketsView
       client={client}
       workspaceRoot={workspaceRoot}
-      canInject
-      injectDraft={() => true}
+      injection={fakeInjection()}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
       onOpenTicket={onOpenTicket}
@@ -307,7 +307,7 @@ describe('工单列表的阻塞补齐', () => {
 
   it('点击工单行只打开详情，不注入提示词', async () => {
     const opened: (string | null)[] = []
-    const injectDraft = vi.fn(() => true)
+    const injectDraft = vi.fn(() => 'filled' as const)
     const fake = fakeClient({ ok: true, result: FINAL }, () =>
       Promise.resolve({ ok: true, result: FINAL }),
     )
@@ -315,8 +315,7 @@ describe('工单列表的阻塞补齐', () => {
       <TicketsView
         client={fake.client}
         workspaceRoot="/repo"
-        canInject
-        injectDraft={injectDraft}
+        injection={fakeInjection({ inject: injectDraft })}
         now={() => NOW}
         onOpenEnvCheck={() => undefined}
         onOpenTicket={(ticket) => {

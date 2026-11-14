@@ -14,6 +14,7 @@ import type {
   TicketSnapshot,
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import { TicketDetailView, type TicketDetailViewProps } from './ticket-detail-view.tsx'
 
@@ -205,8 +206,7 @@ export function view(
       client={client}
       workspaceRoot="/repo"
       ticket={TICKET}
-      canInject
-      injectDraft={() => true}
+      injection={fakeInjection()}
       onBack={() => undefined}
       {...overrides}
     />

@@ -108,6 +108,11 @@ const CAPABILITIES: Readonly<Record<CapabilityId, CapabilityContent>> = {
     impact: '访问不了输入框，提示词注入不可用。',
     fix: '升级 DSH 到提供 conversation 的版本后重启。',
   },
+  uiWorkspace: {
+    label: '新建会话能力',
+    impact: '分裂动作的小箭头不可用，只能把提示词填进当前会话。',
+    fix: '升级或启用宿主的工作区导航能力（uiWorkspace）后重启。',
+  },
   'sidebar.right.pane.tab': {
     label: '页签内容插槽',
     impact: '面板内容无处挂载，打开页签只会看到空内容。',

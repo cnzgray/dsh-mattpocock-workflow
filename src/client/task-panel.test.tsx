@@ -4,6 +4,8 @@ import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { InjectionOutcome, InjectionTarget } from './injection.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import { gestures } from './prompt-test-support.ts'
 import {
   badgeFor,
@@ -166,9 +168,15 @@ describe('任务面板', () => {
         },
       ],
     }
-    const injectDraft = vi.fn(() => true)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
     const fake = fakeClient({ ok: true, result: snapshot })
-    render(<TaskPanel {...panelProps({ client: fake.client, injectDraft })} />)
+    render(
+      <TaskPanel
+        {...panelProps({ client: fake.client, injection: fakeInjection({ inject: injectDraft }) })}
+      />,
+    )
 
     await screen.findAllByTestId('ticket-row')
     const badge = screen.getByTestId('ticket-ref')
@@ -178,6 +186,7 @@ describe('任务面板', () => {
     fireEvent.click(screen.getByTestId('skill-badge'))
     expect(injectDraft).toHaveBeenLastCalledWith(
       expect.stringMatching(new RegExp(`^/implement 处理工单 ${ref}`)),
+      'current-session',
     )
 
     fireEvent.click(firstRow())
@@ -263,8 +272,10 @@ describe('任务面板', () => {
   })
 
   it('新建入口填入入池命令，技能徽标填入实现提示词', async () => {
-    const injectDraft = vi.fn(() => true)
-    render(<TaskPanel {...panelProps({ injectDraft })} />)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    render(<TaskPanel {...panelProps({ injection: fakeInjection({ inject: injectDraft }) })} />)
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('new-feature'))
@@ -278,7 +289,10 @@ describe('任务面板', () => {
     }
 
     fireEvent.click(badgeFor('#1'))
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringMatching(/^\/implement 处理工单 #1/))
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/implement 处理工单 #1/),
+      'current-session',
+    )
   })
 
   it('快照还没加载出来时两个入池按钮也能填草稿', () => {
@@ -288,8 +302,12 @@ describe('任务面板', () => {
       refresh: () => pending.promise,
       resolveBlockers: UNUSED_RESOLVE,
     })
-    const injectDraft = vi.fn(() => true)
-    render(<TaskPanel {...panelProps({ client, injectDraft })} />)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    render(
+      <TaskPanel {...panelProps({ client, injection: fakeInjection({ inject: injectDraft }) })} />,
+    )
 
     fireEvent.click(screen.getByTestId('new-feature'))
     expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-feature'])
@@ -300,8 +318,16 @@ describe('任务面板', () => {
   })
 
   it('没有可用会话时禁用注入按钮并给出提示', async () => {
-    const injectDraft = vi.fn(() => true)
-    render(<TaskPanel {...panelProps({ canInject: false, injectDraft })} />)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
+    render(
+      <TaskPanel
+        {...panelProps({
+          injection: fakeInjection({ canInjectCurrent: false, inject: injectDraft }),
+        })}
+      />,
+    )
     await screen.findAllByTestId('ticket-row')
 
     expect(screen.getByTestId<HTMLButtonElement>('new-feature').disabled).toBe(true)
@@ -362,7 +388,9 @@ describe('任务面板', () => {
   })
 
   it('点击关注清单跳到列表并定位该票，不写入提示词', async () => {
-    const injectDraft = vi.fn(() => true)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
     const overview: WorkspaceSnapshot = {
       ...SNAPSHOT,
       metrics: emptyMetrics({
@@ -370,7 +398,9 @@ describe('任务面板', () => {
       }),
     }
     const client = fakeClient({ ok: true, result: overview }).client
-    render(<TaskPanel {...panelProps({ client, injectDraft })} />)
+    render(
+      <TaskPanel {...panelProps({ client, injection: fakeInjection({ inject: injectDraft }) })} />,
+    )
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('view-overview'))
@@ -528,15 +558,24 @@ describe('任务面板', () => {
   })
 
   it('详情里的技能按钮填入这张票的开工提示词', async () => {
-    const injectDraft = vi.fn(() => true)
+    const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
+      () => 'filled',
+    )
     const fake = fakeClient({ ok: true, result: SNAPSHOT })
-    render(<TaskPanel {...panelProps({ client: fake.client, injectDraft })} />)
+    render(
+      <TaskPanel
+        {...panelProps({ client: fake.client, injection: fakeInjection({ inject: injectDraft }) })}
+      />,
+    )
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(firstRow())
     await screen.findByTestId('detail-content')
     fireEvent.click(screen.getByTestId('skill-badge'))
 
-    expect(injectDraft).toHaveBeenCalledWith(expect.stringMatching(/^\/implement 处理工单 #1/))
+    expect(injectDraft).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/implement 处理工单 #1/),
+      'current-session',
+    )
   })
 })

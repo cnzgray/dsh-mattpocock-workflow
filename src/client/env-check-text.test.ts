@@ -76,6 +76,15 @@ describe('环境检查文案', () => {
     expect(present.fix).toBeNull()
   })
 
+  it('新建会话能力缺失时说明只能填当前会话与补法', () => {
+    const missing = capabilityText(
+      capability({ id: 'uiWorkspace', category: 'ui-extension', status: 'missing' }),
+    )
+    expect(missing.label).toBe('新建会话能力')
+    expect(missing.impact).toContain('只能把提示词填进当前会话')
+    expect(missing.fix).toContain('重启')
+  })
+
   it('未知能力 id 原样显示，缺失时没有影响说明', () => {
     expect(capabilityText(capability({ id: 'unknown' }))).toMatchObject({
       label: 'unknown',

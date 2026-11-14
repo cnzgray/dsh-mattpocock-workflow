@@ -30,6 +30,7 @@ import {
 } from './env-check-styles.ts'
 import { envBackendLabel, envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
+import type { PromptInjection } from './injection.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
 import { BUTTON_STYLE, COLORS, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
@@ -59,10 +60,8 @@ const ENV_CACHE_ERROR_STYLE: React.CSSProperties = {
 export interface EnvCheckViewProps {
   readonly client: PanelClient
   readonly workspaceRoot: string | undefined
-  /** 当前会话可用且提示词注入能力已就绪。 */
-  readonly canInject: boolean
-  /** 把提示词填进当前会话输入框；只填不发。 */
-  readonly injectDraft: (text: string) => boolean
+  /** 面板的注入端口；这里的会话动作固定只填当前会话。 */
+  readonly injection: PromptInjection
   /** 界面扩展点探测结果；由插件入口在服务就绪后更新。 */
   readonly clientCapabilities: () => readonly CapabilityDiagnostic[]
   /** 从工单列表跳转过来时，要定位到哪个后端的失败项。 */
@@ -91,8 +90,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
   useFocusBackend(report, props.focusBackend ?? null, jumpTo)
   const cache = useSnapshotCache(props.client, props.workspaceRoot)
   const handlers: RemedyHandlers = {
-    canInject: props.canInject,
-    injectDraft: props.injectDraft,
+    injection: props.injection,
     busy,
     onRetry: recheck,
   }

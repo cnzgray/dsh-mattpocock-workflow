@@ -13,6 +13,7 @@ import type {
   TicketSnapshot,
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import type { TaskPanelProps } from './task-panel.tsx'
 
@@ -263,8 +264,7 @@ export function panelProps(overrides: Partial<TaskPanelProps> = {}): TaskPanelPr
   return {
     client: fakeClient({ ok: true, result: SNAPSHOT }).client,
     workspaceRoot: '/repo',
-    canInject: true,
-    injectDraft: () => true,
+    injection: fakeInjection(),
     now: () => NOW,
     ...overrides,
   }

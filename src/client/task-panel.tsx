@@ -11,6 +11,7 @@ import * as React from 'react'
 import type { BackendKind } from '../protocol/backend.ts'
 import type { CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { ERROR_BACKENDS, type ErrorCode, type TicketSnapshot } from '../protocol/tracker.ts'
+import type { PromptInjection } from './injection.ts'
 import { EnvCheckView } from './env-check-view.tsx'
 import { HelpView } from './help-view.tsx'
 import { OverviewView } from './overview-view.tsx'
@@ -31,8 +32,7 @@ import { TicketsView } from './tickets-view.tsx'
 export interface TaskPanelProps {
   readonly client: PanelClient
   readonly workspaceRoot: string | undefined
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
   readonly now?: (() => number) | undefined
   /** 界面扩展点探测结果；省略时环境检查仍能显示宿主服务。 */
   readonly clientCapabilities?: (() => readonly CapabilityDiagnostic[]) | undefined
@@ -152,8 +152,7 @@ function PanelContent(props: {
       <TicketsPane
         client={panel.client}
         workspaceRoot={panel.workspaceRoot}
-        canInject={panel.canInject}
-        injectDraft={panel.injectDraft}
+        injection={panel.injection}
         now={panel.now}
         open={props.open}
         focusTicket={props.focusTicket}
@@ -182,8 +181,7 @@ function PanelContent(props: {
       <EnvCheckView
         client={panel.client}
         workspaceRoot={panel.workspaceRoot}
-        canInject={panel.canInject}
-        injectDraft={panel.injectDraft}
+        injection={panel.injection}
         clientCapabilities={props.clientCapabilities}
         focusBackend={props.focusBackend}
       />
@@ -227,8 +225,7 @@ function OverviewPane(props: {
 function TicketsPane(props: {
   readonly client: PanelClient
   readonly workspaceRoot: string | undefined
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
   readonly now: (() => number) | undefined
   readonly open: OpenTicket | null
   readonly focusTicket: string | null
@@ -243,8 +240,7 @@ function TicketsPane(props: {
         client={props.client}
         workspaceRoot={props.workspaceRoot}
         ticket={props.open.ticket}
-        canInject={props.canInject}
-        injectDraft={props.injectDraft}
+        injection={props.injection}
         onBack={props.onCloseDetail}
       />
     )
@@ -254,8 +250,7 @@ function TicketsPane(props: {
     <TicketsView
       client={props.client}
       workspaceRoot={props.workspaceRoot}
-      canInject={props.canInject}
-      injectDraft={props.injectDraft}
+      injection={props.injection}
       now={props.now}
       focusRef={props.focusTicket}
       onFocusHandled={props.onFocusHandled}

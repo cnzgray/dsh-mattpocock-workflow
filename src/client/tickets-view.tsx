@@ -15,12 +15,15 @@ import type {
 import { BACKEND_LABELS } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
+import type { InjectionTarget, PromptInjection } from './injection.ts'
 import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, useSnapshotRequest } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
+import type { NoticeTone } from './use-draft-injection.ts'
+import { SplitAction } from './split-action.tsx'
 import { TicketList } from './ticket-list.tsx'
 import {
   ACTION_BAR_STYLE,
@@ -80,8 +83,7 @@ const REFRESH_ERROR_STYLE: React.CSSProperties = {
 export interface TicketsViewProps {
   readonly client: PanelClient
   readonly workspaceRoot: string | undefined
-  readonly canInject: boolean
-  readonly injectDraft: (text: string) => boolean
+  readonly injection: PromptInjection
   readonly now?: (() => number) | undefined
   /** 环境问题导致列表失败时，跳到环境检查视图并带上错误码定位后端。 */
   readonly onOpenEnvCheck: (code: ErrorCode) => void
@@ -102,10 +104,9 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
   )
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
-  const { injected, notice, inject, onSkillAction } = useTicketActions(
+  const { injected, notice, noticeTone, inject, onSkillAction } = useTicketActions(
     props.workspaceRoot,
-    props.canInject,
-    props.injectDraft,
+    props.injection,
   )
 
   const tickets = snapshot?.tickets ?? []
@@ -135,12 +136,12 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       />
       <ActionBar
         counts={snapshot === null ? null : counts}
-        canInject={props.canInject}
-        onNewFeature={() => {
-          inject(newFeaturePrompt())
+        injection={props.injection}
+        onNewFeature={(target) => {
+          inject(newFeaturePrompt(), target)
         }}
-        onNewBug={() => {
-          inject(newBugPrompt())
+        onNewBug={(target) => {
+          inject(newBugPrompt(), target)
         }}
       />
       {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
@@ -158,7 +159,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             visible={visible}
             ticketCount={tickets.length}
             injected={injected}
-            canInject={props.canInject}
+            injection={props.injection}
             focused={focused}
             now={nowValue}
             onPick={props.onOpenTicket}
@@ -170,7 +171,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
           正在读取工单…
         </div>
       ) : null}
-      <Footer canInject={props.canInject} notice={notice} />
+      <Footer injection={props.injection} notice={notice} tone={noticeTone} />
     </div>
   )
 }
@@ -211,11 +212,11 @@ function TicketRows(props: {
   readonly visible: readonly TicketSnapshot[]
   readonly ticketCount: number
   readonly injected: string | null
-  readonly canInject: boolean
+  readonly injection: PromptInjection
   readonly focused: string | null
   readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
-  readonly onSkillAction: (ticket: TicketSnapshot) => void
+  readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
   return (
     <>
@@ -226,7 +227,7 @@ function TicketRows(props: {
         tickets={props.visible}
         emptyText={props.ticketCount === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
         injected={props.injected}
-        canInject={props.canInject}
+        injection={props.injection}
         focused={props.focused}
         now={props.now}
         onPick={props.onPick}
@@ -331,40 +332,74 @@ function Header(props: {
 
 function ActionBar(props: {
   readonly counts: TicketCounts | null
-  readonly canInject: boolean
-  readonly onNewFeature: () => void
-  readonly onNewBug: () => void
+  readonly injection: PromptInjection
+  readonly onNewFeature: (target: InjectionTarget) => void
+  readonly onNewBug: (target: InjectionTarget) => void
 }): React.ReactElement {
-  const opacity = props.canInject ? 1 : 0.45
+  const { injection } = props
 
   return (
     <div style={ACTION_BAR_STYLE}>
       {props.counts === null ? <span /> : <StatsRow counts={props.counts} />}
       <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-        <button
-          type="button"
-          data-testid="new-feature"
-          data-hover="primary"
-          disabled={!props.canInject}
-          onClick={props.onNewFeature}
-          style={{ ...FEATURE_ACTION_STYLE, opacity }}
-        >
-          <PlusIcon />
-          新建需求
-        </button>
-        <button
-          type="button"
-          data-testid="new-bug"
-          data-hover="secondary"
-          disabled={!props.canInject}
-          onClick={props.onNewBug}
-          style={{ ...BUG_ACTION_STYLE, opacity }}
-        >
-          <PlusIcon />
-          bug
-        </button>
+        <IntakeAction
+          testId="new-feature"
+          label="新建需求"
+          title="把需求入池提示词填入当前会话"
+          ariaLabel="新建需求：填入当前会话"
+          newSessionTitle="在新会话开始：新建需求"
+          primaryStyle={FEATURE_ACTION_STYLE}
+          primaryHover="primary"
+          injection={injection}
+          onInject={props.onNewFeature}
+        />
+        <IntakeAction
+          testId="new-bug"
+          label="bug"
+          title="把缺陷入池提示词填入当前会话"
+          ariaLabel="bug：填入当前会话"
+          newSessionTitle="在新会话开始：报 bug"
+          primaryStyle={BUG_ACTION_STYLE}
+          primaryHover="secondary"
+          injection={injection}
+          onInject={props.onNewBug}
+        />
       </div>
     </div>
+  )
+}
+
+/** 一个入池分裂动作：两个按钮只差文案与配色。 */
+function IntakeAction(props: {
+  readonly testId: string
+  readonly label: string
+  readonly title: string
+  readonly ariaLabel: string
+  readonly newSessionTitle: string
+  readonly primaryStyle: React.CSSProperties
+  readonly primaryHover: 'primary' | 'secondary'
+  readonly injection: PromptInjection
+  readonly onInject: (target: InjectionTarget) => void
+}): React.ReactElement {
+  return (
+    <SplitAction
+      testId={props.testId}
+      label={props.label}
+      icon={<PlusIcon />}
+      title={props.title}
+      ariaLabel={props.ariaLabel}
+      primaryStyle={props.primaryStyle}
+      primaryHover={props.primaryHover}
+      disabled={!props.injection.canInjectCurrent}
+      canStartNewSession={props.injection.canStartNewSession}
+      newSessionTitle={props.newSessionTitle}
+      onPrimary={() => {
+        props.onInject('current-session')
+      }}
+      onStartSession={() => {
+        props.onInject('new-session')
+      }}
+    />
   )
 }
 
@@ -464,10 +499,11 @@ function Chip(props: {
 }
 
 function Footer(props: {
-  readonly canInject: boolean
+  readonly injection: PromptInjection
   readonly notice: string | null
+  readonly tone: NoticeTone | null
 }): React.ReactElement | null {
-  if (props.canInject && props.notice === null) return null
+  if (props.injection.canInjectCurrent && props.notice === null) return null
 
   return (
     <footer
@@ -479,13 +515,19 @@ function Footer(props: {
         borderTop: `1px solid ${COLORS.border}`,
       }}
     >
-      {props.canInject ? null : (
+      {props.injection.canInjectCurrent ? null : (
         <div data-testid="no-session-hint" style={{ color: COLORS.secondary, fontSize: 12 }}>
-          当前没有可用会话，提示词无法填入输入框。
+          {props.injection.canStartNewSession
+            ? '当前没有可用会话，无法填入当前会话；可以用小箭头开新会话。'
+            : '当前没有可用会话，提示词无法填入输入框。'}
         </div>
       )}
       {props.notice === null ? null : (
-        <div role="status" data-testid="inject-notice" style={{ color: COLORS.warn, fontSize: 12 }}>
+        <div
+          role="status"
+          data-testid="inject-notice"
+          style={{ color: props.tone === 'error' ? COLORS.warn : COLORS.secondary, fontSize: 12 }}
+        >
           {props.notice}
         </div>
       )}

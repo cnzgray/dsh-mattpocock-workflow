@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import type { TicketAuthor, TicketSnapshot } from '../protocol/tracker.ts'
 import { authorName, authorTitle } from './author-text.ts'
+import type { InjectionTarget, PromptInjection } from './injection.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
 import {
@@ -37,13 +38,13 @@ export interface TicketListProps {
   readonly emptyText: string
   /** 最近一次把提示词填入输入框的工单 `ref`。 */
   readonly injected: string | null
-  readonly canInject: boolean
+  readonly injection: PromptInjection
   /** 从概览跳过来要定位的工单 `ref`；只高亮，不改其他状态。 */
   readonly focused?: string | null | undefined
   /** 当前时间（毫秒），用于行内的相对创建时间。 */
   readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
-  readonly onSkillAction: (ticket: TicketSnapshot) => void
+  readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }
 
 /** 本地 Markdown 路径在卡片里的显示上限；再长就从中间截断。 */
@@ -73,7 +74,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
           key={ticket.ref}
           ticket={ticket}
           injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
-          canInject={props.canInject}
+          injection={props.injection}
           focused={ticket.ref === props.focused}
           now={props.now}
           onPick={props.onPick}
@@ -87,11 +88,11 @@ export function TicketList(props: TicketListProps): React.ReactElement {
 function TicketRow(props: {
   readonly ticket: TicketSnapshot
   readonly injected: boolean
-  readonly canInject: boolean
+  readonly injection: PromptInjection
   readonly focused: boolean
   readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
-  readonly onSkillAction: (ticket: TicketSnapshot) => void
+  readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
   const { ticket } = props
   const display = refDisplay(ticket)
@@ -127,7 +128,7 @@ function TicketRow(props: {
       <SkillActionBadge
         ticket={ticket}
         injected={props.injected}
-        canInject={props.canInject}
+        injection={props.injection}
         onSkillAction={props.onSkillAction}
         style={CARD_ACTION_BADGE_STYLE}
       />

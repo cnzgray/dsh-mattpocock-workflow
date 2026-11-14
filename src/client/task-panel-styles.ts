@@ -521,8 +521,8 @@ export const SKILL_BADGE_BUTTON_STYLE: CSSProperties = {
   cursor: 'pointer',
 }
 
-/** 没有可用会话时技能徽标不可点。 */
-export const SKILL_BADGE_DISABLED_STYLE: CSSProperties = {
+/** 分裂动作的一半不可用时变淡；主键与小箭头用同一套禁用外观。 */
+export const SPLIT_DISABLED_STYLE: CSSProperties = {
   opacity: 0.45,
   cursor: 'not-allowed',
 }
@@ -552,6 +552,10 @@ export const PANEL_SHEET = `
 [data-anvil-panel] [data-hover="action"]:not(:disabled):active { border-color: color-mix(in srgb, currentColor 65%, transparent); background: color-mix(in srgb, currentColor 28%, transparent); }
 [data-anvil-panel] [data-hover="action"][data-injected="true"]:not(:disabled) { border-color: color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 20%, transparent); }
 [data-anvil-panel] [data-hover="action"]:disabled { border-color: ${COLORS.border}; background: transparent; }
+/* 分裂动作的两半一起响应悬停，缝里不会出现一半亮一半暗。 */
+[data-anvil-panel] [data-split-group]:has(> [data-hover="primary"]:not(:disabled):hover) > [data-hover="primary"]:not(:disabled) { filter: brightness(1.08); }
+[data-anvil-panel] [data-split-group]:has(> [data-hover="secondary"]:not(:disabled):hover) > [data-hover="secondary"]:not(:disabled) { background: color-mix(in srgb, ${COLORS.error} 8%, transparent); }
+[data-anvil-panel] [data-split-group]:has(> [data-hover="action"]:not(:disabled):hover) > [data-hover="action"]:not(:disabled) { border-color: color-mix(in srgb, currentColor 55%, transparent); background: color-mix(in srgb, currentColor 20%, transparent); }
 [data-anvil-panel] [data-hover="link"]:hover { text-decoration: underline; }
 [data-anvil-panel] a:focus { outline: none; }
 [data-anvil-panel] a:focus-visible { outline: 2px solid ${COLORS.accent}; outline-offset: 1px; border-radius: 2px; }

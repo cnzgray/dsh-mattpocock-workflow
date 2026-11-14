@@ -11,6 +11,7 @@ describe('界面能力记录器', () => {
       'sidebarRightTabs',
       'sessions',
       'conversation',
+      'uiWorkspace',
       'sidebar.right.pane.tab',
       'sidebar.right.pane.tab.title',
     ])

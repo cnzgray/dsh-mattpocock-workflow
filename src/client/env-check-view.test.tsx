@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 
 import type { BackendKind } from '../protocol/backend.ts'
+import type { PromptInjection } from './injection.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import type { RpcResult, SnapshotCacheInfo } from '../protocol/tracker.ts'
 import { EnvCheckView } from './env-check-view.tsx'
@@ -71,8 +73,7 @@ function renderView(
   envCheck: (root: string) => Promise<RpcResult<EnvCheckReport>>,
   options: {
     readonly workspaceRoot?: string | undefined
-    readonly canInject?: boolean | undefined
-    readonly injectDraft?: ((text: string) => boolean) | undefined
+    readonly injection?: PromptInjection | undefined
     readonly focusBackend?: Exclude<BackendKind, 'markdown'> | null
     readonly cache?: (root: string, clear: boolean) => Promise<RpcResult<SnapshotCacheInfo>>
   } = {},
@@ -82,8 +83,7 @@ function renderView(
     <EnvCheckView
       client={fake.client}
       workspaceRoot={'workspaceRoot' in options ? options.workspaceRoot : '/repo'}
-      canInject={options.canInject ?? true}
-      injectDraft={options.injectDraft ?? (() => true)}
+      injection={options.injection ?? fakeInjection()}
       clientCapabilities={() => CLIENT_CAPABILITIES}
       focusBackend={options.focusBackend ?? null}
     />,
@@ -216,10 +216,12 @@ describe('环境检查视图', () => {
   it('点「填入输入框」才把点名技能与失败项的提示词交给会话，渲染时不注入', async () => {
     const injected: string[] = []
     renderView(() => okResponse(WORKSPACE_FAIL), {
-      injectDraft: (text) => {
-        injected.push(text)
-        return true
-      },
+      injection: fakeInjection({
+        inject: (text) => {
+          injected.push(text)
+          return 'filled'
+        },
+      }),
     })
     await screen.findByTestId('env-items')
     expect(injected).toEqual([])
@@ -234,7 +236,9 @@ describe('环境检查视图', () => {
 
   it('没有可用会话时禁用填入并说明原因，仍可复制提示词', async () => {
     const clipboard = stubClipboard('ok')
-    renderView(() => okResponse(WORKSPACE_FAIL), { canInject: false, injectDraft: () => true })
+    renderView(() => okResponse(WORKSPACE_FAIL), {
+      injection: fakeInjection({ canInjectCurrent: false }),
+    })
     await screen.findByTestId('env-items')
 
     expect(screen.getByTestId<HTMLButtonElement>('env-remedy-fill').disabled).toBe(true)
@@ -389,8 +393,7 @@ describe('环境检查视图', () => {
       <EnvCheckView
         client={fake.client}
         workspaceRoot="/one"
-        canInject
-        injectDraft={() => true}
+        injection={fakeInjection()}
         clientCapabilities={() => []}
       />,
     )
@@ -400,8 +403,7 @@ describe('环境检查视图', () => {
       <EnvCheckView
         client={fake.client}
         workspaceRoot="/two"
-        canInject
-        injectDraft={() => true}
+        injection={fakeInjection()}
         clientCapabilities={() => []}
       />,
     )
@@ -417,8 +419,7 @@ describe('环境检查视图', () => {
       <EnvCheckView
         client={fake.client}
         workspaceRoot={undefined}
-        canInject
-        injectDraft={() => true}
+        injection={fakeInjection()}
         clientCapabilities={() => []}
       />,
     )

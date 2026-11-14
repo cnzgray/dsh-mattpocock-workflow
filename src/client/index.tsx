@@ -5,13 +5,16 @@
  * - `sidebarRightTabs` 的页签类型（含引导页入口）；
  * - `sidebar.right.pane.tab` 的页签内容。
  *
- * 提示词通过 `sessions.scope` + `conversation.input.for(...).setDraft` 填进当前会话，
- * 不自动发送。服务缺失时面板仍能看工单，注入按钮降级为不可用。
+ * 提示词有两个注入目标：当前会话走 `sessions.scope` + `conversation.input.for(...).setDraft`，
+ * 新会话走 `uiWorkspace.startSession`（宿主负责复用空白会话、选 agent 预设与切换主界面），
+ * 两条路径共用同一段文本，都不自动发送。`uiWorkspace` 是可选能力：缺失时只禁用分裂动作的
+ * 小箭头，主键照常可用。
  */
 import * as React from 'react'
 
 import { createClientCapabilities, type ClientCapabilities } from './capabilities.ts'
 import type { UiCapabilityId } from '../protocol/env-check.ts'
+import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
 import { createPanelClient, type PanelClient } from './rpc.ts'
 import { TaskPanel } from './task-panel.tsx'
 
@@ -58,6 +61,7 @@ interface TaskTabProps {
 }
 
 type DraftInjector = (sessionId: string, text: string) => boolean
+type NewSessionStarter = (text: string) => void
 
 const useNoSessions: UseSessionsLike = () => undefined
 
@@ -71,16 +75,35 @@ interface ConversationLike {
   }
 }
 
+interface StartSessionOptionsLike {
+  readonly prompt?: string
+  readonly whenDraftExists?: 'replace' | 'append' | 'keep'
+}
+
+/** DSH 客户端的工作区导航能力：开新会话并准备初始提示词。 */
+interface UiWorkspaceLike {
+  startSession(workspaceId?: string, options?: StartSessionOptionsLike): void
+}
+
 interface ClientContextLike {
   get(name: string): unknown
   inject(deps: readonly string[], callback: (scope: ClientContextLike) => unknown): unknown
   effect(setup: () => () => void, label?: string): unknown
 }
 
-interface InjectorRef {
+interface InjectionRef {
+  /** 往当前会话输入框写文本。 */
   current: DraftInjector | undefined
-  /** 注入能力就绪或失效时通知已挂载的面板，按钮的禁用状态才会跟着变。 */
+  /** 以给定提示词开新会话。 */
+  newSession: NewSessionStarter | undefined
+  /** 任一注入能力就绪或失效时通知已挂载的面板，按钮的禁用状态才会跟着变。 */
   readonly listeners: Set<() => void>
+}
+
+/** 两项注入能力是否就绪；各自独立，缺新会话能力不影响当前会话。 */
+interface InjectionReadiness {
+  readonly current: boolean
+  readonly newSession: boolean
 }
 
 /** DSH 客户端插件声明；具体扩展点在 apply 里等待服务就绪。 */
@@ -109,18 +132,13 @@ export function apply(ctx: ClientContextLike): void {
       return
     }
 
-    // sessions 与 conversation 可能比 slots 晚就绪：先挂面板，注入能力就绪后再装进 ref。
-    const injectorRef: InjectorRef = { current: undefined, listeners: new Set() }
-    scope.inject(['sessions', 'conversation'], (inner) => {
-      capabilities.mark('sessions', readSessions(inner.get('sessions')) !== undefined)
-      capabilities.mark('conversation', readConversation(inner.get('conversation')) !== undefined)
-      setInjector(injectorRef, createDraftInjector(inner))
-      return () => {
-        capabilities.mark('sessions', false)
-        capabilities.mark('conversation', false)
-        setInjector(injectorRef, undefined)
-      }
-    })
+    // 注入能力可能比 slots 晚就绪：先挂面板，能力就绪后再装进 ref。
+    const injectionRef: InjectionRef = {
+      current: undefined,
+      newSession: undefined,
+      listeners: new Set(),
+    }
+    registerInjection(scope, injectionRef, capabilities)
 
     scope.effect(
       () =>
@@ -147,7 +165,7 @@ export function apply(ctx: ClientContextLike): void {
           registerSlot('sidebar.right.pane.tab', capabilities, () =>
             slots.register(
               { name: 'sidebar.right.pane.tab', key: TAB_ID },
-              createTaskTab(client, injectorRef, capabilities),
+              createTaskTab(client, injectionRef, capabilities),
             ),
           ),
         ),
@@ -166,13 +184,44 @@ export function apply(ctx: ClientContextLike): void {
   })
 }
 
+/**
+ * 接上两条独立的注入能力：当前会话（会话 + 对话输入）与新会话（工作区导航）。
+ * 新会话是可选依赖，没有它只禁用小箭头，主键不受影响。
+ */
+function registerInjection(
+  scope: ClientContextLike,
+  injectionRef: InjectionRef,
+  capabilities: ClientCapabilities,
+): void {
+  scope.inject(['sessions', 'conversation'], (inner) => {
+    capabilities.mark('sessions', readSessions(inner.get('sessions')) !== undefined)
+    capabilities.mark('conversation', readConversation(inner.get('conversation')) !== undefined)
+    setCurrentInjector(injectionRef, createDraftInjector(inner))
+    return () => {
+      capabilities.mark('sessions', false)
+      capabilities.mark('conversation', false)
+      setCurrentInjector(injectionRef, undefined)
+    }
+  })
+
+  scope.inject(['uiWorkspace'], (inner) => {
+    const starter = createNewSessionStarter(inner)
+    capabilities.mark('uiWorkspace', starter !== undefined)
+    setNewSessionStarter(injectionRef, starter)
+    return () => {
+      capabilities.mark('uiWorkspace', false)
+      setNewSessionStarter(injectionRef, undefined)
+    }
+  })
+}
+
 function TaskTabTitle(): React.ReactElement {
   return <span>MattWorkflow</span>
 }
 
 function createTaskTab(
   client: PanelClient,
-  injectorRef: InjectorRef,
+  injectionRef: InjectionRef,
   capabilities: ClientCapabilities,
 ): React.ComponentType<TaskTabProps> {
   return function TaskTab(props: TaskTabProps): React.ReactElement {
@@ -181,38 +230,47 @@ function createTaskTab(
     const cwd = useSessions((state) =>
       sessionId === undefined ? undefined : state.byId[sessionId]?.cwd,
     )
-    const injectDraft = React.useCallback(
-      (text: string) => {
-        const injector = injectorRef.current
-        return injector === undefined || sessionId === undefined ? false : injector(sessionId, text)
-      },
-      [injectorRef, sessionId],
+    const readiness = useInjectionReadiness(injectionRef)
+    const injection = React.useMemo<PromptInjection>(
+      () => ({
+        canInjectCurrent: sessionId !== undefined && readiness.current,
+        canStartNewSession: readiness.newSession,
+        inject: (text, target) => dispatchInjection(injectionRef, sessionId, text, target),
+      }),
+      [injectionRef, sessionId, readiness.current, readiness.newSession],
     )
-    const injectorReady = useInjectorReady(injectorRef)
 
     return (
       <TaskPanel
         client={client}
         workspaceRoot={cwd}
-        canInject={sessionId !== undefined && injectorReady}
-        injectDraft={injectDraft}
+        injection={injection}
         clientCapabilities={capabilities.read}
       />
     )
   }
 }
 
-function setInjector(ref: InjectorRef, injector: DraftInjector | undefined): void {
+function setCurrentInjector(ref: InjectionRef, injector: DraftInjector | undefined): void {
   ref.current = injector
+  notify(ref)
+}
+
+function setNewSessionStarter(ref: InjectionRef, starter: NewSessionStarter | undefined): void {
+  ref.newSession = starter
+  notify(ref)
+}
+
+function notify(ref: InjectionRef): void {
   for (const listener of ref.listeners) listener()
 }
 
-function useInjectorReady(ref: InjectorRef): boolean {
-  const [ready, setReady] = React.useState(ref.current !== undefined)
+function useInjectionReadiness(ref: InjectionRef): InjectionReadiness {
+  const [readiness, setReadiness] = React.useState<InjectionReadiness>(() => readReadiness(ref))
 
   React.useEffect(() => {
     const update = (): void => {
-      setReady(ref.current !== undefined)
+      setReadiness(readReadiness(ref))
     }
     ref.listeners.add(update)
     update()
@@ -221,7 +279,43 @@ function useInjectorReady(ref: InjectorRef): boolean {
     }
   }, [ref])
 
-  return ready
+  return readiness
+}
+
+function readReadiness(ref: InjectionRef): InjectionReadiness {
+  return { current: ref.current !== undefined, newSession: ref.newSession !== undefined }
+}
+
+/** 按目标分派；新会话请求交给宿主后只报「已请求」。 */
+function dispatchInjection(
+  ref: InjectionRef,
+  sessionId: string | undefined,
+  text: string,
+  target: InjectionTarget,
+): InjectionOutcome {
+  if (target === 'new-session') {
+    const start = ref.newSession
+    if (start === undefined) return 'unavailable'
+    start(text)
+    return 'requested'
+  }
+
+  const injector = ref.current
+  if (injector === undefined || sessionId === undefined) return 'unavailable'
+  return injector(sessionId, text) ? 'filled' : 'unavailable'
+}
+
+/**
+ * 宿主已有的「开新会话并准备初始提示词」路径。
+ * 工作区不传，沿用当前所在的工作区；草稿策略是追加，已有草稿不会被清空。
+ */
+function createNewSessionStarter(ctx: ClientContextLike): NewSessionStarter | undefined {
+  const uiWorkspace = readUiWorkspace(ctx.get('uiWorkspace'))
+  if (uiWorkspace === undefined) return undefined
+
+  return (text) => {
+    uiWorkspace.startSession(undefined, { prompt: text, whenDraftExists: 'append' })
+  }
 }
 
 function createDraftInjector(ctx: ClientContextLike): DraftInjector | undefined {
@@ -267,6 +361,12 @@ function readSessions(value: unknown): SessionsLike | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   if (!('scope' in value) || typeof value.scope !== 'function') return undefined
   return value as unknown as SessionsLike
+}
+
+function readUiWorkspace(value: unknown): UiWorkspaceLike | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  if (!('startSession' in value) || typeof value.startSession !== 'function') return undefined
+  return value as unknown as UiWorkspaceLike
 }
 
 function readConversation(value: unknown): ConversationLike | undefined {

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { RpcResult, TicketDetail } from '../protocol/tracker.ts'
+import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import {
   DETAIL,
@@ -282,8 +283,8 @@ describe('工单详情视图', () => {
 
 describe('技能按钮', () => {
   it('详情顶部显示技能按钮，点击填入与列表同一份提示词', async () => {
-    const injectDraft = vi.fn(() => true)
-    renderView(fakeBackend().client, { injectDraft })
+    const injectDraft = vi.fn(() => 'filled' as const)
+    renderView(fakeBackend().client, { injection: fakeInjection({ inject: injectDraft }) })
 
     await screen.findByTestId('detail-title')
     expect(injectDraft).not.toHaveBeenCalled()
@@ -293,14 +294,17 @@ describe('技能按钮', () => {
 
     fireEvent.click(element('skill-badge'))
 
-    expect(injectDraft).toHaveBeenCalledWith(expect.stringMatching(/^\/implement 处理工单 #25/))
+    expect(injectDraft).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/implement 处理工单 #25/),
+      'current-session',
+    )
     expect(element('skill-badge').dataset.injected).toBe('true')
   })
 
   it('不可开工的票显示原因徽标而不是按钮', async () => {
-    const injectDraft = vi.fn(() => true)
+    const injectDraft = vi.fn(() => 'filled' as const)
     renderView(fakeBackend().client, {
-      injectDraft,
+      injection: fakeInjection({ inject: injectDraft }),
       ticket: snapshotTicket({
         status: 'blocked',
         skillAction: 'none',
@@ -317,8 +321,10 @@ describe('技能按钮', () => {
   })
 
   it('没有可用会话时禁用技能按钮并说明原因', async () => {
-    const injectDraft = vi.fn(() => true)
-    renderView(fakeBackend().client, { canInject: false, injectDraft })
+    const injectDraft = vi.fn(() => 'filled' as const)
+    renderView(fakeBackend().client, {
+      injection: fakeInjection({ canInjectCurrent: false, inject: injectDraft }),
+    })
 
     await screen.findByTestId('detail-title')
     expect(button('skill-badge').disabled).toBe(true)
@@ -329,8 +335,8 @@ describe('技能按钮', () => {
   })
 
   it('填入失败时在详情里显示原因', async () => {
-    const injectDraft = vi.fn(() => false)
-    renderView(fakeBackend().client, { injectDraft })
+    const injectDraft = vi.fn(() => 'unavailable' as const)
+    renderView(fakeBackend().client, { injection: fakeInjection({ inject: injectDraft }) })
 
     await screen.findByTestId('detail-title')
     fireEvent.click(element('skill-badge'))
