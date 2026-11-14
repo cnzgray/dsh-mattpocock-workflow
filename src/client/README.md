@@ -22,4 +22,7 @@
 - 提示词注入按目标分派（`injection.ts`）：顶部两个入池按钮与工单行的技能徽标共用 `split-action.tsx`，
   主键写当前会话，小箭头走宿主的 `uiWorkspace.startSession` 开新会话；`uiWorkspace` 是可选能力，
   缺失时只禁用小箭头；
+- 面板跟随（`panel-follow.ts`）在页签类型注册之后装上：来源会话开着 MattWorkflow 页签时，
+  切到没见过的会话就替用户打开，宿主会顺带展开右栏。入口只挂一行，时机、去重、落座重试与
+  宿主能力缺失的降级都在模块里；`sidebarRight` 是可选能力，缺失时只少这一条行为；
 - 测试跑在 jsdom 里：视图测试用假 `PanelClient` 与固定时钟；入口测试装配真实客户端，用假 `fetch` 提供快照；都不连真实远端。

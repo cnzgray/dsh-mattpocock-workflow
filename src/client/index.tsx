@@ -5,6 +5,9 @@
  * - `sidebarRightTabs` 的页签类型（含引导页入口）；
  * - `sidebar.right.pane.tab` 的页签内容。
  *
+ * 页签类型注册好之后装上面板跟随（`panel-follow.ts`）：会话换人时把 MattWorkflow
+ * 页签带到新会话，宿主会顺带展开右栏。`sidebarRight` 是可选能力，缺失时只少这一条行为。
+ *
  * 提示词有两个注入目标：当前会话走 `sessions.scope` + `conversation.input.for(...).setDraft`，
  * 新会话走 `uiWorkspace.startSession`（宿主负责复用空白会话、选 agent 预设与切换主界面），
  * 两条路径共用同一段文本，都不自动发送。`uiWorkspace` 是可选能力：缺失时只禁用分裂动作的
@@ -17,6 +20,7 @@ import { createClientCapabilities, type ClientCapabilities } from './capabilitie
 import type { UiCapabilityId } from '../protocol/env-check.ts'
 import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
 import { createPanelClient, type PanelClient } from './rpc.ts'
+import { startPanelFollow } from './panel-follow.ts'
 import { TaskPanel } from './task-panel.tsx'
 
 const PLUGIN_NAME = 'dsh-mattpocock-workflow'
@@ -175,6 +179,12 @@ export function apply(ctx: ClientContextLike): void {
           ),
         ),
       `${PLUGIN_NAME}: 页签标题`,
+    )
+
+    // 页签类型注册之后才装跟随：第一次 openTab 不能撞上「kind 未注册」。
+    scope.effect(
+      () => startPanelFollow(scope, { tabKind: TAB_KIND, capabilities }),
+      `${PLUGIN_NAME}: 面板跟随`,
     )
   })
 }

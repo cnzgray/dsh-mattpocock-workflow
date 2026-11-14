@@ -98,6 +98,11 @@ const CAPABILITIES: Readonly<Record<CapabilityId, CapabilityContent>> = {
     impact: '注册不了页签类型，右栏里看不到 MattWorkflow。',
     fix: '升级 DSH 到提供 sidebarRightTabs 的版本后重启。',
   },
+  sidebarRight: {
+    label: '右栏控制',
+    impact: '新会话里不会自动恢复 MattWorkflow 页签，右栏保持折叠。',
+    fix: '升级 DSH 到提供 sidebarRight 服务的版本后重启；或按 ⌘⌥B 手动展开右栏。',
+  },
   sessions: {
     label: '会话状态',
     impact: '确定不了当前会话，提示词注入不可用。',

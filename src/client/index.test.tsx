@@ -9,6 +9,7 @@ import * as React from 'react'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import { ACTIVITY_SETTLE_MS } from './agent-activity.ts'
 import { apply } from './index.tsx'
+import { createFakeRightColumn } from './panel-follow-test-support.ts'
 
 afterEach(() => {
   cleanup()
@@ -85,6 +86,14 @@ interface Harness {
   readonly submits: { count: number }
   /** 面板发往宿主的 RPC，按发生顺序。 */
   readonly requests: readonly RequestRecord[]
+  /** 宿主右栏收到的 openTab 调用，按发生顺序。 */
+  readonly tabOpens: readonly string[]
+  /** 模拟会话切换：右栏在屏会话变化的通知。 */
+  readonly showSession: (sessionId: string | undefined) => void
+  /** 设置右栏的页签清单。 */
+  readonly setRightTabs: (
+    tabs: readonly { readonly sessionId: string; readonly kind: string }[],
+  ) => void
   /** 让会话与对话服务晚一步就绪，用来观察注入能力的恢复。 */
   readonly addConversation: () => void
   /** 改会话的运行状态与最近活动时间，模拟 agent 跑完一轮。 */
@@ -105,6 +114,8 @@ function setup(
   const submits = { count: 0 }
   let registered: React.ComponentType<Record<string, unknown>> | undefined
 
+  const rightColumn = createFakeRightColumn()
+
   const services: Record<string, unknown> = {
     slots: {
       inject: (_name: string, factory: () => () => void) => {
@@ -119,6 +130,7 @@ function setup(
       },
     },
     sidebarRightTabs: { register: () => () => undefined },
+    sidebarRight: rightColumn.service,
   }
   if (options.withUiWorkspace !== false) {
     services.uiWorkspace = {
@@ -198,7 +210,21 @@ function setup(
     view.rerender(React.createElement(Tab, { sessionId: 's1', useSessions: sessions }))
   }
 
-  return { drafts, startCalls, submits, requests, addConversation, setActivity }
+  return {
+    drafts,
+    startCalls,
+    submits,
+    requests,
+    tabOpens: rightColumn.opens,
+    showSession: (sessionId) => {
+      rightColumn.show(sessionId)
+    },
+    setRightTabs: (tabs) => {
+      rightColumn.setTabs(tabs)
+    },
+    addConversation,
+    setActivity,
+  }
 }
 
 describe('客户端入口', () => {
@@ -311,5 +337,22 @@ describe('客户端入口', () => {
     expect(refreshes).toHaveLength(1)
     expect(refreshes[0]?.params).toEqual({ workspaceRoot: '/repo' })
     expect(harness.requests.filter((request) => request.method === 'snapshot.get')).toHaveLength(1)
+  })
+
+  it('新会话到来时把 MattWorkflow 页签带过去', async () => {
+    const harness = setup()
+    await screen.findAllByTestId('ticket-row')
+
+    act(() => {
+      harness.setRightTabs([{ sessionId: 's0', kind: 'dsh-mattpocock-workflow' }])
+      harness.showSession('s0')
+    })
+    act(() => {
+      harness.showSession('s1')
+    })
+
+    await waitFor(() => {
+      expect(harness.tabOpens).toEqual(['dsh-mattpocock-workflow'])
+    })
   })
 })

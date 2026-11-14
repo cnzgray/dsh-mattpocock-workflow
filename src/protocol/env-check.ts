@@ -119,6 +119,7 @@ export type HostCapabilityId = (typeof HOST_CAPABILITY_IDS)[number]
 export const UI_CAPABILITY_IDS = [
   'slots',
   'sidebarRightTabs',
+  'sidebarRight',
   'sessions',
   'conversation',
   'uiWorkspace',

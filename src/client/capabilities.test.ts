@@ -9,6 +9,7 @@ describe('界面能力记录器', () => {
     expect(capabilities.read().map((entry) => entry.id)).toEqual([
       'slots',
       'sidebarRightTabs',
+      'sidebarRight',
       'sessions',
       'conversation',
       'uiWorkspace',
