@@ -34,6 +34,7 @@ mattpocock/skills 的 triage 标签与 `Blocked by:` 约定。
   （逐项检查、跳过前置失败项、折叠的能力诊断）；
 - 数据来自 `gh` / `glab` / `tea` CLI 或 `.scratch/<feature>/issues/*.md`；GitLab 阻塞信息首屏后补齐；
 - 工单数据先落到插件自己的本地快照库，首屏先出库里的数据，再用增量刷新把它推向最新；远端不可用时仍显示上次的数据并说明刷新失败；
+- 面板开着时，agent 那一轮停下后面板自己做一次后台增量刷新：数据没变就不动界面，变了才更新，筛选、排序、正在看的票与提示词草稿都不受影响；
 - 业务术语以根目录 `GLOSSARY.md` 为准。
 
 ## Capabilities and Constraints

@@ -12,7 +12,7 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { TicketsView } from './tickets-view.tsx'
+import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
   cleanup()
@@ -172,7 +172,7 @@ function renderView(
   } = {},
 ): void {
   render(
-    <TicketsView
+    <TicketsViewWithRequest
       client={fakeClient()}
       workspaceRoot="/repo"
       injection={options.injection ?? fakeInjection()}

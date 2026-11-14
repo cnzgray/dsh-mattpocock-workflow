@@ -47,9 +47,8 @@ import {
   metricText,
   statusSegments,
 } from './overview-text.ts'
-import type { PanelClient } from './rpc.ts'
 import { formatAge, useNow } from './snapshot-age.ts'
-import { snapshotRefreshNotice, useSnapshotRequest } from './snapshot-request.ts'
+import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
@@ -73,7 +72,8 @@ const REFRESH_ERROR_STYLE: React.CSSProperties = {
 
 /** 概览视图依赖。 */
 export interface OverviewViewProps {
-  readonly client: PanelClient
+  /** 面板共用的快照状态：首屏两阶段加载与刷新都在面板层，视图只渲染。 */
+  readonly request: SnapshotRequestState
   readonly workspaceRoot: string | undefined
   readonly now?: (() => number) | undefined
   /** 关注清单点击：切到列表并定位这张票；只读，不写提示词。 */
@@ -85,10 +85,7 @@ export interface OverviewViewProps {
 /** 概览视图。 */
 export function OverviewView(props: OverviewViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
-  const { snapshot, error, refreshError, phase, refresh } = useSnapshotRequest(
-    props.client,
-    props.workspaceRoot,
-  )
+  const { snapshot, error, refreshError, phase, refresh } = props.request
   const nowValue = useNow(clock)
   const busy = phase === 'loading' || phase === 'refreshing'
 

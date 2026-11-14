@@ -6,7 +6,14 @@
 - 三个视图：列表（`tickets-view.tsx`）、概览（`overview-view.tsx`）与环境检查（`env-check-view.tsx`），
   默认仍是列表；视图切换条在窄侧栏里可横向滚动；
 - 列表与概览共用 `snapshot-request.ts` 的两阶段加载（首屏只等列表、后台补齐阻塞）与 `error-banner.tsx` 的错误提示，
-  不各自维护一份；
+  不各自维护一份；快照状态由面板（`task-panel.tsx`）取一次再传下去，切视图、进详情都不重新读；
+- 面板常驻右栏，agent 建票、triage、改状态走的是跟踪器自己的命令行，宿主不会通知面板；
+  同步点只有会话列表：`agent-activity.ts` 读这一轮是否在跑与最近活动时间，
+  一轮停下并安静 `ACTIVITY_SETTLE_MS` 之后把刷新信号加一，面板据此做一次**后台增量刷新**。
+  后台刷新不切「刷新中」、不动按钮；拉回来的数据与当前显示的一致时整份丢弃（`snapshotVisibleChange`），
+  数据变了才落地。面板拿不到 agent 跑了哪条命令，所以只读的一轮也会多一次增量请求，多出来的那份不落地；
+  无论落不落地，用户选的筛选、排序、正在看的详情与输入框里的提示词草稿都不受影响；
+  刷新失败沿用「保留旧数据 + 数据旁边说明原因」；
 - 概览只渲染宿主附上的指标：档位、触发事实、缺口原因与关注清单都来自 `snapshot.metrics`；文案与格式在
   `overview-text.ts`，样式在 `overview-styles.ts`；图表组件在 `overview-charts.tsx`，
   压力区（每个维度一张卡片，档位、触发原因与支撑数字放在一起）在 `overview-pressure.tsx`，

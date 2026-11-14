@@ -16,7 +16,7 @@ import type {
 } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { TicketsView } from './tickets-view.tsx'
+import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
   cleanup()
@@ -133,7 +133,7 @@ async function renderRows(tickets: readonly TicketSnapshot[] = TICKETS): Promise
     total: tickets.length,
   }
   render(
-    <TicketsView
+    <TicketsViewWithRequest
       client={fakeClient(snapshot)}
       workspaceRoot="/repo"
       injection={fakeInjection()}

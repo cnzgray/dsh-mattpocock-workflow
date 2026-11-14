@@ -1,5 +1,5 @@
 /**
- * 工单列表视图。只依赖注入的面板客户端与提示词注入函数，不直接接触 DSH，
+ * 工单列表视图。只渲染面板传下来的快照状态与提示词注入函数，不直接接触 DSH，
  * 因此 Vitest + jsdom 就能测统计、过滤、排序、加载与错误状态。
  *
  * 点击工单行只打开详情，不注入提示词；注入由操作栏的明确按钮与详情视图触发。
@@ -18,9 +18,8 @@ import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
 import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import { formatRelativeTime } from './relative-time.ts'
-import type { PanelClient } from './rpc.ts'
 import { useNow } from './snapshot-age.ts'
-import { snapshotRefreshNotice, useSnapshotRequest } from './snapshot-request.ts'
+import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import type { NoticeTone } from './use-draft-injection.ts'
 import { SplitAction } from './split-action.tsx'
@@ -81,7 +80,8 @@ const REFRESH_ERROR_STYLE: React.CSSProperties = {
 
 /** 工单列表视图依赖。 */
 export interface TicketsViewProps {
-  readonly client: PanelClient
+  /** 面板共用的快照状态：首屏两阶段加载与刷新都在面板层，视图只渲染。 */
+  readonly request: SnapshotRequestState
   readonly workspaceRoot: string | undefined
   readonly injection: PromptInjection
   readonly now?: (() => number) | undefined
@@ -98,10 +98,7 @@ export interface TicketsViewProps {
 /** 工单列表视图。 */
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
-  const { snapshot, error, refreshError, phase, refresh, refreshFull } = useSnapshotRequest(
-    props.client,
-    props.workspaceRoot,
-  )
+  const { snapshot, error, refreshError, phase, refresh, refreshFull } = props.request
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
   const { injected, notice, noticeTone, inject, onSkillAction } = useTicketActions(

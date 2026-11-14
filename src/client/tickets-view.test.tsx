@@ -19,7 +19,7 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import { fakeInjection } from './injection-test-support.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { TicketsView } from './tickets-view.tsx'
+import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
   cleanup()
@@ -174,7 +174,7 @@ function viewElement(
   onOpenTicket: (ticket: TicketSnapshot) => void = () => undefined,
 ): React.ReactElement {
   return (
-    <TicketsView
+    <TicketsViewWithRequest
       client={client}
       workspaceRoot={workspaceRoot}
       injection={fakeInjection()}
@@ -312,7 +312,7 @@ describe('工单列表的阻塞补齐', () => {
       Promise.resolve({ ok: true, result: FINAL }),
     )
     render(
-      <TicketsView
+      <TicketsViewWithRequest
         client={fake.client}
         workspaceRoot="/repo"
         injection={fakeInjection({ inject: injectDraft })}

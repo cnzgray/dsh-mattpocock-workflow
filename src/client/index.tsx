@@ -12,6 +12,7 @@
  */
 import * as React from 'react'
 
+import { useAgentActivitySignal, type UseSessionsLike } from './agent-activity.ts'
 import { createClientCapabilities, type ClientCapabilities } from './capabilities.ts'
 import type { UiCapabilityId } from '../protocol/env-check.ts'
 import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
@@ -48,12 +49,6 @@ interface TabDefinitionLike {
 interface SidebarRightTabsLike {
   register(definition: TabDefinitionLike): () => void
 }
-
-interface SessionListLike {
-  readonly byId: Record<string, { readonly cwd?: string } | undefined>
-}
-
-type UseSessionsLike = <T>(selector: (state: SessionListLike) => T) => T | undefined
 
 interface TaskTabProps {
   readonly sessionId?: string | undefined
@@ -231,6 +226,8 @@ function createTaskTab(
       sessionId === undefined ? undefined : state.byId[sessionId]?.cwd,
     )
     const readiness = useInjectionReadiness(injectionRef)
+    // agent 把这一轮跑完（或空闲时又动了工单）之后，面板自己把列表拉回最新。
+    const refreshSignal = useAgentActivitySignal(useSessions, sessionId)
     const injection = React.useMemo<PromptInjection>(
       () => ({
         canInjectCurrent: sessionId !== undefined && readiness.current,
@@ -245,6 +242,7 @@ function createTaskTab(
         client={client}
         workspaceRoot={cwd}
         injection={injection}
+        refreshSignal={refreshSignal}
         clientCapabilities={capabilities.read}
       />
     )

@@ -381,6 +381,19 @@ describe('任务面板', () => {
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
+  it('列表与概览共用一份快照，切视图不重新读取', async () => {
+    const fake = fakeClient({ ok: true, result: SNAPSHOT })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('view-overview'))
+    expect(await screen.findByTestId('overview-view')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('view-tickets'))
+
+    await screen.findAllByTestId('ticket-row')
+    expect(fake.getCalls).toEqual(['/repo'])
+  })
+
   it('点击关注清单跳到列表并定位该票，不写入提示词', async () => {
     const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
       () => 'filled',
@@ -512,6 +525,43 @@ describe('任务面板', () => {
     await screen.findAllByTestId('ticket-row')
     expect(screen.getByTestId('filter-ready').getAttribute('aria-pressed')).toBe('true')
     expect(rowRefs()).toEqual(['#1', '#5'])
+  })
+
+  it('agent 活动信号在详情态也刷新列表，返回列表后筛选与数据都是新的', async () => {
+    const retitled = {
+      ...SNAPSHOT,
+      tickets: SNAPSHOT.tickets.map((ticket) =>
+        ticket.ref === '#1' ? { ...ticket, title: 'Bravo 改过标题' } : ticket,
+      ),
+    }
+    const fake = fakeClient({ ok: true, result: SNAPSHOT }, { ok: true, result: retitled })
+    const view = render(<TaskPanel {...panelProps({ client: fake.client, refreshSignal: 0 })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-ready'))
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+
+    view.rerender(<TaskPanel {...panelProps({ client: fake.client, refreshSignal: 1 })} />)
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    // 刷新期间详情不被打断。
+    expect(screen.getByTestId('detail-content')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('detail-back'))
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('filter-ready').getAttribute('aria-pressed')).toBe('true')
+    expect(
+      screen
+        .getAllByTestId('ticket-row')
+        .map((row) => row.textContent)
+        .join(),
+    ).toContain('Bravo 改过标题')
+    // 列表数据在面板层，回到列表不再重读一次。
+    expect(fake.getCalls).toEqual(['/repo'])
   })
 
   it('Esc 从详情返回列表', async () => {

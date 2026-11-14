@@ -5,14 +5,16 @@ import * as React from 'react'
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
+  ErrorCode,
   PressureDimensionReport,
   RpcResult,
   SnapshotMetrics,
   TicketSnapshot,
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
-import { OverviewView, type OverviewViewProps } from './overview-view.tsx'
+import { OverviewView } from './overview-view.tsx'
 import type { PanelClient } from './rpc.ts'
+import { useSnapshotRequest } from './snapshot-request.ts'
 
 afterEach(() => {
   cleanup()
@@ -226,25 +228,45 @@ function fakeClient(
   return { client, getCalls, refreshCalls, resolveCalls }
 }
 
+/**
+ * 面板把快照状态传下来，视图只渲染：这里用真实的请求 hook 造这份状态，
+ * 用例照旧用假客户端驱动首屏、补齐与刷新。
+ */
+function OverviewWithRequest(props: {
+  readonly client: PanelClient
+  readonly workspaceRoot: string
+  readonly onOpenTicket: (ref: string) => void
+  readonly onOpenEnvCheck: (code: ErrorCode) => void
+}): React.ReactElement {
+  const request = useSnapshotRequest(props.client, props.workspaceRoot)
+  return (
+    <OverviewView
+      request={request}
+      workspaceRoot={props.workspaceRoot}
+      now={() => NOW}
+      onOpenTicket={props.onOpenTicket}
+      onOpenEnvCheck={props.onOpenEnvCheck}
+    />
+  )
+}
+
 function renderView(
   fake: FakeClient,
-  overrides: Partial<OverviewViewProps> = {},
+  overrides: { readonly workspaceRoot?: string } = {},
 ): {
   readonly calls: { readonly tickets: string[]; readonly env: string[] }
 } {
   const calls = { tickets: [] as string[], env: [] as string[] }
   render(
-    <OverviewView
+    <OverviewWithRequest
       client={fake.client}
-      workspaceRoot="/repo"
-      now={() => NOW}
+      workspaceRoot={overrides.workspaceRoot ?? '/repo'}
       onOpenTicket={(ref) => {
         calls.tickets.push(ref)
       }}
       onOpenEnvCheck={(code) => {
         calls.env.push(code)
       }}
-      {...overrides}
     />,
   )
   return { calls }
@@ -507,10 +529,9 @@ describe('概览视图', () => {
       },
     }))
     const { rerender } = render(
-      <OverviewView
+      <OverviewWithRequest
         client={fake.client}
         workspaceRoot="/one"
-        now={() => NOW}
         onOpenTicket={() => undefined}
         onOpenEnvCheck={() => undefined}
       />,
@@ -520,10 +541,9 @@ describe('概览视图', () => {
     })
 
     rerender(
-      <OverviewView
+      <OverviewWithRequest
         client={fake.client}
         workspaceRoot="/two"
-        now={() => NOW}
         onOpenTicket={() => undefined}
         onOpenEnvCheck={() => undefined}
       />,

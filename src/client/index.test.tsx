@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
+import { ACTIVITY_SETTLE_MS } from './agent-activity.ts'
 import { apply } from './index.tsx'
 
 afterEach(() => {
@@ -56,12 +57,22 @@ interface ContextLike {
 }
 
 interface SessionsState {
-  readonly byId: Record<string, { readonly cwd?: string } | undefined>
+  readonly byId: Record<string, SessionRow | undefined>
+}
+
+interface SessionRow {
+  readonly cwd: string
+  readonly running: boolean
+  readonly updatedAt: number
 }
 
 type UseSessions = <T>(selector: (state: SessionsState) => T) => T | undefined
 
-const useSessions: UseSessions = (selector) => selector({ byId: { s1: { cwd: '/repo' } } })
+/** 一次面板发往宿主的 RPC 请求。 */
+interface RequestRecord {
+  readonly method: string
+  readonly params: unknown
+}
 
 interface StartCall {
   readonly workspaceId: string | undefined
@@ -72,8 +83,12 @@ interface Harness {
   readonly drafts: readonly { readonly sessionId: string; readonly text: string }[]
   readonly startCalls: readonly StartCall[]
   readonly submits: { count: number }
+  /** 面板发往宿主的 RPC，按发生顺序。 */
+  readonly requests: readonly RequestRecord[]
   /** 让会话与对话服务晚一步就绪，用来观察注入能力的恢复。 */
   readonly addConversation: () => void
+  /** 改会话的运行状态与最近活动时间，模拟 agent 跑完一轮。 */
+  readonly setActivity: (row: { readonly running: boolean; readonly updatedAt: number }) => void
 }
 
 /**
@@ -148,13 +163,15 @@ function setup(
   }
   if (options.withConversation !== false) addConversation()
 
-  vi.stubGlobal('fetch', () =>
-    Promise.resolve({
+  const requests: RequestRecord[] = []
+  vi.stubGlobal('fetch', (_input: string, init: { readonly body: string }) => {
+    requests.push(JSON.parse(init.body) as RequestRecord)
+    return Promise.resolve({
       ok: true,
       status: 200,
       json: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
-    }),
-  )
+    })
+  })
 
   apply({
     get: (name) => services[name],
@@ -167,9 +184,21 @@ function setup(
 
   const Tab = registered
   if (Tab === undefined) throw new Error('页签内容未注册')
-  render(React.createElement(Tab, { sessionId: 's1', useSessions }))
 
-  return { drafts, startCalls, submits, addConversation }
+  const row: { cwd: string; running: boolean; updatedAt: number } = {
+    cwd: '/repo',
+    running: false,
+    updatedAt: 1,
+  }
+  const sessions: UseSessions = (selector) => selector({ byId: { s1: row } })
+  const view = render(React.createElement(Tab, { sessionId: 's1', useSessions: sessions }))
+  const setActivity = (next: { readonly running: boolean; readonly updatedAt: number }): void => {
+    row.running = next.running
+    row.updatedAt = next.updatedAt
+    view.rerender(React.createElement(Tab, { sessionId: 's1', useSessions: sessions }))
+  }
+
+  return { drafts, startCalls, submits, requests, addConversation, setActivity }
 }
 
 describe('客户端入口', () => {
@@ -255,5 +284,32 @@ describe('客户端入口', () => {
 
     fireEvent.click(screen.getByTestId('new-feature'))
     expect(harness.drafts).toHaveLength(1)
+  })
+
+  it('agent 这一轮停下来之后，面板自己增量刷新一次工单', async () => {
+    const harness = setup()
+    await screen.findAllByTestId('ticket-row')
+    expect(harness.requests.map((request) => request.method)).toEqual(['snapshot.get'])
+
+    act(() => {
+      harness.setActivity({ running: true, updatedAt: 2 })
+    })
+    act(() => {
+      harness.setActivity({ running: false, updatedAt: 3 })
+    })
+
+    // 活动停下后等一个安静窗口再刷新；刷新走增量，不重拉整表。
+    await act(async () => {
+      const settled = Promise.withResolvers<number>()
+      setTimeout(() => {
+        settled.resolve(0)
+      }, ACTIVITY_SETTLE_MS + 200)
+      await settled.promise
+    })
+
+    const refreshes = harness.requests.filter((request) => request.method === 'snapshot.refresh')
+    expect(refreshes).toHaveLength(1)
+    expect(refreshes[0]?.params).toEqual({ workspaceRoot: '/repo' })
+    expect(harness.requests.filter((request) => request.method === 'snapshot.get')).toHaveLength(1)
   })
 })

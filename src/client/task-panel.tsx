@@ -16,6 +16,7 @@ import { EnvCheckView } from './env-check-view.tsx'
 import { HelpView } from './help-view.tsx'
 import { OverviewView } from './overview-view.tsx'
 import type { PanelClient } from './rpc.ts'
+import { useSnapshotRequest, type SnapshotRequestState } from './snapshot-request.ts'
 import {
   ICON_BUTTON_STYLE,
   PANEL_SHEET,
@@ -34,6 +35,11 @@ export interface TaskPanelProps {
   readonly workspaceRoot: string | undefined
   readonly injection: PromptInjection
   readonly now?: (() => number) | undefined
+  /**
+   * agent 侧的活动信号：变一次就后台增量刷新一次快照。
+   * 面板常驻右栏，agent 改完工单不会通知面板，只能靠会话活动把这一轮的变化拉回来。
+   */
+  readonly refreshSignal?: number | undefined
   /** 界面扩展点探测结果；省略时环境检查仍能显示宿主服务。 */
   readonly clientCapabilities?: (() => readonly CapabilityDiagnostic[]) | undefined
 }
@@ -63,6 +69,10 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   // 从帮助返回打开前的视图；帮助里再点 tips 不覆盖它。
   const previousView = React.useRef<Exclude<View, 'help'>>('tickets')
   const clientCapabilities = props.clientCapabilities ?? NO_CAPABILITIES
+  // 快照在面板层只取一份：切视图、进详情都不重新拉，也都能收到 agent 的活动信号。
+  const request = useSnapshotRequest(props.client, props.workspaceRoot, {
+    signal: props.refreshSignal,
+  })
 
   // 详情只在它所属的工作区里有效；切换工作区后立即回到新仓库的列表。
   const open =
@@ -94,6 +104,7 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
       />
       <PanelContent
         panel={props}
+        request={request}
         view={view}
         open={open}
         focusBackend={focusBackend}
@@ -133,6 +144,7 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
  */
 function PanelContent(props: {
   readonly panel: TaskPanelProps
+  readonly request: SnapshotRequestState
   readonly view: View
   readonly open: OpenTicket | null
   readonly focusBackend: FocusBackend
@@ -151,6 +163,7 @@ function PanelContent(props: {
     return (
       <TicketsPane
         client={panel.client}
+        request={props.request}
         workspaceRoot={panel.workspaceRoot}
         injection={panel.injection}
         now={panel.now}
@@ -167,7 +180,7 @@ function PanelContent(props: {
   if (props.view === 'overview') {
     return (
       <OverviewPane
-        client={panel.client}
+        request={props.request}
         workspaceRoot={panel.workspaceRoot}
         now={panel.now}
         onOpenTicket={props.onLocateTicket}
@@ -200,7 +213,7 @@ type FocusBackend = Exclude<BackendKind, 'markdown'> | null
  * @returns 概览视图。
  */
 function OverviewPane(props: {
-  readonly client: PanelClient
+  readonly request: SnapshotRequestState
   readonly workspaceRoot: string | undefined
   readonly now: (() => number) | undefined
   readonly onOpenTicket: (ref: string) => void
@@ -208,7 +221,7 @@ function OverviewPane(props: {
 }): React.ReactElement {
   return (
     <OverviewView
-      client={props.client}
+      request={props.request}
       workspaceRoot={props.workspaceRoot}
       now={props.now}
       onOpenTicket={props.onOpenTicket}
@@ -224,6 +237,7 @@ function OverviewPane(props: {
  */
 function TicketsPane(props: {
   readonly client: PanelClient
+  readonly request: SnapshotRequestState
   readonly workspaceRoot: string | undefined
   readonly injection: PromptInjection
   readonly now: (() => number) | undefined
@@ -248,7 +262,7 @@ function TicketsPane(props: {
 
   return (
     <TicketsView
-      client={props.client}
+      request={props.request}
       workspaceRoot={props.workspaceRoot}
       injection={props.injection}
       now={props.now}
