@@ -103,6 +103,36 @@ describe('流程帮助视图', () => {
   })
 })
 
+describe('实现之后场景', () => {
+  it('实现完成后先评审、再写 PR 正文，合并关票是终态', async () => {
+    render(<TaskPanel {...panelProps()} />)
+    await screen.findAllByTestId('ticket-row')
+    await openHelp()
+
+    const diagram = FLOW_DIAGRAMS.find((item) => item.id === 'after-implement')
+    if (diagram === undefined) throw new Error('缺少“实现之后”场景')
+
+    fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
+    const panel = screen.getByTestId('flow-diagrams')
+    const svgs = panel.querySelectorAll('svg[role="img"]')
+    expect(svgs).toHaveLength(1)
+    expect(svgs[0]?.getAttribute('aria-label')).toBe('实现之后')
+
+    const commands = [...panel.querySelectorAll('[data-command]')]
+    expect(commands.map((node) => node.getAttribute('data-command'))).toEqual(['code-review', 'pr'])
+    expect(commands.map((node) => node.getAttribute('data-owner'))).toEqual(['matt', 'matt'])
+    expect(commands.map((node) => node.getAttribute('data-stops'))).toEqual(['true', 'true'])
+
+    const nodes = [...panel.querySelectorAll('g[data-stops]')]
+    const terminal = nodes.at(-1)
+    expect(terminal?.getAttribute('data-command')).toBeNull()
+    expect(terminal?.getAttribute('data-stops')).toBe('false')
+    expect(terminal?.textContent).toContain('已合并、票已关闭')
+    expect(panel.textContent).toContain('实现完成')
+    expect(panel.textContent).toContain('评审意见已修完')
+  })
+})
+
 describe('直达规格场景', () => {
   it('需求已明确时单独一张图，画出从需求描述到拆票、实现的直达路径', async () => {
     render(<TaskPanel {...panelProps()} />)

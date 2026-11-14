@@ -155,8 +155,8 @@ export interface EnvCheckParams {
 
 /**
  * 面板用到的 mattpocock/skills 技能名。提示词模板、流程定义和必需技能清单都从这里取，
- * 不会写错名字。`REQUIRED_SKILLS` 只列处理阶段的前提；`wayfinder` 是按需出现的
- * 处理命令，缺装时由建票命令的下一步建议引导用户安装，不参与环境检查。
+ * 不会写错名字。`REQUIRED_SKILLS` 只列处理阶段的前提；`wayfinder` 与 `pr` 是按需出现的
+ * 处理命令，不参与环境检查，缺装时由用户按需补装。
  */
 export const PANEL_SKILLS = {
   setup: 'setup-matt-pocock-skills',
@@ -167,6 +167,8 @@ export const PANEL_SKILLS = {
   diagnosingBugs: 'diagnosing-bugs',
   wayfinder: 'wayfinder',
   implement: 'implement',
+  codeReview: 'code-review',
+  pr: 'pr',
 } as const
 
 /** 面板用到的技能名之一。提示词模板用它，写错技能名会在类型检查时失败。 */
@@ -174,7 +176,7 @@ export type PanelSkill = (typeof PANEL_SKILLS)[keyof typeof PANEL_SKILLS]
 
 /**
  * 环境检查逐项核对的技能，顺序按工作流：先初始化工作区，再是需求链
- * （访谈 → 规格 → 拆票）、缺陷链（定性 → 诊断）与实现。
+ * （访谈 → 规格 → 拆票）、缺陷链（定性 → 诊断），最后是实现与它的收尾评审。
  */
 export const REQUIRED_SKILLS = [
   PANEL_SKILLS.setup,
@@ -184,6 +186,7 @@ export const REQUIRED_SKILLS = [
   PANEL_SKILLS.triage,
   PANEL_SKILLS.diagnosingBugs,
   PANEL_SKILLS.implement,
+  PANEL_SKILLS.codeReview,
 ] as const
 
 /**
