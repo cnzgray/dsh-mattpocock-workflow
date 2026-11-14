@@ -2,7 +2,8 @@
  * 工单列表视图。只渲染面板传下来的快照状态与提示词注入函数，不直接接触 DSH，
  * 因此 Vitest + jsdom 就能测统计、过滤、排序、加载与错误状态。
  *
- * 点击工单行只打开详情，不注入提示词；注入由操作栏的明确按钮与详情视图触发。
+ * 点击工单行只打开详情，不注入提示词；注入由动作栏的按钮（`action-bar.tsx`）
+ * 与详情视图触发。
  */
 import * as React from 'react'
 
@@ -13,28 +14,24 @@ import type {
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
+import { ActionBar } from './action-bar.tsx'
 import { ErrorBanner } from './error-banner.tsx'
-import { FolderIcon, PlusIcon, RefreshIcon } from './icons.tsx'
+import { FolderIcon, RefreshIcon } from './icons.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
-import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import type { NoticeTone } from './use-draft-injection.ts'
-import { SplitAction } from './split-action.tsx'
 import { TicketList } from './ticket-list.tsx'
 import {
-  ACTION_BAR_STYLE,
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
-  BUG_ACTION_STYLE,
   BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
   CHIP_STYLE,
   COLORS,
   EMPTY_STYLE,
-  FEATURE_ACTION_STYLE,
   FILTERS,
   HEADER_STYLE,
   LOADED_STYLE,
@@ -43,9 +40,6 @@ import {
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
   SORT_OPTIONS,
-  STATS_STYLE,
-  STAT_STYLE,
-  STAT_VALUE_STYLE,
   SEGMENTED_STYLE,
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
@@ -54,7 +48,6 @@ import {
   filterTickets,
   sortTickets,
   type SortDirection,
-  type TicketCounts,
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
@@ -134,12 +127,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       <ActionBar
         counts={snapshot === null ? null : counts}
         injection={props.injection}
-        onNewFeature={(target) => {
-          inject(newFeaturePrompt(), target)
-        }}
-        onNewBug={(target) => {
-          inject(newBugPrompt(), target)
-        }}
+        onInject={inject}
       />
       {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
       {snapshot !== null ? (
@@ -324,112 +312,6 @@ function Header(props: {
         </button>
       </div>
     </header>
-  )
-}
-
-function ActionBar(props: {
-  readonly counts: TicketCounts | null
-  readonly injection: PromptInjection
-  readonly onNewFeature: (target: InjectionTarget) => void
-  readonly onNewBug: (target: InjectionTarget) => void
-}): React.ReactElement {
-  const { injection } = props
-
-  return (
-    <div style={ACTION_BAR_STYLE}>
-      {props.counts === null ? <span /> : <StatsRow counts={props.counts} />}
-      <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-        <IntakeAction
-          testId="new-feature"
-          label="新建需求"
-          title="把需求入池提示词填入当前会话"
-          ariaLabel="新建需求：填入当前会话"
-          newSessionTitle="在新会话开始：新建需求"
-          primaryStyle={FEATURE_ACTION_STYLE}
-          primaryHover="primary"
-          injection={injection}
-          onInject={props.onNewFeature}
-        />
-        <IntakeAction
-          testId="new-bug"
-          label="bug"
-          title="把缺陷入池提示词填入当前会话"
-          ariaLabel="bug：填入当前会话"
-          newSessionTitle="在新会话开始：报 bug"
-          primaryStyle={BUG_ACTION_STYLE}
-          primaryHover="secondary"
-          injection={injection}
-          onInject={props.onNewBug}
-        />
-      </div>
-    </div>
-  )
-}
-
-/** 一个入池分裂动作：两个按钮只差文案与配色。 */
-function IntakeAction(props: {
-  readonly testId: string
-  readonly label: string
-  readonly title: string
-  readonly ariaLabel: string
-  readonly newSessionTitle: string
-  readonly primaryStyle: React.CSSProperties
-  readonly primaryHover: 'primary' | 'secondary'
-  readonly injection: PromptInjection
-  readonly onInject: (target: InjectionTarget) => void
-}): React.ReactElement {
-  return (
-    <SplitAction
-      testId={props.testId}
-      label={props.label}
-      icon={<PlusIcon />}
-      title={props.title}
-      ariaLabel={props.ariaLabel}
-      primaryStyle={props.primaryStyle}
-      primaryHover={props.primaryHover}
-      disabled={!props.injection.canInjectCurrent}
-      canStartNewSession={props.injection.canStartNewSession}
-      newSessionTitle={props.newSessionTitle}
-      onPrimary={() => {
-        props.onInject('current-session')
-      }}
-      onStartSession={() => {
-        props.onInject('new-session')
-      }}
-    />
-  )
-}
-
-function StatsRow(props: { readonly counts: TicketCounts }): React.ReactElement {
-  return (
-    <div style={STATS_STYLE}>
-      <Stat testId="stat-ready" label="可接" value={props.counts.ready} color={COLORS.success} />
-      <Stat testId="stat-blocked" label="阻塞" value={props.counts.blocked} color={COLORS.warn} />
-      <Stat
-        testId="stat-closed"
-        label="已关闭"
-        value={props.counts.closed}
-        color={COLORS.tertiary}
-      />
-    </div>
-  )
-}
-
-function Stat(props: {
-  readonly testId: string
-  readonly label: string
-  readonly value: number
-  readonly color: string
-}): React.ReactElement {
-  return (
-    <div data-testid={props.testId} style={STAT_STYLE}>
-      <span
-        aria-hidden="true"
-        style={{ width: 7, height: 7, borderRadius: '50%', background: props.color, flex: 'none' }}
-      />
-      <strong style={STAT_VALUE_STYLE}>{props.value}</strong>
-      <span>{props.label}</span>
-    </div>
   )
 }
 

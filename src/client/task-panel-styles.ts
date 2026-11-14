@@ -166,6 +166,13 @@ export const BUG_ACTION_STYLE: CSSProperties = {
   color: COLORS.error,
 }
 
+/** 需求已明确时直达规格：描边强调色，层级低于实心的“新建需求”，高于“bug”。 */
+export const SPEC_ACTION_STYLE: CSSProperties = {
+  ...ACTION_BUTTON_STYLE,
+  borderColor: COLORS.accent,
+  color: COLORS.accent,
+}
+
 /** 分段控件里的一段；未选中时透明，悬停底色由面板样式表提供。 */
 export const CHIP_STYLE: CSSProperties = {
   border: 'none',

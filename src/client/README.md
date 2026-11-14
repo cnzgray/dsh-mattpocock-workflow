@@ -19,7 +19,7 @@
   压力区（每个维度一张卡片，档位、触发原因与支撑数字放在一起）在 `overview-pressure.tsx`，
   按周/按天分桶的展示计数在 `overview-chart-data.ts`，没有真实工单时间时不画流量图与时效分布。颜色全部走宿主主题变量，档位同时用文字与颜色表示；
 - 关注清单点击只切到列表并选中该票，不写提示词（概览保持只读）；列表行点击打开详情，不写提示词；
-- 提示词注入按目标分派（`injection.ts`）：顶部两个入池按钮与工单行的技能徽标共用 `split-action.tsx`，
+- 提示词注入按目标分派（`injection.ts`）：顶部三个提示词按钮（新建需求 / bug / to-spec 需求）与工单行的技能徽标共用 `split-action.tsx`，
   主键写当前会话，小箭头走宿主的 `uiWorkspace.startSession` 开新会话；`uiWorkspace` 是可选能力，
   缺失时只禁用小箭头；
 - 面板跟随（`panel-follow.ts`）在页签类型注册之后装上：来源会话开着 MattWorkflow 页签时，

@@ -102,3 +102,27 @@ describe('流程帮助视图', () => {
     ).toHaveLength(0)
   })
 })
+
+describe('直达规格场景', () => {
+  it('需求已明确时单独一张图，画出从需求描述到拆票、实现的直达路径', async () => {
+    render(<TaskPanel {...panelProps()} />)
+    await screen.findAllByTestId('ticket-row')
+    await openHelp()
+
+    const diagram = FLOW_DIAGRAMS.find((item) => item.id === 'direct-spec')
+    if (diagram === undefined) throw new Error('缺少“需求已明确”场景')
+
+    fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
+    const panel = screen.getByTestId('flow-diagrams')
+    const svgs = panel.querySelectorAll('svg[role="img"]')
+    expect(svgs).toHaveLength(1)
+    expect(svgs[0]?.getAttribute('aria-label')).toBe('需求已明确')
+
+    // 直达入口不先入池：图里只有 to-spec 起点，没有 mattwf- 命令。
+    expect(panel.querySelectorAll('[data-command="to-spec"]')).toHaveLength(1)
+    expect(panel.querySelector('[data-command="to-tickets"]')).toBeTruthy()
+    expect(panel.querySelector('[data-command="implement"]')).toBeTruthy()
+    expect(panel.querySelector('[data-command^="mattwf-"]')).toBeNull()
+    expect(panel.textContent).toContain('ready-for-agent')
+  })
+})

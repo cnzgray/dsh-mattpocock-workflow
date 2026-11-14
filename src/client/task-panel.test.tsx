@@ -268,7 +268,7 @@ describe('任务面板', () => {
     expect(screen.queryAllByTestId('ticket-row')).toHaveLength(0)
   })
 
-  it('新建入口填入入池命令，技能徽标填入实现提示词', async () => {
+  it('三个按钮填入各自提示词，技能徽标填入实现提示词', async () => {
     const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
       () => 'filled',
     )
@@ -285,11 +285,25 @@ describe('任务面板', () => {
       expect(lastInjection(injectDraft)).toContain(slot)
     }
 
+    fireEvent.click(screen.getByTestId('new-spec'))
+    expect(gestures(lastInjection(injectDraft))).toEqual(['to-spec'])
+    expect(lastInjection(injectDraft)).toContain('需求描述：')
+    expect(injectDraft).toHaveBeenLastCalledWith(
+      expect.stringMatching(/^\/to-spec/),
+      'current-session',
+    )
+
+    // 新按钮说清它用 /to-spec 直接建需求票，不是把需求写进原始票。
+    const specButton = screen.getByTestId('new-spec')
+    expect(specButton.title).toContain('/to-spec')
+    expect(specButton.title).toContain('直接创建需求票')
+    expect(specButton.getAttribute('aria-label')).toContain('/to-spec')
+
     fireEvent.click(badgeFor('#1'))
     expect(injectDraft).toHaveBeenLastCalledWith('/implement #1', 'current-session')
   })
 
-  it('快照还没加载出来时两个入池按钮也能填草稿', () => {
+  it('快照还没加载出来时三个按钮也能填草稿', () => {
     const pending = deferred<RpcResult<WorkspaceSnapshot>>()
     const client = clientWith({
       get: () => pending.promise,
@@ -309,6 +323,10 @@ describe('任务面板', () => {
     fireEvent.click(screen.getByTestId('new-bug'))
     expect(gestures(lastInjection(injectDraft))).toEqual(['mattwf-bug'])
     expect(lastInjection(injectDraft)).not.toContain('跟踪器')
+
+    fireEvent.click(screen.getByTestId('new-spec'))
+    expect(gestures(lastInjection(injectDraft))).toEqual(['to-spec'])
+    expect(lastInjection(injectDraft)).toContain('需求描述：')
   })
 
   it('没有可用会话时禁用注入按钮并给出提示', async () => {
@@ -326,6 +344,7 @@ describe('任务面板', () => {
 
     expect(screen.getByTestId<HTMLButtonElement>('new-feature').disabled).toBe(true)
     expect(screen.getByTestId<HTMLButtonElement>('new-bug').disabled).toBe(true)
+    expect(screen.getByTestId<HTMLButtonElement>('new-spec').disabled).toBe(true)
     expect(screen.getByTestId('no-session-hint').textContent).toContain('没有可用会话')
 
     const badges = screen.getAllByTestId<HTMLButtonElement>('skill-badge')

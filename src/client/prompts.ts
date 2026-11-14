@@ -10,10 +10,17 @@
  * 步骤由技能正文负责：DSH 发送时按手势加载技能，`implement` 会自己取票、复述标题、
  * 按 tdd 实现、跑检查、过 code-review 再提交。面板再写一遍是第二份规则，
  * 上游技能升级后就会和正文分叉。
+ * 「to-spec 需求」走同一条约定：手势加一个「需求描述：」槽位，建票与打标签
+ * 由 `to-spec` 正文负责，面板不预先假定建票成功。
  * 技能名取自 protocol 的面板技能常量，环境检查不会和这里脱节。
  */
 import { SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
-import { FLOW_COMMANDS, INTAKE_COMMANDS, type IntakeCommandDefinition } from '../protocol/flow.ts'
+import {
+  DIRECT_SPEC_ENTRY,
+  FLOW_COMMANDS,
+  INTAKE_COMMANDS,
+  type PromptEntry,
+} from '../protocol/flow.ts'
 import type { TicketSkillAction } from '../protocol/labels.ts'
 
 /** 生成某张票的提示词所需的最小信息。 */
@@ -43,7 +50,7 @@ export function ticketPrompt(ticket: TicketPromptTarget): string | null {
  * @returns 以 mattwf-feature 手势开头、后面是槽位的注入文本。
  */
 export function newFeaturePrompt(): string {
-  return intakePrompt(INTAKE_COMMANDS.feature)
+  return slotPrompt(INTAKE_COMMANDS.feature)
 }
 
 /**
@@ -51,9 +58,18 @@ export function newFeaturePrompt(): string {
  * @returns 以 mattwf-bug 手势开头、后面是槽位的注入文本。
  */
 export function newBugPrompt(): string {
-  return intakePrompt(INTAKE_COMMANDS.bug)
+  return slotPrompt(INTAKE_COMMANDS.bug)
 }
 
-function intakePrompt(intake: IntakeCommandDefinition): string {
-  return [`/${FLOW_COMMANDS[intake.command].name}`, '', ...intake.slots].join('\n')
+/**
+ * 「to-spec 需求」填入的开场提示词：需求已经明确时直接建带规格的需求票。
+ * @returns 以 to-spec 手势开头、后面是需求描述槽位的注入文本。
+ */
+export function newSpecPrompt(): string {
+  return slotPrompt(DIRECT_SPEC_ENTRY)
+}
+
+/** 手势开头、空行后是槽位：入池命令与直达规格入口共用这条拼装规则。 */
+function slotPrompt(entry: PromptEntry): string {
+  return [`/${FLOW_COMMANDS[entry.command].name}`, '', ...entry.slots].join('\n')
 }

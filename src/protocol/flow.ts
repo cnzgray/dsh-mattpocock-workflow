@@ -83,12 +83,16 @@ export type NextStepId = keyof typeof NEXT_STEPS
 /** 入池的两种票。 */
 export type IntakeKind = 'bug' | 'feature'
 
-/** 一个入池命令的定义。 */
-export interface IntakeCommandDefinition {
-  readonly kind: IntakeKind
+/** 一段提示词需要的定义：用哪个流程命令、留哪些槽位。入池命令与直达规格入口共用。 */
+export interface PromptEntry {
   readonly command: FlowCommandId
   /** 填进输入框的槽位；只是引导，不做格式校验。 */
   readonly slots: readonly string[]
+}
+
+/** 一个入池命令的定义。 */
+export interface IntakeCommandDefinition extends PromptEntry {
+  readonly kind: IntakeKind
   /** 建票时打上的标签；需求票不预设分类。 */
   readonly labelRoles: readonly (keyof TrackerLabelNames)[]
   /** 建完后可以推荐的下一步；缺陷票只能推荐 triage。 */
@@ -112,6 +116,16 @@ export const INTAKE_COMMANDS = {
     nextSteps: ['triage', 'toSpec', 'grillWithDocs', 'wayfinder'],
   },
 } as const satisfies Record<IntakeKind, IntakeCommandDefinition>
+
+/**
+ * 直达规格入口：不先入池，把需求描述直接交给 `to-spec`，
+ * 由它建出一张带规格、带 `ready-for-agent` 的需求票。
+ * 面板的提示词从这里取命令名与槽位，帮助页的直达场景从这里取命令名。
+ */
+export const DIRECT_SPEC_ENTRY = {
+  command: 'toSpec',
+  slots: ['需求描述：'],
+} as const satisfies PromptEntry
 
 /** 流程图的一个节点：命令节点或状态节点，二选一。 */
 export interface FlowNode {
@@ -141,7 +155,7 @@ export interface FlowDiagram {
 /** 命令节点的公共字段；`stops` 默认 true，终点节点再单独覆盖。 */
 const STOPPING_COMMAND_NODE = { command: null, state: null, note: null, stops: true } as const
 
-/** 帮助页的四张图：入池状态机、需求链、缺陷链，以及访谈与画图的取舍。 */
+/** 帮助页的五张图：入池状态机、需求链、直达规格、缺陷链，以及访谈与画图的取舍。 */
 export const FLOW_DIAGRAMS: readonly FlowDiagram[] = [
   {
     id: 'intake-triage',
@@ -181,7 +195,8 @@ export const FLOW_DIAGRAMS: readonly FlowDiagram[] = [
   {
     id: 'feature-chain',
     title: '需求链',
-    summary: '需求先入池，再按情况走定性、访谈或画图；之后写规格、拆票、实现。',
+    summary:
+      '需求先入池，再按情况走定性、访谈或画图；之后写规格、拆票、实现。需求已经清楚可以直接走直达入口。',
     rows: [
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'intakeFeature', note: '一句话需求' }] },
       {
@@ -198,6 +213,32 @@ export const FLOW_DIAGRAMS: readonly FlowDiagram[] = [
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toSpec', note: '走完之后' }] },
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'implement', note: null, stops: false }] },
+    ],
+  },
+  {
+    id: 'direct-spec',
+    title: '需求已明确',
+    summary:
+      '需求已经清楚时不必先入池：直接 /to-spec 写上需求描述，它会建好带规格的需求票，再拆票、实现。',
+    rows: [
+      { nodes: [{ command: null, state: '需求相对明确', note: null, stops: false }] },
+      {
+        nodes: [
+          { ...STOPPING_COMMAND_NODE, command: DIRECT_SPEC_ENTRY.command, note: '带上需求描述' },
+        ],
+      },
+      {
+        nodes: [
+          {
+            command: null,
+            state: TRACKER_LABELS.readyForAgent,
+            note: '规格已写好',
+            stops: false,
+          },
+        ],
+      },
+      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
+      { nodes: [{ command: 'implement', state: null, note: null, stops: false }] },
     ],
   },
   {

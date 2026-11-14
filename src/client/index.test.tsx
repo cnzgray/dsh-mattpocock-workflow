@@ -273,6 +273,22 @@ describe('客户端入口', () => {
     expect(harness.startCalls[1]?.options?.prompt).toMatch(/^\/mattwf-bug/)
     expect(harness.startCalls[1]?.options?.whenDraftExists).toBe('append')
     expect(harness.drafts).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId('new-spec'))
+
+    expect(harness.drafts).toHaveLength(2)
+    const specPrompt = harness.drafts[1]?.text ?? ''
+    expect(specPrompt).toMatch(/^\/to-spec/)
+    expect(harness.startCalls).toHaveLength(2)
+
+    fireEvent.click(screen.getByTestId('new-spec-new-session'))
+
+    expect(harness.startCalls).toHaveLength(3)
+    expect(harness.startCalls[2]?.options?.prompt).toBe(specPrompt)
+    expect(harness.startCalls[2]?.options?.whenDraftExists).toBe('append')
+    // 当前会话只有自己那一次注入，也没有任何路径触发发送。
+    expect(harness.drafts).toHaveLength(2)
+    expect(harness.submits.count).toBe(0)
   })
 
   it('工单徽标的两个目标拿到同一段提示词，只有主键标记已填入', async () => {
@@ -308,8 +324,17 @@ describe('客户端入口', () => {
     expect(arrow.title).toContain('宿主未提供新建会话能力')
     expect(arrow.getAttribute('aria-label')).toContain('宿主未提供新建会话能力')
 
+    // 三个分裂动作的小箭头同一套规则：只禁用箭头，主键仍能填当前会话。
+    const specArrow = screen.getByTestId<HTMLButtonElement>('new-spec-new-session')
+    expect(specArrow.disabled).toBe(true)
+    expect(specArrow.title).toContain('宿主未提供新建会话能力')
+
     fireEvent.click(screen.getByTestId('new-feature'))
     expect(harness.drafts).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId('new-spec'))
+    expect(harness.drafts).toHaveLength(2)
+    expect(harness.drafts[1]?.text).toMatch(/^\/to-spec/)
   })
 
   it('agent 这一轮停下来之后，面板自己增量刷新一次工单', async () => {

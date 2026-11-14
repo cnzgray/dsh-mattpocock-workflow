@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
-import { INTAKE_COMMANDS } from '../protocol/flow.ts'
-import { newBugPrompt, newFeaturePrompt, ticketPrompt } from './prompts.ts'
+import { DIRECT_SPEC_ENTRY, FLOW_COMMANDS, INTAKE_COMMANDS } from '../protocol/flow.ts'
+import { newBugPrompt, newFeaturePrompt, newSpecPrompt, ticketPrompt } from './prompts.ts'
 import { gestures } from './prompt-test-support.ts'
 
 describe('工单技能提示词', () => {
@@ -28,7 +28,7 @@ describe('工单技能提示词', () => {
 })
 
 describe('面板入池提示词', () => {
-  it('两个创建按钮的第一行是插件自带的入池命令，草稿里只有这一个手势', () => {
+  it('两个入池按钮的第一行是插件自带的入池命令，草稿里只有这一个手势', () => {
     for (const [text, name] of [
       [newFeaturePrompt(), 'mattwf-feature'],
       [newBugPrompt(), 'mattwf-bug'],
@@ -76,5 +76,26 @@ describe('面板入池提示词', () => {
       expect(text).not.toContain('当前阶段')
       expect(text).not.toContain('跟踪器')
     }
+  })
+})
+
+describe('面板直达规格提示词', () => {
+  it('第一行是 to-spec 手势，草稿里只有这一个手势', () => {
+    const text = newSpecPrompt()
+    expect(text.split('\n')[0]).toBe(`/${FLOW_COMMANDS[DIRECT_SPEC_ENTRY.command].name}`)
+    expect(gestures(text)).toEqual(['to-spec'])
+  })
+
+  it('槽位来自直达规格入口定义，只有一处需求描述', () => {
+    const text = newSpecPrompt()
+    for (const slot of DIRECT_SPEC_ENTRY.slots) expect(text).toContain(slot)
+    expect(DIRECT_SPEC_ENTRY.slots).toContain('需求描述：')
+    expect(text.split('\n').filter((line) => line.endsWith('：'))).toHaveLength(1)
+  })
+
+  it('不写阶段说明、边界与跟踪器，步骤交给技能正文', () => {
+    const text = newSpecPrompt()
+    expect(text).not.toContain('当前阶段')
+    expect(text).not.toContain('跟踪器')
   })
 })
