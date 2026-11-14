@@ -222,25 +222,10 @@ describe('工单行的技能徽标', () => {
     fireEvent.click(badge)
 
     expect(injectDraft).toHaveBeenCalledTimes(1)
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^\/implement 处理工单 #10/),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringContaining('复述标题'),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringContaining('pnpm check'),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringContaining('code-review'),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenLastCalledWith('/implement #10', 'current-session')
   })
 
-  it('可接的缺陷显示 diagnosing-bugs 徽标并填入先复现的提示词', async () => {
+  it('可接的缺陷显示 diagnosing-bugs 徽标并填入对应技能的提示词', async () => {
     const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
       () => 'filled',
     )
@@ -252,14 +237,10 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(badge)
 
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^\/diagnosing-bugs 处理工单 #11/),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('复现'), 'current-session')
+    expect(injectDraft).toHaveBeenLastCalledWith('/diagnosing-bugs #11', 'current-session')
   })
 
-  it('带 needs-triage 的票显示 triage 徽标并填入分流提示词', async () => {
+  it('带 needs-triage 的票显示 triage 徽标并填入对应技能的提示词', async () => {
     const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
       () => 'filled',
     )
@@ -271,17 +252,10 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(badge)
 
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^\/triage 处理工单 #12/),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringContaining('状态机'),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenLastCalledWith('/triage #12', 'current-session')
   })
 
-  it('带 needs-info 的票显示 triage 徽标并先追问缺失信息', async () => {
+  it('带 needs-info 的票用同一段 triage 提示词，追问由技能正文负责', async () => {
     const injectDraft = vi.fn<(text: string, target: InjectionTarget) => InjectionOutcome>(
       () => 'filled',
     )
@@ -294,15 +268,7 @@ describe('工单行的技能徽标', () => {
 
     fireEvent.click(badge)
 
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^\/triage 处理工单 #13/),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringContaining('缺信息'),
-      'current-session',
-    )
-    expect(injectDraft).toHaveBeenLastCalledWith(expect.stringContaining('追问'), 'current-session')
+    expect(injectDraft).toHaveBeenLastCalledWith('/triage #13', 'current-session')
   })
 
   it('可接但没有分类标签的票仍然显示 implement 徽标', async () => {

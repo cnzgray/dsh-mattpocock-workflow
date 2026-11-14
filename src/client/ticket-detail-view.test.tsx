@@ -294,10 +294,7 @@ describe('技能按钮', () => {
 
     fireEvent.click(element('skill-badge'))
 
-    expect(injectDraft).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/implement 处理工单 #25/),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenCalledWith('/implement #25', 'current-session')
     expect(element('skill-badge').dataset.injected).toBe('true')
   })
 

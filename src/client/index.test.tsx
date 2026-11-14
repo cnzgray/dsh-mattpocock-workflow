@@ -228,7 +228,7 @@ describe('客户端入口', () => {
 
     expect(harness.drafts).toEqual([])
     const prompt = harness.startCalls[0]?.options?.prompt ?? ''
-    expect(prompt).toMatch(/^\/implement 处理工单 #7/)
+    expect(prompt).toBe('/implement #7')
     expect(screen.getByTestId('skill-badge').getAttribute('data-injected')).toBeNull()
 
     fireEvent.click(screen.getByTestId('skill-badge'))

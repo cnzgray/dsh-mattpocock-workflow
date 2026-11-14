@@ -184,10 +184,7 @@ describe('任务面板', () => {
     expect(badge.getAttribute('title')).toBe(ref)
 
     fireEvent.click(screen.getByTestId('skill-badge'))
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(new RegExp(`^/implement 处理工单 ${ref}`)),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenLastCalledWith(`/implement ${ref}`, 'current-session')
 
     fireEvent.click(firstRow())
     await screen.findByTestId('detail-content')
@@ -289,10 +286,7 @@ describe('任务面板', () => {
     }
 
     fireEvent.click(badgeFor('#1'))
-    expect(injectDraft).toHaveBeenLastCalledWith(
-      expect.stringMatching(/^\/implement 处理工单 #1/),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenLastCalledWith('/implement #1', 'current-session')
   })
 
   it('快照还没加载出来时两个入池按钮也能填草稿', () => {
@@ -573,9 +567,6 @@ describe('任务面板', () => {
     await screen.findByTestId('detail-content')
     fireEvent.click(screen.getByTestId('skill-badge'))
 
-    expect(injectDraft).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/implement 处理工单 #1/),
-      'current-session',
-    )
+    expect(injectDraft).toHaveBeenCalledWith('/implement #1', 'current-session')
   })
 })

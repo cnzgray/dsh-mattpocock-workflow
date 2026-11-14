@@ -1,8 +1,31 @@
 import { describe, expect, it } from 'vitest'
 
+import { SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
 import { INTAKE_COMMANDS } from '../protocol/flow.ts'
-import { newBugPrompt, newFeaturePrompt } from './prompts.ts'
+import { newBugPrompt, newFeaturePrompt, ticketPrompt } from './prompts.ts'
 import { gestures } from './prompt-test-support.ts'
+
+describe('工单技能提示词', () => {
+  it('只有技能手势和工单引用，步骤留给技能正文', () => {
+    expect(ticketPrompt({ ref: '#40', skillAction: 'implement' })).toBe('/implement #40')
+    expect(ticketPrompt({ ref: '#40', skillAction: 'diagnose' })).toBe('/diagnosing-bugs #40')
+    expect(ticketPrompt({ ref: '#40', skillAction: 'triage' })).toBe('/triage #40')
+    expect(
+      ticketPrompt({ ref: '.scratch/login/issues/01-signup.md', skillAction: 'implement' }),
+    ).toBe('/implement .scratch/login/issues/01-signup.md')
+  })
+
+  it('技能名与手势一致，DSH 发送时能加载对应技能', () => {
+    for (const skillAction of ['implement', 'diagnose', 'triage'] as const) {
+      const text = ticketPrompt({ ref: '#40', skillAction }) ?? ''
+      expect(gestures(text)).toEqual([SKILL_ACTION_SKILLS[skillAction]])
+    }
+  })
+
+  it('不可开工的票不生成提示词', () => {
+    expect(ticketPrompt({ ref: '#40', skillAction: 'none' })).toBeNull()
+  })
+})
 
 describe('面板入池提示词', () => {
   it('两个创建按钮的第一行是插件自带的入池命令，草稿里只有这一个手势', () => {
