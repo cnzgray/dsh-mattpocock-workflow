@@ -101,11 +101,11 @@ const UNUSED_ENV_CHECK = (): Promise<RpcResult<EnvCheckReport>> =>
     result: { checkedAt: NOW, backend: null, repository: null, items: [], capabilities: [] },
   })
 
-function fakeClient(): PanelClient {
+function fakeClient(snapshot: WorkspaceSnapshot = SNAPSHOT): PanelClient {
   return {
-    get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
-    refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
-    resolveBlockers: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+    get: () => Promise.resolve({ ok: true, result: snapshot }),
+    refresh: () => Promise.resolve({ ok: true, result: snapshot }),
+    resolveBlockers: () => Promise.resolve({ ok: true, result: snapshot }),
     cache: () =>
       Promise.resolve({
         ok: true,
@@ -125,10 +125,16 @@ function fakeClient(): PanelClient {
   }
 }
 
-async function renderRows(): Promise<void> {
+async function renderRows(tickets: readonly TicketSnapshot[] = TICKETS): Promise<void> {
+  const snapshot: WorkspaceSnapshot = {
+    ...SNAPSHOT,
+    tickets,
+    loaded: tickets.length,
+    total: tickets.length,
+  }
   render(
     <TicketsView
-      client={fakeClient()}
+      client={fakeClient(snapshot)}
       workspaceRoot="/repo"
       injection={fakeInjection()}
       now={() => NOW}
@@ -229,5 +235,52 @@ describe('工单行的标签', () => {
         .map((item) => item.textContent),
     ).toEqual(['area:ui', 'area:core', 'needs-design'])
     expect(within(row).getByTestId('ticket-label-more').textContent).toBe('+1')
+  })
+
+  it('标签多到折成 +N 时，状态标签仍然留在行内', async () => {
+    await renderRows([
+      ticket({
+        ref: '#8',
+        title: '状态标签排在后面',
+        category: 'enhancement',
+        status: 'ready',
+        labels: ['enhancement', 'area:ui', 'area:core', 'needs-design', 'ready-for-agent'],
+      }),
+    ])
+
+    const row = rowFor('#8')
+    expect(row.textContent).toContain('可接')
+    expect(
+      within(row)
+        .getAllByTestId('ticket-label')
+        .map((item) => item.textContent),
+    ).toEqual(['area:ui', 'area:core', 'ready-for-agent'])
+    expect(within(row).getByTestId('ticket-label-more').textContent).toBe('+1')
+  })
+
+  it.each(['needs-triage', 'needs-info', 'ready-for-human', 'wontfix'])(
+    '%s 标签排在最后也能看到原文',
+    async (statusLabel) => {
+      await renderRows([
+        ticket({
+          ref: '#9',
+          title: '拥挤的状态标签',
+          labels: ['area:ui', 'area:core', 'needs-design', statusLabel],
+        }),
+      ])
+
+      const row = rowFor('#9')
+      expect(row.textContent).toContain('开放')
+      expect(within(row).getByText(statusLabel)).toBeTruthy()
+      expect(within(row).getByTestId('ticket-label-more').textContent).toBe('+1')
+    },
+  )
+
+  it('没有标签的票不渲染标签徽标，也不显示占位', async () => {
+    await renderRows([ticket({ ref: '#10', title: '没有标签' })])
+
+    const row = rowFor('#10')
+    expect(within(row).queryAllByTestId('ticket-label')).toHaveLength(0)
+    expect(within(row).queryByTestId('ticket-label-more')).toBeNull()
   })
 })

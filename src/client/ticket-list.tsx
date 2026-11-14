@@ -4,6 +4,7 @@
  */
 import * as React from 'react'
 
+import { TRIAGE_LABELS } from '../protocol/labels.ts'
 import type { TicketAuthor, TicketSnapshot } from '../protocol/tracker.ts'
 import { authorName, authorTitle } from './author-text.ts'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
@@ -142,7 +143,7 @@ function MetaRow(props: {
 }): React.ReactElement {
   const { ticket } = props
   const extra = ticket.labels.filter((label) => label !== ticket.category)
-  const shown = extra.slice(0, MAX_EXTRA_LABELS)
+  const { shown, hidden } = pickRowLabels(extra, MAX_EXTRA_LABELS)
 
   return (
     <span style={CARD_META_STYLE}>
@@ -158,9 +159,9 @@ function MetaRow(props: {
           {label}
         </span>
       ))}
-      {extra.length > shown.length ? (
+      {hidden > 0 ? (
         <span data-testid="ticket-label-more" style={LABEL_BADGE_STYLE}>
-          +{String(extra.length - shown.length)}
+          +{String(hidden)}
         </span>
       ) : null}
       {ticket.author === null ? null : (
@@ -205,6 +206,34 @@ function AuthorMeta(props: {
     </>
   )
 }
+
+/**
+ * 从分类之外的标签里挑出行内要显示的几个：状态标签先占位，其余按后端顺序补到上限。
+ * 显示的标签仍按后端返回的顺序排列；上限与 `+N` 的收敛规则不变，只是被折掉的不会是状态标签。
+ * @param labels - 分类之外的标签，保持后端返回的顺序。
+ * @param limit - 行内最多显示几个标签。
+ * @returns 要显示的标签（仍按后端顺序）与折叠掉的个数。
+ */
+function pickRowLabels(
+  labels: readonly string[],
+  limit: number,
+): { readonly shown: readonly string[]; readonly hidden: number } {
+  const isTriageLabel = (label: string): boolean => TRIAGE_LABELS.includes(label)
+  const chosen = new Set<number>()
+  // 两轮：先给状态标签占位，再用其余标签补齐剩下的位置。
+  const fill = (accept: (label: string) => boolean): void => {
+    for (const [index, label] of labels.entries()) {
+      if (chosen.size >= limit) return
+      if (accept(label)) chosen.add(index)
+    }
+  }
+  fill(isTriageLabel)
+  fill((label) => !isTriageLabel(label))
+
+  const shown = labels.filter((_, index) => chosen.has(index))
+  return { shown, hidden: labels.length - shown.length }
+}
+
 function refDisplay(ticket: TicketSnapshot): { readonly text: string; readonly full?: string } {
   if (ticket.number !== null) return { text: `#${String(ticket.number)}` }
   if (ticket.ref.length <= REF_DISPLAY_LIMIT) return { text: ticket.ref }

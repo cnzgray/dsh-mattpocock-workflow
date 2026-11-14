@@ -32,6 +32,18 @@ export interface TrackerLabelNames {
   readonly enhancement: string
 }
 
+/**
+ * 五个状态标签，按 triage 状态机的顺序列出。
+ * 界面用它优先保留状态标签原文：列表行放不下时先给它们占位。
+ */
+export const TRIAGE_LABELS: readonly string[] = [
+  TRACKER_LABELS.needsTriage,
+  TRACKER_LABELS.needsInfo,
+  TRACKER_LABELS.readyForAgent,
+  TRACKER_LABELS.readyForHuman,
+  TRACKER_LABELS.wontfix,
+]
+
 /** 由工单标签推导出的技能动作；`none` 表示不提供注入入口。 */
 export const TICKET_SKILL_ACTIONS = ['implement', 'diagnose', 'triage', 'none'] as const
 
