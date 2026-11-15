@@ -42,6 +42,23 @@ describe('本地快照库条目', () => {
     expect(parseSnapshotStoreEntry(serializeSnapshotStoreEntry(original))).toEqual(original)
   })
 
+  it('工单网页地址随条目一起存取', () => {
+    const base = entry()
+    const ticket = base.tickets[0]
+    if (ticket === undefined) throw new Error('缺少工单')
+    const original = entry({
+      tickets: [{ ...ticket, url: 'https://github.com/cnzgray/repo/issues/1' }],
+    })
+
+    expect(parseSnapshotStoreEntry(serializeSnapshotStoreEntry(original))).toEqual(original)
+  })
+
+  it('不带网页地址的旧版条目按没有缓存处理，重拉一次补齐地址', () => {
+    const raw = serializeSnapshotStoreEntry(entry({ version: 1 }))
+
+    expect(parseSnapshotStoreEntry(raw)).toBeUndefined()
+  })
+
   it('格式版本不符时按没有缓存处理', () => {
     const raw = serializeSnapshotStoreEntry(entry({ version: 99 }))
 

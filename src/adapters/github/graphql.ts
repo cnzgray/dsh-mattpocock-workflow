@@ -5,6 +5,7 @@
 import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
+import { readWebUrl } from '../../core/ticket-detail.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
 
 /** GitHub GraphQL 用户对象里的字段名。 */
@@ -54,6 +55,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
   const title = readString(value.title, `第 ${String(number)} 张票的标题`)
   const state = readState(value.state, number)
   const closedAt = readClosedAt(value.closedAt, number)
+  const url = readWebUrl(value.url)
 
   return {
     ref: `#${String(number)}`,
@@ -66,6 +68,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
     updatedAt: readString(value.updatedAt, `第 ${String(number)} 张票的更新时间`),
     openBlockers: readOpenBlockers(value.issueDependenciesSummary),
     ...(closedAt === undefined ? {} : { closedAt }),
+    ...(url === undefined ? {} : { url }),
   }
 }
 

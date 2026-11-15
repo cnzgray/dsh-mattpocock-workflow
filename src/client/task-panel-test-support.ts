@@ -2,7 +2,7 @@
  * 任务面板测试的夹具：快照、环境检查报告、假 RPC 客户端与界面查询辅助。
  * 与用例分开，免得夹具把测试文件挤到 max-lines 之外。
  */
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
@@ -16,6 +16,7 @@ import type {
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import type { TaskPanelProps } from './task-panel.tsx'
+import type { TicketSortKey } from './ticket-view.ts'
 
 export const NOW = Date.parse('2026-11-12T15:00:00Z')
 
@@ -286,4 +287,24 @@ export function badgeFor(ref: string): HTMLElement {
     .find((item) => item.getAttribute('data-ref') === ref)
   if (badge === undefined) throw new Error(`缺少 ${ref} 的技能徽标`)
   return badge
+}
+
+/** 在排序下拉里选一个排序键；方向回到该键的默认值。 */
+export function chooseSort(key: TicketSortKey): void {
+  fireEvent.change(screen.getByTestId('sort-key'), { target: { value: key } })
+}
+
+/** 点排序方向按钮，翻转升降序。 */
+export function flipSortDirection(): void {
+  fireEvent.click(screen.getByTestId('sort-direction'))
+}
+
+/** 当前排序：下拉选中的键与方向按钮上的方向。 */
+export function sortState(): { readonly key: string; readonly direction: string | null } {
+  const select = screen.getByTestId('sort-key')
+  if (!(select instanceof HTMLSelectElement)) throw new Error('排序下拉不是 select')
+  return {
+    key: select.value,
+    direction: screen.getByTestId('sort-direction').getAttribute('data-direction'),
+  }
 }

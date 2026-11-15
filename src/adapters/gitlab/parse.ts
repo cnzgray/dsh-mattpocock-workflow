@@ -6,6 +6,7 @@ import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { NativeBlockers } from '../../core/blocked-by.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
+import { readWebUrl } from '../../core/ticket-detail.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
 
 /** GitLab issue 的 author 字段名。 */
@@ -179,6 +180,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
   const title = readString(value.title, `第 ${String(iid)} 张票的标题`)
   const state = readState(value.state, iid)
   const closedAt = readClosedAt(value.closed_at, iid)
+  const url = readWebUrl(value.web_url)
 
   return {
     ticket: {
@@ -193,6 +195,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       openBlockers: 0,
       blockedBy: [],
       ...(closedAt === undefined ? {} : { closedAt }),
+      ...(url === undefined ? {} : { url }),
     },
     description: typeof value.description === 'string' ? value.description : '',
     hasBlockingIssuesCount: Object.hasOwn(value, 'blocking_issues_count'),

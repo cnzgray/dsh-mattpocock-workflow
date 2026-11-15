@@ -147,4 +147,39 @@ describe('GraphQL 工单解析', () => {
 
     expect(() => parseIssueGraphql(output)).toThrow(/blockedBy/)
   })
+
+  it('带上 http(s) 网页地址，缺失或不是 http(s) 时省略', () => {
+    const node = (number: number, url: unknown): Record<string, unknown> => ({
+      number,
+      title: `票 ${String(number)}`,
+      url,
+      state: 'OPEN',
+      createdAt: '2026-11-12T14:11:22Z',
+      updatedAt: '2026-11-12T14:11:38Z',
+      labels: { nodes: [] },
+    })
+    const output = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            totalCount: 3,
+            nodes: [
+              node(1, 'https://github.com/cnzgray/dsh-mattpocock-workflow/issues/1'),
+              node(2, 'javascript:alert(1)'),
+              node(3, undefined),
+            ],
+          },
+        },
+      },
+    })
+
+    const tickets = parseIssueGraphql(output).tickets
+
+    expect(tickets.map((ticket) => ticket.url)).toEqual([
+      'https://github.com/cnzgray/dsh-mattpocock-workflow/issues/1',
+      undefined,
+      undefined,
+    ])
+    expect(Object.hasOwn(tickets[1] ?? {}, 'url')).toBe(false)
+  })
 })

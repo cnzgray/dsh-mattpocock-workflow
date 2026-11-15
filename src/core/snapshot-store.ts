@@ -8,8 +8,11 @@ import type { BackendKind } from '../protocol/backend.ts'
 import { isRecord } from './json.ts'
 import type { Ticket, TicketAuthor, TicketState } from './ticket.ts'
 
-/** 本地快照库的格式版本。版本不符的条目一律按没有缓存处理。 */
-export const SNAPSHOT_STORE_VERSION = 1
+/**
+ * 本地快照库的格式版本。版本不符的条目一律按没有缓存处理。
+ * 2：工单带上网页地址；旧缓存没有地址，作废后重拉一次补齐。
+ */
+export const SNAPSHOT_STORE_VERSION = 2
 
 /** 缓存文件里存的后端类型。 */
 const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown']
@@ -182,6 +185,9 @@ function readTicket(value: unknown): Ticket | undefined {
   const closedAt = value.closedAt
   if (closedAt !== undefined && typeof closedAt !== 'string') return undefined
 
+  const url = value.url
+  if (url !== undefined && typeof url !== 'string') return undefined
+
   const blockedBy = value.blockedBy
   if (blockedBy !== undefined) {
     const refs = readStringArray(blockedBy)
@@ -197,6 +203,7 @@ function readTicket(value: unknown): Ticket | undefined {
       updatedAt,
       openBlockers,
       ...(closedAt === undefined ? {} : { closedAt }),
+      ...(url === undefined ? {} : { url }),
       blockedBy: refs,
     }
   }
@@ -212,6 +219,7 @@ function readTicket(value: unknown): Ticket | undefined {
     updatedAt,
     openBlockers,
     ...(closedAt === undefined ? {} : { closedAt }),
+    ...(url === undefined ? {} : { url }),
   }
 }
 

@@ -302,7 +302,7 @@ export const LIST_STYLE: CSSProperties = {
 }
 
 /**
- * 工单卡片：左列是行按钮（编号 + 标题，下面一行是状态与分类），右列是技能按钮或原因徽标，
+ * 工单卡片两列：左列是内容（编号 + 标题，下面一行是状态与分类），右列是技能按钮或原因徽标，
  * 和标题第一行对齐。卡片表面在容器上，点空白处也算打开详情。
  */
 export const CARD_ROW_STYLE: CSSProperties = {
@@ -327,37 +327,7 @@ export const CARD_FOCUSED_STYLE: CSSProperties = {
   background: `color-mix(in srgb, ${COLORS.accent} 7%, transparent)`,
 }
 
-/** 行按钮：编号一列，标题与元信息共用第二列，标题换行时编号仍贴着第一行。 */
-export const CARD_STYLE: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr)',
-  alignItems: 'start',
-  columnGap: 8,
-  rowGap: 2,
-  minWidth: 0,
-  padding: 0,
-  border: 'none',
-  background: 'transparent',
-  color: 'inherit',
-  cursor: 'pointer',
-  font: 'inherit',
-  textAlign: 'left',
-}
-export const NUMBER_BADGE_STYLE: CSSProperties = {
-  gridColumn: '1',
-  gridRow: '1',
-  // 两位数编号刚好放下，标题在常见编号下对齐；更长的编号自然撑开。
-  minWidth: '3ch',
-  color: COLORS.tertiary,
-  fontSize: 12,
-  fontVariantNumeric: 'tabular-nums',
-  lineHeight: '20px',
-  whiteSpace: 'nowrap',
-}
-
 export const CARD_TITLE_STYLE: CSSProperties = {
-  gridColumn: '2',
-  gridRow: '1',
   minWidth: 0,
   fontWeight: 500,
   lineHeight: '20px',

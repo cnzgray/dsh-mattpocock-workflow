@@ -27,6 +27,7 @@ const DEFAULT_LIMIT = 100
 const ISSUE_NODES = `nodes {
         number
         title
+        url
         state
         createdAt
         updatedAt

@@ -40,6 +40,8 @@ export interface Ticket {
   readonly openBlockers: number
   /** 关闭时间；后端给不出时省略。本地 Markdown 没有。 */
   readonly closedAt?: string
+  /** 远端网页地址（只收 http/https）；本地 Markdown 没有，后端给不出时也省略。 */
+  readonly url?: string
   /**
    * 挡住这张票的引用集合（`Ticket.ref`），不论开闭。后端给不出依赖边时省略；
    * 引用不在已加载列表里时，链深度只按已知的未关闭票计算。

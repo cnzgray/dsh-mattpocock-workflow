@@ -23,6 +23,7 @@ import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import { useTicketActions } from './ticket-actions.ts'
 import type { NoticeTone } from './use-draft-injection.ts'
+import { SortControl } from './sort-control.tsx'
 import { TicketList } from './ticket-list.tsx'
 import {
   AGE_STYLE,
@@ -39,7 +40,6 @@ import {
   REPO_CHIP_STYLE,
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
-  SORT_OPTIONS,
   SEGMENTED_STYLE,
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
@@ -337,20 +337,14 @@ function Toolbar(props: {
           />
         ))}
       </div>
-      <div role="group" aria-label="排序" style={SEGMENTED_STYLE}>
-        {SORT_OPTIONS.map((item) => (
-          <Chip
-            key={item.value}
-            testId={`sort-${item.value}`}
-            label={item.label}
-            active={props.sortKey === item.value}
-            suffix={props.sortKey === item.value ? (props.direction === 'asc' ? ' ↑' : ' ↓') : ''}
-            onClick={() => {
-              props.onSort(item.value)
-            }}
-          />
-        ))}
-      </div>
+      <SortControl
+        sortKey={props.sortKey}
+        direction={props.direction}
+        onSortKey={props.onSort}
+        onToggleDirection={() => {
+          props.onSort(props.sortKey)
+        }}
+      />
     </div>
   )
 }
@@ -359,7 +353,6 @@ function Chip(props: {
   readonly testId: string
   readonly label: string
   readonly active: boolean
-  readonly suffix?: string
   readonly onClick: () => void
 }): React.ReactElement {
   return (
@@ -372,7 +365,6 @@ function Chip(props: {
       style={{ ...CHIP_STYLE, ...(props.active ? CHIP_ACTIVE_STYLE : undefined) }}
     >
       {props.label}
-      {props.suffix ?? ''}
     </button>
   )
 }

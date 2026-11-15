@@ -125,4 +125,18 @@ describe('Gitea 工单解析', () => {
   it('依赖列表不是数组时返回数据格式错误', () => {
     expect(() => parseDependencies('{"message":"Not Found"}')).toThrow(/依赖/)
   })
+
+  it('把 html_url 读成工单网页地址', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        {
+          ...giteaIssue({ number: 15, title: '右侧栏任务面板 MVP' }),
+          html_url: 'https://gitea.example.com/cnzgray/dsh-workflow/issues/15',
+        },
+      ]),
+      'https://gitea.example.com',
+    )
+
+    expect(parsed[0]?.ticket.url).toBe('https://gitea.example.com/cnzgray/dsh-workflow/issues/15')
+  })
 })

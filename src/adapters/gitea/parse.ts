@@ -7,6 +7,7 @@
 import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
+import { readWebUrl } from '../../core/ticket-detail.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
 
 /** Gitea issue 的 user 字段名。 */
@@ -122,6 +123,7 @@ function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): Pars
   const title = readString(value.title, `第 ${String(number)} 张票的标题`)
   const state = readState(value.state, number)
   const closedAt = readClosedAt(value.closed_at, number)
+  const url = readWebUrl(value.html_url)
 
   return {
     ticket: {
@@ -136,6 +138,7 @@ function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): Pars
       openBlockers: 0,
       blockedBy: [],
       ...(closedAt === undefined ? {} : { closedAt }),
+      ...(url === undefined ? {} : { url }),
     },
     body: typeof value.body === 'string' ? value.body : '',
   }

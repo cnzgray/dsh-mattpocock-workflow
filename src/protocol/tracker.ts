@@ -198,6 +198,8 @@ export interface TicketSnapshot {
   readonly openBlockers: number
   /** 关闭时间；后端给不出时省略。本地 Markdown 没有。 */
   readonly closedAt?: string
+  /** 远端网页地址；本地 Markdown 没有。界面点编号时复制它。 */
+  readonly url?: string
   /**
    * 挡住这张票的引用集合，不论开闭。后端给不出阻塞依赖边时省略
    * （GitHub 列表查询只给未关闭阻塞数）；宿主用它算最长阻塞链。

@@ -1,6 +1,7 @@
 /**
  * 工单列表。每行左边是编号与标题，标题下一行是状态与分类；右边是技能按钮，
  * 不可开工时换成原因徽标。点击整行打开这张票的详情，不注入提示词；注入只走技能按钮。
+ * 远端工单点编号复制网页地址，不打开详情。
  */
 import * as React from 'react'
 
@@ -14,20 +15,21 @@ import {
   CARD_ACTION_BADGE_STYLE,
   CARD_FOCUSED_STYLE,
   CARD_ROW_STYLE,
-  CARD_STYLE,
   CARD_TITLE_STYLE,
   CATEGORY_BADGES,
   EMPTY_STYLE,
   LIST_STYLE,
-  NUMBER_BADGE_STYLE,
   STATUS_BADGES,
   STATUS_DOT_STYLE,
   STATUS_LABELS,
 } from './task-panel-styles.ts'
 import { TicketAvatar } from './ticket-avatar.tsx'
+import { TicketNumber } from './ticket-number.tsx'
 import {
   AUTHOR_NAME_STYLE,
+  CARD_CONTENT_STYLE,
   CARD_META_STYLE,
+  CARD_OPEN_STYLE,
   LABEL_BADGE_STYLE,
   ROW_AGE_STYLE,
 } from './ticket-row-styles.ts'
@@ -47,9 +49,6 @@ export interface TicketListProps {
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }
-
-/** 本地 Markdown 路径在卡片里的显示上限；再长就从中间截断。 */
-const REF_DISPLAY_LIMIT = 40
 
 /** 分类之外最多显示几个标签；超出的折成 `+N`，窄面板不被撑破。 */
 const MAX_EXTRA_LABELS = 3
@@ -96,36 +95,36 @@ function TicketRow(props: {
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
   const { ticket } = props
-  const display = refDisplay(ticket)
 
   return (
     <div
       role="listitem"
       data-hover="card"
-      // 卡片的表面在这一层：空白页边距也算行的一部分。按钮是键盘可达的打开入口，
-      // 它的点击会和这里一样冒泡上来，所以只在行容器上挂一次。
+      // 卡片的表面在这一层：空白页边距也算行的一部分。内容区里垫着的按钮是键盘可达的
+      // 打开入口，它的点击会和这里一样冒泡上来，所以只在行容器上挂一次。
       onClick={() => {
         props.onPick(ticket)
       }}
       style={{ ...CARD_ROW_STYLE, ...(props.focused ? CARD_FOCUSED_STYLE : undefined) }}
     >
-      <button
-        type="button"
+      <div
         data-testid="ticket-row"
         data-ref={ticket.ref}
         data-focused={props.focused ? 'true' : undefined}
-        style={CARD_STYLE}
+        style={CARD_CONTENT_STYLE}
       >
-        <span
-          data-testid="ticket-ref"
-          style={NUMBER_BADGE_STYLE}
-          {...(display.full === undefined ? {} : { title: display.full })}
-        >
-          {display.text}
+        <button
+          type="button"
+          data-testid="ticket-open"
+          aria-label={`打开 ${ticket.ref}：${ticket.title}`}
+          style={CARD_OPEN_STYLE}
+        />
+        <span style={CARD_TITLE_STYLE}>
+          <TicketNumber ticket={ticket} />
+          {ticket.title}
         </span>
-        <span style={CARD_TITLE_STYLE}>{ticket.title}</span>
         <MetaRow ticket={ticket} now={props.now} />
-      </button>
+      </div>
       <SkillActionBadge
         ticket={ticket}
         injected={props.injected}
@@ -232,16 +231,4 @@ function pickRowLabels(
 
   const shown = labels.filter((_, index) => chosen.has(index))
   return { shown, hidden: labels.length - shown.length }
-}
-
-function refDisplay(ticket: TicketSnapshot): { readonly text: string; readonly full?: string } {
-  if (ticket.number !== null) return { text: `#${String(ticket.number)}` }
-  if (ticket.ref.length <= REF_DISPLAY_LIMIT) return { text: ticket.ref }
-
-  const head = Math.ceil((REF_DISPLAY_LIMIT - 1) / 2)
-  const tail = REF_DISPLAY_LIMIT - 1 - head
-  return {
-    text: `${ticket.ref.slice(0, head)}…${ticket.ref.slice(ticket.ref.length - tail)}`,
-    full: ticket.ref,
-  }
 }

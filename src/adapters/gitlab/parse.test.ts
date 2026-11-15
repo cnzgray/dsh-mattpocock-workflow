@@ -113,6 +113,24 @@ describe('GitLab 工单解析', () => {
 
     expect(parseNativeBlockers(output)).toEqual({ open: 1, refs: [15, 7] })
   })
+
+  it('把 web_url 读成工单网页地址', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        {
+          iid: 15,
+          title: '右侧栏任务面板 MVP',
+          state: 'opened',
+          labels: [],
+          web_url: 'https://gitlab.com/group/sub/project/-/issues/15',
+          created_at: '2026-11-12T14:11:22Z',
+          updated_at: '2026-11-21T14:11:38Z',
+        },
+      ]),
+    )
+
+    expect(parsed[0]?.ticket.url).toBe('https://gitlab.com/group/sub/project/-/issues/15')
+  })
 })
 
 describe('GitLab 原生阻塞能力探测', () => {

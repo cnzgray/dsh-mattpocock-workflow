@@ -114,6 +114,22 @@ export function readOptionalString(value: unknown): string | null {
 }
 
 /**
+ * 工单网页地址：只收 http/https 绝对地址，其余（缺失、相对路径、别的协议）一律省略，
+ * 界面拿到的链接总能直接打开或复制。
+ * @param value - 后端返回的地址字段。
+ * @returns 规范化后的地址，或不可用时的 undefined。
+ */
+export function readWebUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * 必填字符串。
  * @param value - 任意字段值。
  * @param field - 报错里的字段名。

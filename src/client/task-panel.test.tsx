@@ -9,11 +9,13 @@ import { fakeInjection } from './injection-test-support.ts'
 import { gestures } from './prompt-test-support.ts'
 import {
   badgeFor,
+  chooseSort,
   clientWith,
   deferred,
   ENV_REPORT,
   fakeClient,
   firstRow,
+  flipSortDirection,
   GITEA_ENV_REPORT,
   NOW,
   panelProps,
@@ -90,16 +92,16 @@ describe('任务面板', () => {
 
     expect(rowRefs()).toEqual(['#1', '#5', '#2', '#4'])
 
-    fireEvent.click(screen.getByTestId('sort-title'))
+    chooseSort('title')
     expect(rowRefs()).toEqual(['#2', '#1', '#4', '#5'])
 
-    fireEvent.click(screen.getByTestId('sort-title'))
+    flipSortDirection()
     expect(rowRefs()).toEqual(['#5', '#4', '#1', '#2'])
 
-    fireEvent.click(screen.getByTestId('sort-number'))
+    chooseSort('number')
     expect(rowRefs()).toEqual(['#5', '#4', '#2', '#1'])
 
-    fireEvent.click(screen.getByTestId('sort-number'))
+    flipSortDirection()
     expect(rowRefs()).toEqual(['#1', '#2', '#4', '#5'])
   })
 

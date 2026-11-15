@@ -184,6 +184,7 @@ export function buildStoredSnapshot(
       updatedAt: ticket.updatedAt,
       openBlockers: ticket.openBlockers,
       ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
+      ...(ticket.url === undefined ? {} : { url: ticket.url }),
       ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
     })),
   }

@@ -9,7 +9,14 @@ import * as React from 'react'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { clientWith, NOW, SNAPSHOT, TICKETS } from './task-panel-test-support.ts'
+import {
+  chooseSort,
+  clientWith,
+  NOW,
+  SNAPSHOT,
+  sortState,
+  TICKETS,
+} from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
@@ -217,7 +224,7 @@ describe('agent 活动后的按需刷新', () => {
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('filter-all'))
-    fireEvent.click(screen.getByTestId('sort-title'))
+    chooseSort('title')
 
     view.rerender(viewElement(client, 1))
 
@@ -225,7 +232,7 @@ describe('agent 活动后的按需刷新', () => {
       expect(rowRefs()).toContain('#6')
     })
     expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-title').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-title').textContent).toContain('↑')
+    expect(sortState().key).toBe('title')
+    expect(sortState().direction).toBe('asc')
   })
 })

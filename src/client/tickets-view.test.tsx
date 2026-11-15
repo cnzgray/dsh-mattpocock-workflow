@@ -19,6 +19,7 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import { fakeInjection } from './injection-test-support.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { PanelClient } from './rpc.ts'
+import { chooseSort, flipSortDirection, sortState } from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
@@ -261,8 +262,8 @@ describe('工单列表的阻塞补齐', () => {
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('filter-open'))
-    fireEvent.click(screen.getByTestId('sort-title'))
-    fireEvent.click(screen.getByTestId('sort-title'))
+    chooseSort('title')
+    flipSortDirection()
     const before = rowRefs()
 
     await act(async () => {
@@ -272,7 +273,7 @@ describe('工单列表的阻塞补齐', () => {
 
     expect(rowRefs()).toEqual(before)
     expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-title').textContent).toContain('↓')
+    expect(sortState().direction).toBe('desc')
   })
 
   it('刷新同样先渲染新列表，再补齐阻塞数字', async () => {
@@ -388,8 +389,8 @@ describe('视图偏好', () => {
     await screen.findAllByTestId('ticket-row')
 
     expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-status').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-status').textContent).toContain('↑')
+    expect(sortState().key).toBe('status')
+    expect(sortState().direction).toBe('asc')
     expect(rowRefs()).toEqual(['#1', '#2'])
     // 统计仍然基于整份快照，不随当前筛选变化。
     expect(screen.getByTestId('stat-closed').textContent).toContain('1')
@@ -401,8 +402,8 @@ describe('视图偏好', () => {
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('filter-all'))
-    fireEvent.click(screen.getByTestId('sort-number'))
-    fireEvent.click(screen.getByTestId('sort-number'))
+    chooseSort('number')
+    flipSortDirection()
     const before = rowRefs()
     expect(before).toEqual(['#1', '#2', '#3'])
 
@@ -411,8 +412,8 @@ describe('视图偏好', () => {
     await screen.findAllByTestId('ticket-row')
 
     expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-number').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-number').textContent).toContain('↑')
+    expect(sortState().key).toBe('number')
+    expect(sortState().direction).toBe('asc')
     expect(rowRefs()).toEqual(before)
   })
 
@@ -456,16 +457,16 @@ describe('视图偏好', () => {
     await screen.findAllByTestId('ticket-row')
 
     fireEvent.click(screen.getByTestId('filter-all'))
-    fireEvent.click(screen.getByTestId('sort-title'))
-    fireEvent.click(screen.getByTestId('sort-title'))
+    chooseSort('title')
+    flipSortDirection()
     fireEvent.click(screen.getByTestId('refresh'))
 
     await waitFor(() => {
       expect(fake.refreshCalls).toEqual(['/repo'])
     })
     expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-title').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('sort-title').textContent).toContain('↓')
+    expect(sortState().key).toBe('title')
+    expect(sortState().direction).toBe('desc')
   })
 
   it('存储不可用时仍按默认视图渲染', async () => {
@@ -482,7 +483,7 @@ describe('视图偏好', () => {
       await screen.findAllByTestId('ticket-row')
 
       expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
-      expect(screen.getByTestId('sort-status').getAttribute('aria-pressed')).toBe('true')
+      expect(sortState().key).toBe('status')
       expect(screen.queryByTestId('error')).toBeNull()
       expect(rowRefs()).toEqual(['#1', '#2'])
     } finally {

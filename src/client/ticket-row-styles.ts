@@ -1,5 +1,5 @@
 /**
- * 工单行元信息的样式：标签徽标、创建人头像与用户名、相对创建时间。
+ * 工单行的样式：内容区与打开按钮、编号，以及元信息里的标签徽标、创建人头像与用户名、相对创建时间。
  * 从 task-panel-styles 拆出来，避免面板样式文件越过 max-lines；颜色都走 DSH 主题变量。
  */
 import type { CSSProperties } from 'react'
@@ -8,8 +8,9 @@ import { COLORS } from './task-panel-styles.ts'
 
 /** 标题下的一行小字：状态在前、分类在后，都是次要信息。 */
 export const CARD_META_STYLE: CSSProperties = {
-  gridColumn: '2',
-  gridRow: '2',
+  // 浮在打开按钮上面：头像、用户名与时间的悬停说明要能出来。
+  position: 'relative',
+  zIndex: 1,
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
@@ -80,4 +81,74 @@ export const ROW_AGE_STYLE: CSSProperties = {
   fontSize: 11,
   lineHeight: '18px',
   whiteSpace: 'nowrap',
+}
+
+/** 卡片内容：编号与标题一段，元信息一行；打开详情的按钮铺在下面。 */
+export const CARD_CONTENT_STYLE: CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  flexDirection: 'column',
+  rowGap: 2,
+  minWidth: 0,
+}
+
+/**
+ * 打开详情的按钮：透明、铺满内容区，只负责键盘可达与读屏。
+ * 编号是另一个按钮，不能嵌进来，所以标题文字不放在按钮里，按钮垫在文字下面。
+ */
+export const CARD_OPEN_STYLE: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  padding: 0,
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  cursor: 'pointer',
+}
+
+/** 浮在打开按钮上面的内容：编号与元信息要能点、能悬停看说明。 */
+export const CARD_RAISED_STYLE: CSSProperties = {
+  position: 'relative',
+  zIndex: 1,
+}
+
+/**
+ * 编号：和标题同字号、同一段文字，退到二级灰，标题换行时从卡片左缘续上。
+ * 等宽数字让 `#39`、`#46` 这类编号宽度一致。
+ */
+export const NUMBER_BADGE_STYLE: CSSProperties = {
+  ...CARD_RAISED_STYLE,
+  marginRight: 6,
+  color: COLORS.secondary,
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
+}
+
+/** 本地 Markdown 路径：没有链接、不可点；路径较长，允许在任意处换行。 */
+export const LOCAL_REF_STYLE: CSSProperties = {
+  ...NUMBER_BADGE_STYLE,
+  color: COLORS.tertiary,
+  fontWeight: 400,
+  whiteSpace: 'normal',
+}
+
+/** 可复制的编号：去掉按钮外观，像文字一样排在标题前；悬停出下划线提示可点。 */
+export const NUMBER_BUTTON_STYLE: CSSProperties = {
+  ...NUMBER_BADGE_STYLE,
+  display: 'inline',
+  padding: 0,
+  border: 'none',
+  borderRadius: 3,
+  background: 'transparent',
+  font: 'inherit',
+  lineHeight: 'inherit',
+  cursor: 'pointer',
+}
+
+/** 编号里井号的位置：复制成功时换成对勾，宽度不变，标题不跳。 */
+export const NUMBER_MARK_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  justifyContent: 'center',
+  width: '0.6em',
+  verticalAlign: '-1px',
 }
