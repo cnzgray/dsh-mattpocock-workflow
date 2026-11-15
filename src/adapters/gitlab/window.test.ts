@@ -36,9 +36,7 @@ function recordedRunner(issues: (page: number) => string): RecordedRunner {
 
 describe('GitLab 列表窗口', () => {
   it('窗口只取一页，并用 X-Total 给出仓库总数', async () => {
-    const recorded = recordedRunner((page) =>
-      includeOutput(250, issuesJson(page === 1 ? GITLAB_ISSUES.slice(0, 2) : [])),
-    )
+    const recorded = recordedRunner(() => includeOutput(250, issuesJson(GITLAB_ISSUES.slice(0, 2))))
     const tracker = createGitlabTracker({ run: recorded.runner, now: () => NOW, pageSize: 2 })
 
     const snapshot = await tracker.fetchSnapshot('/workspace', 2)
@@ -56,10 +54,9 @@ describe('GitLab 列表窗口', () => {
 
   it('窗口覆盖两页时按窗口续取', async () => {
     const recorded = recordedRunner((page) =>
-      includeOutput(
-        250,
-        issuesJson(page === 1 ? GITLAB_ISSUES.slice(0, 2) : GITLAB_ISSUES.slice(2, 3)),
-      ),
+      page === 1
+        ? includeOutput(250, issuesJson(GITLAB_ISSUES.slice(0, 2)))
+        : issuesJson(GITLAB_ISSUES.slice(2, 3)),
     )
     const tracker = createGitlabTracker({ run: recorded.runner, now: () => NOW, pageSize: 2 })
 

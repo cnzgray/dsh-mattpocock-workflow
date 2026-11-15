@@ -43,12 +43,7 @@ import {
   parseNativeBlockers,
   type ParsedIssue,
 } from './parse.ts'
-import {
-  callGlab,
-  callGlabApiInclude,
-  projectEndpoint,
-  readProjectAddress,
-} from './shared.ts'
+import { callGlab, callGlabApiInclude, projectEndpoint, readProjectAddress } from './shared.ts'
 
 /** GitLab 后端依赖。 */
 export interface GitlabTrackerDeps {

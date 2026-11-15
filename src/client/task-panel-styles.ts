@@ -284,27 +284,6 @@ export const LOADED_STYLE: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 }
 
-/** 列表底部哨兵：滚到这里就自动扩一页；失败时停在这里等重试。 */
-export const MORE_STYLE: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 8,
-  padding: '8px 12px',
-  color: COLORS.tertiary,
-  fontSize: 11,
-}
-
-export const MORE_RETRY_STYLE: CSSProperties = {
-  padding: '2px 8px',
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 4,
-  background: 'transparent',
-  color: COLORS.accent,
-  fontSize: 11,
-  cursor: 'pointer',
-}
-
 /** 加载与空状态的提示：左边与列表、工具栏同在 12px 页边距上。 */
 export const EMPTY_STYLE: CSSProperties = {
   padding: '16px 12px',

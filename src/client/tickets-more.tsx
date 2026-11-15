@@ -9,7 +9,28 @@ import {
   type RpcErrorBody,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
-import { MORE_RETRY_STYLE, MORE_STYLE } from './task-panel-styles.ts'
+import { COLORS } from './task-panel-styles.ts'
+
+/** 列表底部哨兵：滚到这里就自动扩一页；失败时停在这里等重试。 */
+const MORE_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  padding: '8px 12px',
+  color: COLORS.tertiary,
+  fontSize: 11,
+}
+
+const MORE_RETRY_STYLE: React.CSSProperties = {
+  padding: '2px 8px',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 4,
+  background: 'transparent',
+  color: COLORS.accent,
+  fontSize: 11,
+  cursor: 'pointer',
+}
 
 /** 加载更多的界面状态：是否还能扩、是否已到窗口上限、进行中与失败原因。 */
 export interface MoreState {

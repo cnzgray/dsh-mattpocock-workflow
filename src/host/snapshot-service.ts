@@ -25,7 +25,6 @@ import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
-  SNAPSHOT_MAX_WINDOW,
   SNAPSHOT_PAGE_SIZE,
   type ErrorCode,
   type RpcResult,
@@ -37,7 +36,7 @@ import {
 import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
 import { readWorkspaceRoot } from './rpc-params.ts'
 import { mapSnapshotError, snapshotFailure } from './snapshot-error.ts'
-import { mergePulled, windowFor } from './snapshot-window.ts'
+import { mergePulled, windowFor, loadMore, type MoreHost } from './snapshot-window.ts'
 import {
   buildStoredSnapshot,
   cacheInfo,
@@ -90,6 +89,16 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
   const cache = new Map<string, CachedWorkspace>()
   // 冷启动时两个面板会同时请求：共享同一次列表拉取，后续补齐才能挂到同一条缓存上。
   const loading = new Map<string, Promise<RpcResult<WorkspaceSnapshot>>>()
+  // 扩窗只用到首屏读取与发布，把它们作为能力交给窗口模块，避免两边互相依赖。
+  const more: MoreHost = {
+    resolve: deps.resolve,
+    now: deps.now,
+    log: deps.log,
+    cache,
+    getSnapshot: (workspaceRoot) => getSnapshot(deps, cache, loading, workspaceRoot),
+    publish: (workspaceRoot, resolved, raw, startedAt) =>
+      publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'more'),
+  }
 
   return {
     handle(method, params) {
@@ -113,7 +122,7 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
       }
 
       if (method === RPC_METHODS.snapshotMore) {
-        return loadMore(deps, cache, loading, workspaceRoot)
+        return loadMore(more, workspaceRoot)
       }
 
       return refreshSnapshot(deps, cache, workspaceRoot, readFullFlag(params))
@@ -418,63 +427,6 @@ async function fetchAndCache(
     kind = resolved.kind
     const raw = await resolved.tracker.fetchSnapshot(workspaceRoot, SNAPSHOT_PAGE_SIZE)
     return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
-  } catch (error) {
-    const mapped = mapSnapshotError(error)
-    deps.log('warn', LOG_EVENTS.snapshot, {
-      result: 'error',
-      ...(kind === undefined ? {} : { backend: kind }),
-      stage: SNAPSHOT_STAGES.list,
-      code: mapped.code,
-      durationMs: Math.max(0, deps.now() - startedAt),
-    })
-    return snapshotFailure(mapped.code, mapped.message)
-  }
-}
-
-/**
- * 扩窗：向后再要一页，并入当前快照后返回完整快照。
- *
- * 宿主是唯一合并点：新页与当前快照按工单引用去重、按更新时间倒序、裁到新窗口，
- * 重算指标并写入本地快照库。已经覆盖全部工单或到窗口上限时不再请求。
- * @param deps - 服务依赖。
- * @param cache - 内存缓存。
- * @param loading - 进行中的首屏拉取。
- * @param workspaceRoot - 工作区根目录。
- * @returns 合并后的快照；失败时带错误码，界面保留现有列表。
- */
-async function loadMore(
-  deps: SnapshotServiceDeps,
-  cache: Map<string, CachedWorkspace>,
-  loading: Map<string, Promise<RpcResult<WorkspaceSnapshot>>>,
-  workspaceRoot: string,
-): Promise<RpcResult<WorkspaceSnapshot>> {
-  const initial = await getSnapshot(deps, cache, loading, workspaceRoot)
-  if (!initial.ok) return initial
-
-  const entry = cache.get(workspaceRoot)
-  if (entry === undefined) return initial
-  const windowLimit = entry.raw.windowLimit ?? SNAPSHOT_PAGE_SIZE
-  if (entry.raw.tickets.length >= entry.raw.total || windowLimit >= SNAPSHOT_MAX_WINDOW) {
-    return { ok: true, result: entry.snapshot }
-  }
-
-  const nextWindow = Math.min(windowLimit + SNAPSHOT_PAGE_SIZE, SNAPSHOT_MAX_WINDOW)
-  const startedAt = deps.now()
-  let kind: BackendKind | undefined
-
-  try {
-    const resolved = await deps.resolve(workspaceRoot)
-    kind = resolved.kind
-    const raw = await resolved.tracker.fetchSnapshot(workspaceRoot, nextWindow)
-    return await publish(
-      deps,
-      cache,
-      workspaceRoot,
-      resolved,
-      { ...raw, windowLimit: nextWindow },
-      startedAt,
-      'more',
-    )
   } catch (error) {
     const mapped = mapSnapshotError(error)
     deps.log('warn', LOG_EVENTS.snapshot, {
