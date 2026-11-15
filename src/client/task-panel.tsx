@@ -11,6 +11,7 @@ import * as React from 'react'
 import type { BackendKind } from '../protocol/backend.ts'
 import type { CapabilityDiagnostic } from '../protocol/env-check.ts'
 import { ERROR_BACKENDS, type ErrorCode, type TicketSnapshot } from '../protocol/tracker.ts'
+import { ActionBar } from './action-bar.tsx'
 import type { PromptInjection } from './injection.ts'
 import { EnvCheckView } from './env-check-view.tsx'
 import { HelpView } from './help-view.tsx'
@@ -21,11 +22,13 @@ import {
   ICON_BUTTON_STYLE,
   PANEL_SHEET,
   PANEL_STYLE,
+  VIEW_BAR_END_STYLE,
   VIEW_BAR_STYLE,
   VIEW_TAB_ACTIVE_STYLE,
   VIEW_TAB_STYLE,
   VIEW_TABS_STYLE,
 } from './task-panel-styles.ts'
+import { useTicketActions, type TicketActionsState } from './ticket-actions.ts'
 import { TicketDetailView } from './ticket-detail-view.tsx'
 import { TicketsView } from './tickets-view.tsx'
 
@@ -68,6 +71,8 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
   const [focusTicket, setFocusTicket] = React.useState<string | null>(null)
   // 从帮助返回打开前的视图；帮助里再点 tips 不覆盖它。
   const previousView = React.useRef<Exclude<View, 'help'>>('tickets')
+  // 提示词按钮在页签栏里，注入状态放在面板层，与列表的提示和“已填入”标记共用一份。
+  const actions = useTicketActions(props.workspaceRoot, props.injection)
   const clientCapabilities = props.clientCapabilities ?? NO_CAPABILITIES
   // 快照在面板层只取一份：切视图、进详情都不重新拉，也都能收到 agent 的活动信号。
   const request = useSnapshotRequest(props.client, props.workspaceRoot, {
@@ -101,9 +106,15 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
           setView('env')
         }}
         onOpenHelp={openHelp}
+        actions={
+          view === 'tickets' && open === null ? (
+            <ActionBar injection={props.injection} onInject={actions.inject} />
+          ) : null
+        }
       />
       <PanelContent
         panel={props}
+        actions={actions}
         request={request}
         view={view}
         open={open}
@@ -144,6 +155,7 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
  */
 function PanelContent(props: {
   readonly panel: TaskPanelProps
+  readonly actions: TicketActionsState
   readonly request: SnapshotRequestState
   readonly view: View
   readonly open: OpenTicket | null
@@ -167,6 +179,7 @@ function PanelContent(props: {
         workspaceRoot={panel.workspaceRoot}
         injection={panel.injection}
         now={panel.now}
+        actions={props.actions}
         open={props.open}
         focusTicket={props.focusTicket}
         onOpenEnvCheck={props.onOpenEnvCheck}
@@ -241,6 +254,7 @@ function TicketsPane(props: {
   readonly workspaceRoot: string | undefined
   readonly injection: PromptInjection
   readonly now: (() => number) | undefined
+  readonly actions: TicketActionsState
   readonly open: OpenTicket | null
   readonly focusTicket: string | null
   readonly onOpenEnvCheck: (code: ErrorCode) => void
@@ -266,6 +280,7 @@ function TicketsPane(props: {
       workspaceRoot={props.workspaceRoot}
       injection={props.injection}
       now={props.now}
+      actions={props.actions}
       focusRef={props.focusTicket}
       onFocusHandled={props.onFocusHandled}
       onOpenEnvCheck={props.onOpenEnvCheck}
@@ -281,6 +296,8 @@ function ViewTabs(props: {
   readonly onOpenOverview: () => void
   readonly onOpenEnvCheck: () => void
   readonly onOpenHelp: () => void
+  /** 页签栏右侧、灯泡左边的动作；只有列表页有。 */
+  readonly actions: React.ReactNode
 }): React.ReactElement {
   return (
     <div style={VIEW_BAR_STYLE}>
@@ -304,7 +321,10 @@ function ViewTabs(props: {
           onClick={props.onOpenEnvCheck}
         />
       </div>
-      <TipsButton onClick={props.onOpenHelp} />
+      <div style={VIEW_BAR_END_STYLE}>
+        {props.actions}
+        <TipsButton onClick={props.onOpenHelp} />
+      </div>
     </div>
   )
 }

@@ -108,14 +108,25 @@ export const REFRESH_BUTTON_STYLE: CSSProperties = {
 }
 
 /** 统计与新建按钮同一行：左边是数字，右边是动作，窄面板时换行。 */
+/** 列表视图独立渲染（没有页签栏插槽）时，动作栏自占一行。 */
 export const ACTION_BAR_STYLE: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  columnGap: 12,
-  rowGap: 6,
   padding: '6px 12px 8px',
+}
+
+/** 三个提示词按钮的组：页签栏里与灯泡并排，不换行、不收缩。 */
+export const ACTION_GROUP_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  flex: 'none',
+}
+
+/** 页签栏右侧：列表视图的动作插槽加流程帮助入口。 */
+export const VIEW_BAR_END_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  flex: 'none',
 }
 
 export const BUTTON_STYLE: CSSProperties = {
@@ -140,12 +151,15 @@ export const ICON_BUTTON_STYLE: CSSProperties = {
   color: COLORS.secondary,
 }
 
+/** 小按钮：22px 高，与灯泡图标按钮对齐。 */
 const ACTION_BUTTON_STYLE: CSSProperties = {
   ...BUTTON_STYLE,
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '4px 10px 4px 8px',
+  boxSizing: 'border-box',
+  height: 22,
+  gap: 3,
+  padding: '0 7px 0 5px',
   fontSize: 12,
   fontWeight: 500,
   lineHeight: '18px',
@@ -248,25 +262,22 @@ export const VIEW_TAB_ACTIVE_STYLE: CSSProperties = {
   fontWeight: 600,
 }
 
-export const STATS_STYLE: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 14,
-}
-
-export const STAT_STYLE: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 5,
-  fontSize: 12,
-  color: COLORS.secondary,
-}
-
-export const STAT_VALUE_STYLE: CSSProperties = {
-  color: COLORS.text,
-  fontSize: 14,
-  fontWeight: 600,
+/** 筛选段里的计数：等宽数字，未选中时比文字再淡一级。 */
+export const CHIP_COUNT_STYLE: CSSProperties = {
+  marginLeft: 4,
   fontVariantNumeric: 'tabular-nums',
+  fontWeight: 600,
+}
+
+/** 筛选段前的状态色点。 */
+export const CHIP_DOT_STYLE: CSSProperties = {
+  display: 'inline-block',
+  width: 6,
+  height: 6,
+  marginRight: 5,
+  borderRadius: '50%',
+  verticalAlign: 'middle',
+  flex: 'none',
 }
 
 export const TOOLBAR_STYLE: CSSProperties = {

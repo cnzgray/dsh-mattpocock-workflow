@@ -21,16 +21,19 @@ import type { InjectionTarget, PromptInjection } from './injection.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
-import { useTicketActions } from './ticket-actions.ts'
+import { useTicketActions, type TicketActionsState } from './ticket-actions.ts'
 import type { NoticeTone } from './use-draft-injection.ts'
 import { SortControl } from './sort-control.tsx'
 import { TicketList } from './ticket-list.tsx'
 import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tickets-more.tsx'
 import {
+  ACTION_BAR_STYLE,
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
   BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
+  CHIP_COUNT_STYLE,
+  CHIP_DOT_STYLE,
   CHIP_STYLE,
   COLORS,
   EMPTY_STYLE,
@@ -49,6 +52,7 @@ import {
   filterTickets,
   sortTickets,
   type SortDirection,
+  type TicketCounts,
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
@@ -87,6 +91,11 @@ export interface TicketsViewProps {
   readonly focusRef?: string | null | undefined
   /** 定位完成后清空焦点，避免重新挂载时再次定位。 */
   readonly onFocusHandled?: (() => void) | undefined
+  /**
+   * 面板层持有的注入状态：提示词按钮放在页签栏里，和列表共用同一份提示与标记。
+   * 省略时列表自己管注入，并把按钮放在列表顶部。
+   */
+  readonly actions?: TicketActionsState | undefined
 }
 
 /** 工单列表视图。 */
@@ -96,10 +105,8 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const { loadMore, moreError, moreLoading } = props.request
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
-  const { injected, notice, noticeTone, inject, onSkillAction } = useTicketActions(
-    props.workspaceRoot,
-    props.injection,
-  )
+  const ownActions = useTicketActions(props.workspaceRoot, props.injection)
+  const { injected, notice, noticeTone, inject, onSkillAction } = props.actions ?? ownActions
 
   const tickets = snapshot?.tickets ?? []
   const counts = countTickets(tickets)
@@ -126,11 +133,11 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         onRefresh={refresh}
         onRefreshFull={refreshFull}
       />
-      <ActionBar
-        counts={snapshot === null ? null : counts}
-        injection={props.injection}
-        onInject={inject}
-      />
+      {props.actions === undefined ? (
+        <div style={ACTION_BAR_STYLE}>
+          <ActionBar injection={props.injection} onInject={inject} />
+        </div>
+      ) : null}
       {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
       {snapshot !== null ? (
         <>
@@ -138,6 +145,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             filter={preference.filter}
             sortKey={preference.sortKey}
             direction={preference.direction}
+            counts={counts}
             onFilter={setFilter}
             onSort={toggleSort}
           />
@@ -337,6 +345,7 @@ function Toolbar(props: {
   readonly filter: TicketFilter
   readonly sortKey: TicketSortKey
   readonly direction: SortDirection
+  readonly counts: TicketCounts
   readonly onFilter: (filter: TicketFilter) => void
   readonly onSort: (key: TicketSortKey) => void
 }): React.ReactElement {
@@ -348,6 +357,8 @@ function Toolbar(props: {
             key={item.value}
             testId={`filter-${item.value}`}
             label={item.label}
+            stat={CHIP_STATS[item.value]}
+            count={props.counts}
             active={props.filter === item.value}
             onClick={() => {
               props.onFilter(item.value)
@@ -367,12 +378,24 @@ function Toolbar(props: {
   )
 }
 
+/** 带计数的筛选段：数字基于整份快照，不随当前筛选变化。 */
+const CHIP_STATS: Partial<
+  Record<TicketFilter, { readonly key: keyof TicketCounts; readonly color: string }>
+> = {
+  closed: { key: 'closed', color: COLORS.tertiary },
+  blocked: { key: 'blocked', color: COLORS.warn },
+  ready: { key: 'ready', color: COLORS.success },
+}
+
 function Chip(props: {
   readonly testId: string
   readonly label: string
+  readonly stat: { readonly key: keyof TicketCounts; readonly color: string } | undefined
+  readonly count: TicketCounts
   readonly active: boolean
   readonly onClick: () => void
 }): React.ReactElement {
+  const stat = props.stat
   return (
     <button
       type="button"
@@ -382,7 +405,15 @@ function Chip(props: {
       onClick={props.onClick}
       style={{ ...CHIP_STYLE, ...(props.active ? CHIP_ACTIVE_STYLE : undefined) }}
     >
+      {stat === undefined ? null : (
+        <span aria-hidden="true" style={{ ...CHIP_DOT_STYLE, background: stat.color }} />
+      )}
       {props.label}
+      {stat === undefined ? null : (
+        <span data-testid={`stat-${stat.key}`} style={CHIP_COUNT_STYLE}>
+          {props.count[stat.key]}
+        </span>
+      )}
     </button>
   )
 }
