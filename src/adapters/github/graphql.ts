@@ -19,6 +19,10 @@ const AUTHOR_FIELDS: AuthorFields = {
 export interface ParsedIssues {
   readonly total: number
   readonly tickets: readonly Ticket[]
+  /** 后端是否还有下一页；拿不到分页信息时按没有下一页处理。 */
+  readonly hasNextPage: boolean
+  /** 下一页的游标；没有下一页时为 null。 */
+  readonly endCursor: string | null
 }
 
 /**
@@ -41,7 +45,35 @@ export function parseIssueGraphql(output: string): ParsedIssues {
     throw invalid('仓库的 issues.totalCount 不是非负整数')
   }
 
-  return { total, tickets }
+  return { total, tickets, ...readPageCursor(issues) }
+}
+
+/**
+ * 列表的分页游标。拿不到分页信息时按没有下一页处理：
+ * 列表查询总是请求 `pageInfo`，缺失只可能是后端没给。
+ * @param issues - GraphQL 的 issues 连接。
+ * @returns 是否还有下一页与下一页游标。
+ * @throws {TrackerError} 分页字段类型不对。
+ */
+function readPageCursor(issues: Record<string, unknown>): {
+  readonly hasNextPage: boolean
+  readonly endCursor: string | null
+} {
+  const pageInfo = issues.pageInfo
+  if (!isRecord(pageInfo)) return { hasNextPage: false, endCursor: null }
+
+  const hasNextPage = pageInfo.hasNextPage
+  if (typeof hasNextPage !== 'boolean') {
+    throw invalid('仓库的 issues.pageInfo.hasNextPage 不是布尔值')
+  }
+  const cursor = pageInfo.endCursor
+  if (cursor !== undefined && cursor !== null && typeof cursor !== 'string') {
+    throw invalid('仓库的 issues.pageInfo.endCursor 不是字符串')
+  }
+  return {
+    hasNextPage,
+    endCursor: typeof cursor === 'string' && cursor.length > 0 ? cursor : null,
+  }
 }
 
 function parseIssueNode(value: unknown, index: number): Ticket {

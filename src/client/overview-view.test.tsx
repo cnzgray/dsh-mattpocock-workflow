@@ -155,6 +155,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   fetchedAt: NOW - 120_000,
   loaded: 4,
   total: 10,
+  windowLimit: 100,
   tickets: TICKETS,
   metrics: METRICS,
   blockersFinalized: true,
@@ -197,6 +198,9 @@ function fakeClient(
     get(root) {
       getCalls.push(root)
       if (options.pendingGet !== undefined) return options.pendingGet
+      return Promise.resolve(typeof getResult === 'function' ? getResult(root) : getResult)
+    },
+    more(root) {
       return Promise.resolve(typeof getResult === 'function' ? getResult(root) : getResult)
     },
     refresh(root) {

@@ -42,6 +42,7 @@ const SNAPSHOT = {
   fetchedAt: 1,
   loaded: TICKETS.length,
   total: TICKETS.length,
+  windowLimit: TICKETS.length,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,

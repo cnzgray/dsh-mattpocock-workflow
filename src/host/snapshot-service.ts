@@ -20,12 +20,13 @@ import { mergeTickets } from '../core/merge.ts'
 import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
 import type { TicketReference, TrackerChanges, TrackerSnapshot } from '../core/ticket.ts'
 import type { SnapshotStoreEntry } from '../core/snapshot-store.ts'
-import { TrackerError } from '../core/tracker-error.ts'
 import type { BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   RPC_METHODS,
+  SNAPSHOT_MAX_WINDOW,
+  SNAPSHOT_PAGE_SIZE,
   type ErrorCode,
   type RpcResult,
   type SnapshotCacheInfo,
@@ -35,6 +36,8 @@ import {
 } from '../protocol/tracker.ts'
 import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
 import { readWorkspaceRoot } from './rpc-params.ts'
+import { mapSnapshotError, snapshotFailure } from './snapshot-error.ts'
+import { mergePulled, windowFor } from './snapshot-window.ts'
 import {
   buildStoredSnapshot,
   cacheInfo,
@@ -91,13 +94,13 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
   return {
     handle(method, params) {
       if (!isSnapshotMethod(method)) {
-        return Promise.resolve(failure(ERROR_CODES.unknownMethod, `未知方法：${method}`))
+        return Promise.resolve(snapshotFailure(ERROR_CODES.unknownMethod, `未知方法：${method}`))
       }
 
       const workspaceRoot = readWorkspaceRoot(params)
       if (workspaceRoot === undefined) {
         return Promise.resolve(
-          failure(ERROR_CODES.invalidParams, '缺少非空的 workspaceRoot 参数。'),
+          snapshotFailure(ERROR_CODES.invalidParams, '缺少非空的 workspaceRoot 参数。'),
         )
       }
 
@@ -107,6 +110,10 @@ export function createSnapshotService(deps: SnapshotServiceDeps): SnapshotServic
 
       if (method === RPC_METHODS.snapshotResolveBlockers) {
         return resolveBlockers(deps, cache, loading, workspaceRoot)
+      }
+
+      if (method === RPC_METHODS.snapshotMore) {
+        return loadMore(deps, cache, loading, workspaceRoot)
       }
 
       return refreshSnapshot(deps, cache, workspaceRoot, readFullFlag(params))
@@ -128,7 +135,8 @@ function isSnapshotMethod(method: string): boolean {
   return (
     method === RPC_METHODS.snapshotGet ||
     method === RPC_METHODS.snapshotRefresh ||
-    method === RPC_METHODS.snapshotResolveBlockers
+    method === RPC_METHODS.snapshotResolveBlockers ||
+    method === RPC_METHODS.snapshotMore
   )
 }
 
@@ -235,7 +243,7 @@ async function serveStored(
   try {
     resolved = await deps.resolve(workspaceRoot)
   } catch (error) {
-    const mapped = mapError(error)
+    const mapped = mapSnapshotError(error)
     const snapshot = buildStoredSnapshot(deps, stored, {
       stale: true,
       refreshError: { code: mapped.code, message: mapped.message },
@@ -277,7 +285,7 @@ async function refreshSnapshot(
   try {
     resolved = await deps.resolve(workspaceRoot)
   } catch (error) {
-    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapSnapshotError(error), startedAt)
   }
 
   const stored = await readStored(deps, workspaceRoot)
@@ -297,10 +305,13 @@ async function refreshSnapshot(
   }
 
   try {
-    const raw = await tracker.fetchSnapshot(workspaceRoot)
+    const raw = await tracker.fetchSnapshot(
+      workspaceRoot,
+      windowFor(cache.get(workspaceRoot), base),
+    )
     return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
   } catch (error) {
-    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapSnapshotError(error), startedAt)
   }
 }
 
@@ -332,7 +343,7 @@ async function mergeIncremental(
   try {
     changes = await tracker.fetchChanges(workspaceRoot, base.fetchedAt - INCREMENTAL_OVERLAP_MS)
   } catch (error) {
-    return await keepOldSnapshot(deps, cache, workspaceRoot, mapError(error), startedAt)
+    return await keepOldSnapshot(deps, cache, workspaceRoot, mapSnapshotError(error), startedAt)
   }
 
   if (changes.truncated) {
@@ -348,7 +359,8 @@ async function mergeIncremental(
     return undefined
   }
 
-  const merged = mergeTickets(base.tickets, changes.tickets, base.windowLimit)
+  const windowLimit = base.windowLimit ?? SNAPSHOT_PAGE_SIZE
+  const merged = mergeTickets(base.tickets, changes.tickets, windowLimit)
   // 远端删除不产生变更记录：合并后票数超过权威总数，说明缓存里有已删除的票。
   // 增量看不出是哪一张，只能当次退回全量重拉，不发布、不写入不一致的结果。
   if (merged.length > total) {
@@ -362,7 +374,7 @@ async function mergeIncremental(
     loaded: merged.length,
     total,
     tickets: merged,
-    ...(base.windowLimit === undefined ? {} : { windowLimit: base.windowLimit }),
+    windowLimit,
   }
   return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'incremental')
 }
@@ -404,10 +416,10 @@ async function fetchAndCache(
   try {
     const resolved = await deps.resolve(workspaceRoot)
     kind = resolved.kind
-    const raw = await resolved.tracker.fetchSnapshot(workspaceRoot)
+    const raw = await resolved.tracker.fetchSnapshot(workspaceRoot, SNAPSHOT_PAGE_SIZE)
     return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
   } catch (error) {
-    const mapped = mapError(error)
+    const mapped = mapSnapshotError(error)
     deps.log('warn', LOG_EVENTS.snapshot, {
       result: 'error',
       ...(kind === undefined ? {} : { backend: kind }),
@@ -415,7 +427,64 @@ async function fetchAndCache(
       code: mapped.code,
       durationMs: Math.max(0, deps.now() - startedAt),
     })
-    return failure(mapped.code, mapped.message)
+    return snapshotFailure(mapped.code, mapped.message)
+  }
+}
+
+/**
+ * 扩窗：向后再要一页，并入当前快照后返回完整快照。
+ *
+ * 宿主是唯一合并点：新页与当前快照按工单引用去重、按更新时间倒序、裁到新窗口，
+ * 重算指标并写入本地快照库。已经覆盖全部工单或到窗口上限时不再请求。
+ * @param deps - 服务依赖。
+ * @param cache - 内存缓存。
+ * @param loading - 进行中的首屏拉取。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 合并后的快照；失败时带错误码，界面保留现有列表。
+ */
+async function loadMore(
+  deps: SnapshotServiceDeps,
+  cache: Map<string, CachedWorkspace>,
+  loading: Map<string, Promise<RpcResult<WorkspaceSnapshot>>>,
+  workspaceRoot: string,
+): Promise<RpcResult<WorkspaceSnapshot>> {
+  const initial = await getSnapshot(deps, cache, loading, workspaceRoot)
+  if (!initial.ok) return initial
+
+  const entry = cache.get(workspaceRoot)
+  if (entry === undefined) return initial
+  const windowLimit = entry.raw.windowLimit ?? SNAPSHOT_PAGE_SIZE
+  if (entry.raw.tickets.length >= entry.raw.total || windowLimit >= SNAPSHOT_MAX_WINDOW) {
+    return { ok: true, result: entry.snapshot }
+  }
+
+  const nextWindow = Math.min(windowLimit + SNAPSHOT_PAGE_SIZE, SNAPSHOT_MAX_WINDOW)
+  const startedAt = deps.now()
+  let kind: BackendKind | undefined
+
+  try {
+    const resolved = await deps.resolve(workspaceRoot)
+    kind = resolved.kind
+    const raw = await resolved.tracker.fetchSnapshot(workspaceRoot, nextWindow)
+    return await publish(
+      deps,
+      cache,
+      workspaceRoot,
+      resolved,
+      { ...raw, windowLimit: nextWindow },
+      startedAt,
+      'more',
+    )
+  } catch (error) {
+    const mapped = mapSnapshotError(error)
+    deps.log('warn', LOG_EVENTS.snapshot, {
+      result: 'error',
+      ...(kind === undefined ? {} : { backend: kind }),
+      stage: SNAPSHOT_STAGES.list,
+      code: mapped.code,
+      durationMs: Math.max(0, deps.now() - startedAt),
+    })
+    return snapshotFailure(mapped.code, mapped.message)
   }
 }
 
@@ -427,7 +496,7 @@ async function fetchAndCache(
  * @param resolved - 解析出的后端。
  * @param raw - 后端返回的原始列表。
  * @param startedAt - 这次拉取的起始时刻。
- * @param mode - 这次是全量还是增量。
+ * @param mode - 这次是全量、增量还是扩窗。
  * @returns 快照。
  */
 async function publish(
@@ -437,17 +506,19 @@ async function publish(
   resolved: ResolvedBackend,
   raw: TrackerSnapshot,
   startedAt: number,
-  mode: 'full' | 'incremental',
+  mode: 'full' | 'incremental' | 'more',
 ): Promise<RpcResult<WorkspaceSnapshot>> {
-  const tickets = withSkillActions(classifyTickets(raw.tickets, deps.labels), deps.labels)
+  // 并发请求不能把窗口缩回去：保留更大的那一份，按工单引用去重后再裁剪。
+  const merged = mergePulled(cache.get(workspaceRoot), raw)
+  const tickets = withSkillActions(classifyTickets(merged.tickets, deps.labels), deps.labels)
   const resolver = resolved.tracker.resolveBlockers ?? null
   const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
   const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
-  const metrics = metricsOf(deps, resolved.kind, raw, tickets, finalized)
+  const metrics = metricsOf(deps, resolved.kind, merged, tickets, finalized)
   const snapshot = buildSnapshot(
     resolved.kind,
     repositoryHost,
-    raw,
+    merged,
     tickets,
     finalized,
     metrics,
@@ -459,13 +530,13 @@ async function publish(
   cache.set(workspaceRoot, {
     kind: resolved.kind,
     repositoryHost,
-    raw,
+    raw: merged,
     snapshot,
     resolver,
     pending: null,
   })
 
-  await writeStored(deps, workspaceRoot, resolved, raw)
+  await writeStored(deps, workspaceRoot, resolved, merged)
 
   deps.log('info', LOG_EVENTS.snapshot, {
     result: 'ok',
@@ -513,7 +584,7 @@ async function keepOldSnapshot(
 
   // 内存里还没有快照，但库里可能有：把库里的数据显示出来并说明刷新失败。
   const stored = await readStored(deps, workspaceRoot)
-  if (stored === undefined) return failure(mapped.code, mapped.message)
+  if (stored === undefined) return snapshotFailure(mapped.code, mapped.message)
 
   const snapshot = buildStoredSnapshot(deps, stored, { stale: true, refreshError })
   cache.set(workspaceRoot, storedEntry(stored, null, snapshot))
@@ -599,7 +670,7 @@ async function finalize(
     )
   } catch (error) {
     // 补齐失败只影响定稿标记：保留阶段一结果，下一次刷新重新尝试。
-    failure = mapError(error)
+    failure = mapSnapshotError(error)
     settled = { ...entry.snapshot, blockersFinalized: true }
   }
 
@@ -641,6 +712,7 @@ function buildSnapshot(
     fetchedAt: raw.fetchedAt,
     loaded: tickets.length,
     total: raw.total,
+    windowLimit: raw.windowLimit ?? tickets.length,
     blockersFinalized,
     metrics,
     source,
@@ -665,15 +737,4 @@ function buildSnapshot(
       ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
     })),
   }
-}
-
-function mapError(error: unknown): { readonly code: ErrorCode; readonly message: string } {
-  if (error instanceof TrackerError) {
-    return { code: error.code, message: error.message }
-  }
-  return { code: ERROR_CODES.internal, message: '读取工单时发生未预期的错误。' }
-}
-
-function failure(code: ErrorCode, message: string): RpcResult<WorkspaceSnapshot> {
-  return { ok: false, error: { code, message } }
 }

@@ -48,10 +48,19 @@ export interface TicketListProps {
   readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
+  /** 列表底部的附加内容（加载更多哨兵）；跟着列表一起滚动。 */
+  readonly footer?: React.ReactNode
 }
 
 /** 分类之外最多显示几个标签；超出的折成 `+N`，窄面板不被撑破。 */
 const MAX_EXTRA_LABELS = 3
+
+/** 行容器：滚动在外层，底部哨兵跟着卡片一起滚。 */
+const ROWS_STYLE: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+}
 
 /**
  * 渲染过滤、排序后的工单。
@@ -68,19 +77,22 @@ export function TicketList(props: TicketListProps): React.ReactElement {
   }
 
   return (
-    <div role="list" data-testid="ticket-list" style={LIST_STYLE}>
-      {props.tickets.map((ticket) => (
-        <TicketRow
-          key={ticket.ref}
-          ticket={ticket}
-          injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
-          injection={props.injection}
-          focused={ticket.ref === props.focused}
-          now={props.now}
-          onPick={props.onPick}
-          onSkillAction={props.onSkillAction}
-        />
-      ))}
+    <div data-testid="ticket-scroll" style={LIST_STYLE}>
+      <div role="list" data-testid="ticket-list" style={ROWS_STYLE}>
+        {props.tickets.map((ticket) => (
+          <TicketRow
+            key={ticket.ref}
+            ticket={ticket}
+            injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
+            injection={props.injection}
+            focused={ticket.ref === props.focused}
+            now={props.now}
+            onPick={props.onPick}
+            onSkillAction={props.onSkillAction}
+          />
+        ))}
+      </div>
+      {props.footer}
     </div>
   )
 }

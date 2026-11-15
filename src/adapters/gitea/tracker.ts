@@ -54,9 +54,10 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
   const detailDeps = { run: deps.run, pageSize }
 
   return {
-    async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
+    async fetchSnapshot(workspaceRoot: string, windowLimit?: number): Promise<TrackerSnapshot> {
+      const window = windowLimit === undefined ? undefined : Math.max(1, Math.trunc(windowLimit))
       const repository = await readRepository(deps.run, workspaceRoot)
-      const issues = await readIssues(deps, workspaceRoot, repository, pageSize)
+      const issues = await readIssues(deps, workspaceRoot, repository, pageSize, undefined, window)
       const states = new Map<number, TicketState>()
       for (const issue of issues.items) {
         if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
@@ -86,6 +87,7 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         loaded: tickets.length,
         total: Math.max(issues.total ?? tickets.length, tickets.length),
         tickets,
+        ...(window === undefined ? {} : { windowLimit: window }),
       }
     },
 
@@ -179,6 +181,7 @@ async function readGiteaChanges(
  *
  * `since` 给了就只取该时刻之后更新过的票：同一路径、同样的过滤条件，
  * 只多一个时间窗口，这样增量与全量覆盖的是同一批工单。
+ * `window` 给了就按更新时间倒序读到窗口覆盖为止；省略表示读到拿全。
  */
 async function readIssues(
   deps: GiteaTrackerDeps,
@@ -186,6 +189,7 @@ async function readIssues(
   repository: GiteaRepository,
   pageSize: number,
   since?: number,
+  window?: number,
 ): Promise<{
   readonly items: ParsedIssue[]
   readonly total: number | undefined
@@ -207,6 +211,8 @@ async function readIssues(
     items.push(...parsed)
     total ??= response.total
 
+    // 窗口只覆盖最近更新的若干张票，够数就停，不再往下翻。
+    if (window !== undefined && items.length >= window) break
     // 有总条数就按条数收口；没有时只能一直翻到空页，宁可多一次请求，也不提前截断。
     if (total !== undefined && items.length >= total) break
     if (parsed.length === 0) break
@@ -214,7 +220,11 @@ async function readIssues(
     if (page === MAX_PAGES) truncated = true
   }
 
-  return { items, total, truncated }
+  return {
+    items: window === undefined ? items : items.slice(0, window),
+    total,
+    truncated,
+  }
 }
 
 async function readNativeBlockers(
@@ -302,7 +312,7 @@ function issuesEndpoint(
   since?: number,
 ): string {
   const window = since === undefined ? '' : `&since=${new Date(since).toISOString()}`
-  return `/repos/${repository.owner}/${repository.name}/issues?state=all&type=issues&page=${String(page)}&limit=${String(pageSize)}${window}`
+  return `/repos/${repository.owner}/${repository.name}/issues?state=all&type=issues&sort=recentupdate&page=${String(page)}&limit=${String(pageSize)}${window}`
 }
 
 function dependenciesEndpoint(

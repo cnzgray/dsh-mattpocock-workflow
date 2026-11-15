@@ -84,6 +84,7 @@ const FINAL: WorkspaceSnapshot = {
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
   total: 3,
+  windowLimit: 3,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -140,6 +141,7 @@ function fakeClient(
   const resolveCalls: string[] = []
   const client: PanelClient = {
     get: () => Promise.resolve(getResult),
+    more: () => Promise.resolve(getResult),
     refresh(root, options) {
       refreshCalls.push(root)
       if (options?.full === true) fullRefreshCalls.push(root)
@@ -337,6 +339,7 @@ describe('工单列表的阻塞补齐', () => {
     const refreshPending = deferred<RpcResult<WorkspaceSnapshot>>()
     const client: PanelClient = {
       get: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
+      more: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
       refresh: () => refreshPending.promise,
       resolveBlockers: () => stale.promise,
       cache: () =>

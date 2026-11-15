@@ -12,7 +12,19 @@ import type { TicketActionReason, TicketSkillAction } from './labels.ts'
 /** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
 
-/** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息、环境检查与工单详情。 */
+/**
+ * 列表窗口一页的票数。三个远端后端首屏都只取这一页，
+ * 列表滚到底时再向宿主扩一页；界面文案里的数字也从这里取。
+ */
+export const SNAPSHOT_PAGE_SIZE = 100
+
+/**
+ * 单个仓库的列表窗口上限。窗口涨到它以后不再请求，
+ * 界面显示「已达上限」。界面与宿主共用这一个定义。
+ */
+export const SNAPSHOT_MAX_WINDOW = 2000
+
+/** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息、加载更多、环境检查与工单详情。 */
 export const RPC_METHODS = {
   /** 读缓存；没有缓存时拉取一次。阻塞信息可能尚未定稿。 */
   snapshotGet: 'snapshot.get',
@@ -20,6 +32,8 @@ export const RPC_METHODS = {
   snapshotRefresh: 'snapshot.refresh',
   /** 补齐原生阻塞信息；快照已定稿时直接返回缓存。同一工作区的进行中请求会复用。 */
   snapshotResolveBlockers: 'snapshot.resolveBlockers',
+  /** 把列表窗口扩大一页，返回合并后的完整快照。同一工作区的进行中请求会复用。 */
+  snapshotMore: 'snapshot.more',
   /** 读取本地快照库的信息；带确认词时可以清空它。 */
   snapshotCache: 'snapshot.cache',
   /** 重新跑一次环境检查；同一工作区的进行中请求会复用。 */
@@ -227,6 +241,11 @@ export interface WorkspaceSnapshot {
   readonly loaded: number
   /** 仓库里的票总数；大于 `loaded` 时列表不完整。 */
   readonly total: number
+  /**
+   * 列表窗口：按更新时间倒序实际覆盖的票数上限。扩窗后与 `loaded` 一起增长；
+   * 达到 {@link SNAPSHOT_MAX_WINDOW} 后界面不再请求下一页。
+   */
+  readonly windowLimit: number
   readonly tickets: readonly TicketSnapshot[]
   /**
    * 项目指标与压力判档。宿主在列表返回时算一次，阻塞补齐完成后重算；
@@ -420,6 +439,7 @@ export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
   'snapshot.refresh': SnapshotRefreshParams
   'snapshot.resolveBlockers': SnapshotParams
+  'snapshot.more': SnapshotParams
   'snapshot.cache': SnapshotCacheParams
   'env.check': EnvCheckParams
   'ticket.get': TicketDetailParams

@@ -89,6 +89,8 @@ export interface FakeResolver {
   readonly changeCalls: ChangeCall[]
   /** 全量拉取的记录：每次列表请求返回的快照。 */
   readonly snapshotCalls: TrackerSnapshot[]
+  /** 列表请求的窗口；调用方没给窗口时记录 undefined。 */
+  readonly snapshotWindows: (number | undefined)[]
 }
 
 /** 假的阻塞补齐实现；抛错用来覆盖补齐失败。 */
@@ -104,6 +106,7 @@ export function fakeResolver(
   const blockerCalls: (readonly TicketReference[])[] = []
   const changeCalls: ChangeCall[] = []
   const snapshotCalls: TrackerSnapshot[] = []
+  const snapshotWindows: (number | undefined)[] = []
   let index = 0
   const resolve: BackendResolver = (workspaceRoot) => {
     calls.push(workspaceRoot)
@@ -113,8 +116,9 @@ export function fakeResolver(
     if (response instanceof Error) return Promise.reject(response)
 
     const tracker: Tracker = {
-      fetchSnapshot: () => {
+      fetchSnapshot: (_root: string, windowLimit?: number) => {
         snapshotCalls.push(response)
+        snapshotWindows.push(windowLimit)
         return Promise.resolve(response)
       },
       ...(resolveBlockers === undefined
@@ -141,7 +145,7 @@ export function fakeResolver(
       address: kind === 'markdown' ? undefined : { host: 'github.com', path: 'cnzgray/repo' },
     })
   }
-  return { resolve, calls, blockerCalls, changeCalls, snapshotCalls }
+  return { resolve, calls, blockerCalls, changeCalls, snapshotCalls, snapshotWindows }
 }
 
 /**
@@ -176,14 +180,11 @@ export function serviceWith(
   readonly blockerCalls: (readonly TicketReference[])[]
   readonly changeCalls: ChangeCall[]
   readonly snapshotCalls: TrackerSnapshot[]
+  readonly snapshotWindows: (number | undefined)[]
   readonly logs: readonly { level: string; event: string; fields: Record<string, unknown> }[]
 } {
-  const { resolve, calls, blockerCalls, changeCalls, snapshotCalls } = fakeResolver(
-    responses,
-    kind,
-    resolveBlockers,
-    extras?.changes,
-  )
+  const { resolve, calls, blockerCalls, changeCalls, snapshotCalls, snapshotWindows } =
+    fakeResolver(responses, kind, resolveBlockers, extras?.changes)
   const logs: { level: string; event: string; fields: Record<string, unknown> }[] = []
   const log: LogSink = (level, event, fields) => {
     logs.push({ level, event, fields: { ...fields } })
@@ -199,7 +200,7 @@ export function serviceWith(
     log,
     ...(extras?.store === undefined ? {} : { store: extras.store }),
   })
-  return { service, calls, blockerCalls, changeCalls, snapshotCalls, logs }
+  return { service, calls, blockerCalls, changeCalls, snapshotCalls, snapshotWindows, logs }
 }
 
 /** 内存里的本地快照库：记录写入与清空，行为与文件实现一致。 */

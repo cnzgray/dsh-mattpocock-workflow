@@ -189,8 +189,35 @@ const EMPTY_ISSUES_OUTPUT = JSON.stringify({
 })
 
 /**
- * 列表一次只取一页：快照声明窗口上限，宿主据此判断样本是否被截断。
+ * 构造一页列表输出。
+ * @param numbers - 这一页的票号，顺序即返回顺序。
+ * @param page - 这一页的分页信息。
+ * @returns GraphQL 输出。
  */
+function issuesPage(
+  numbers: readonly number[],
+  page: { readonly hasNextPage: boolean; readonly endCursor: string | null },
+): string {
+  return JSON.stringify({
+    data: {
+      repository: {
+        issues: {
+          totalCount: 3,
+          pageInfo: page,
+          nodes: numbers.map((number) => ({
+            number,
+            title: `第 ${String(number)} 张票`,
+            state: 'OPEN',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: `2026-01-0${String(number)}T00:00:00Z`,
+            labels: { nodes: [] },
+          })),
+        },
+      },
+    },
+  })
+}
+
 describe('GitHub 列表窗口', () => {
   it('列表快照声明窗口上限', async () => {
     const { runner } = recordedRunner({})
@@ -199,6 +226,31 @@ describe('GitHub 列表窗口', () => {
     const snapshot = await tracker.fetchSnapshot('/workspace')
 
     expect(snapshot.windowLimit).toBe(42)
+  })
+
+  it('窗口超过一页时按游标续取到窗口覆盖', async () => {
+    const pages = [
+      issuesPage([3, 2], { hasNextPage: true, endCursor: 'cursor-2' }),
+      issuesPage([1], { hasNextPage: false, endCursor: null }),
+    ]
+    const seen: (readonly string[])[] = []
+    const { runner } = recordedRunner({
+      gh: (args) => {
+        seen.push(args)
+        return pages[seen.length - 1] ?? EMPTY_ISSUES_OUTPUT
+      },
+    })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW, limit: 2 })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace', 3)
+
+    expect(snapshot.tickets.map((ticket) => ticket.number)).toEqual([3, 2, 1])
+    expect(snapshot.windowLimit).toBe(3)
+    // 第一页取满单页上限；续取时只补窗口还缺的那一张。
+    expect(seen[0]).toContain('limit=2')
+    expect(seen[0]?.some((arg) => arg.startsWith('after='))).toBe(false)
+    expect(seen[1]).toContain('after=cursor-2')
+    expect(seen[1]).toContain('limit=1')
   })
 })
 

@@ -127,6 +127,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   fetchedAt: NOW - 5_000,
   loaded: TICKETS.length,
   total: TICKETS.length,
+  windowLimit: TICKETS.length,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -144,6 +145,7 @@ const UNUSED_ENV_CHECK = (): Promise<RpcResult<EnvCheckReport>> =>
 function fakeClient(): PanelClient {
   return {
     get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+    more: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     resolveBlockers: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     cache: () =>

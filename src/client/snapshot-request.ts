@@ -28,6 +28,12 @@ export interface SnapshotRequestState {
   readonly refresh: () => void
   /** 全量刷新：忽略本地快照库重拉一次。 */
   readonly refreshFull: () => void
+  /** 向后扩一页列表窗口；界面只在还有更多时调用。 */
+  readonly loadMore: () => void
+  /** 最近一次扩窗失败的原因；列表保持原样，可重试。 */
+  readonly moreError: RpcErrorBody | null
+  /** 扩窗请求进行中。 */
+  readonly moreLoading: boolean
 }
 
 /** 请求选项。 */
@@ -101,7 +107,10 @@ interface Loader {
   readonly error: RpcErrorBody | null
   readonly refreshError: RpcErrorBody | null
   readonly phase: SnapshotPhase
+  readonly moreError: RpcErrorBody | null
+  readonly moreLoading: boolean
   readonly load: (mode: RequestMode) => Promise<WorkspaceSnapshot | null>
+  readonly more: () => void
 }
 
 /**
@@ -116,7 +125,8 @@ export function useSnapshotRequest(
   workspaceRoot: string | undefined,
   options?: SnapshotRequestOptions,
 ): SnapshotRequestState {
-  const { snapshot, error, refreshError, phase, load } = useSnapshotLoader(client, workspaceRoot)
+  const { snapshot, error, refreshError, phase, moreError, moreLoading, load, more } =
+    useSnapshotLoader(client, workspaceRoot)
   const signal = options?.signal ?? 0
   // 一轮缓存只自动刷新一次：刷新失败时不再反复打宿主。
   const autoRefreshed = React.useRef(false)
@@ -191,7 +201,17 @@ export function useSnapshotRequest(
     void run('refresh-full')
   }, [phase, run])
 
-  return { snapshot, error, refreshError, phase, refresh, refreshFull }
+  return {
+    snapshot,
+    error,
+    refreshError,
+    phase,
+    refresh,
+    refreshFull,
+    loadMore: more,
+    moreError,
+    moreLoading,
+  }
 }
 
 /** 落地一次拉取要用到的状态：几个 ref 与 setState 总是一起出现。 */
@@ -205,6 +225,8 @@ interface LoadTarget {
   readonly setError: (next: RpcErrorBody | null) => void
   readonly setRefreshError: (next: RpcErrorBody | null) => void
   readonly setPhase: (next: SnapshotPhase) => void
+  readonly setMoreError: (next: RpcErrorBody | null) => void
+  readonly setMoreLoading: (next: boolean) => void
 }
 
 /**
@@ -218,11 +240,15 @@ function useSnapshotLoader(client: PanelClient, workspaceRoot: string | undefine
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
   const [refreshError, setRefreshError] = React.useState<RpcErrorBody | null>(null)
   const [phase, setPhase] = React.useState<SnapshotPhase>('loading')
+  const [moreError, setMoreError] = React.useState<RpcErrorBody | null>(null)
+  const [moreLoading, setMoreLoading] = React.useState(false)
   const sequence = React.useRef(0)
   // 已经拿到过数据：刷新失败时要靠它决定是保留列表还是切错误页。
   const hasData = React.useRef(false)
   // 当前显示的那份数据：后台刷新要靠它判断有没有新东西可显示。
   const latest = React.useRef<WorkspaceSnapshot | null>(null)
+  // 扩窗不叠发：同一时刻只允许一个「加载更多」在路上。
+  const moreRunning = React.useRef(false)
 
   const target = React.useMemo<LoadTarget>(
     () => ({
@@ -235,6 +261,8 @@ function useSnapshotLoader(client: PanelClient, workspaceRoot: string | undefine
       setError,
       setRefreshError,
       setPhase,
+      setMoreError,
+      setMoreLoading,
     }),
     [client, workspaceRoot],
   )
@@ -242,17 +270,23 @@ function useSnapshotLoader(client: PanelClient, workspaceRoot: string | undefine
     (mode: RequestMode): Promise<WorkspaceSnapshot | null> => loadSnapshot(target, mode),
     [target],
   )
+  const more = React.useCallback((): void => {
+    void loadMoreSnapshot(target, moreRunning)
+  }, [target])
 
   // 换工作区时清掉上一份数据，不让旧仓库的票留在新仓库的列表里。
   React.useEffect(() => {
     setSnapshot(null)
     setError(null)
     setRefreshError(null)
+    setMoreError(null)
+    setMoreLoading(false)
     hasData.current = false
     latest.current = null
+    moreRunning.current = false
   }, [workspaceRoot])
 
-  return { snapshot, error, refreshError, phase, load }
+  return { snapshot, error, refreshError, phase, moreError, moreLoading, load, more }
 }
 
 /**
@@ -267,6 +301,7 @@ async function loadSnapshot(
 ): Promise<WorkspaceSnapshot | null> {
   const current = target.sequence.current + 1
   target.sequence.current = current
+  target.setMoreError(null)
 
   if (target.workspaceRoot === undefined) {
     target.setSnapshot(null)
@@ -292,6 +327,52 @@ async function loadSnapshot(
   return quiet
     ? applyQuiet(target, root, current, result.result)
     : applyLoaded(target, root, current, result.result)
+}
+
+/**
+ * 扩一页列表窗口。
+ *
+ * 宿主负责合并、排序与窗口上限；界面只替换快照。失败时保留现有列表，
+ * 把原因交给哨兵显示重试入口。刷新会推进序号，旧扩窗结果不能覆盖新列表。
+ * @param target - 落地要用的状态。
+ * @param running - 扩窗是否已在路上，防止叠发。
+ * @returns 已落地的数据；失败、叠发或过期时为 null。
+ */
+async function loadMoreSnapshot(
+  target: LoadTarget,
+  running: React.RefObject<boolean>,
+): Promise<WorkspaceSnapshot | null> {
+  if (target.workspaceRoot === undefined || running.current) return null
+
+  running.current = true
+  target.setMoreLoading(true)
+  target.setMoreError(null)
+
+  const current = target.sequence.current + 1
+  target.sequence.current = current
+  const root = target.workspaceRoot
+
+  try {
+    const result = await target.client.more(root)
+    if (current !== target.sequence.current) return null
+    if (!result.ok) {
+      target.setMoreError(result.error)
+      return null
+    }
+
+    commit(target, result.result)
+    if (result.result.blockersFinalized) return result.result
+
+    // 扩窗后的新票也要补齐原生阻塞数；失败时保留列表阶段的结果。
+    const finalized = await target.client.resolveBlockers(root)
+    if (current !== target.sequence.current) return null
+    if (!finalized.ok) return result.result
+    commit(target, finalized.result)
+    return finalized.result
+  } finally {
+    running.current = false
+    target.setMoreLoading(false)
+  }
 }
 
 /**

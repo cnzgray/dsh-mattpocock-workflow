@@ -104,6 +104,26 @@ describe('Gitea 工单后端', () => {
     ])
   })
 
+  it('窗口按更新时间倒序取页，够数就停并给出总数', async () => {
+    const recorded = recordedRunner({
+      issues: (page) =>
+        page === 1
+          ? apiCall([giteaIssue({ number: 15, title: '第一页' })], 250)
+          : apiCall([giteaIssue({ number: 16, title: '第二页' })], 250),
+    })
+    const tracker = createGiteaTracker({ run: recorded.runner, now: () => NOW, pageSize: 1 })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace', 2)
+
+    expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual(['#15', '#16'])
+    expect(snapshot.windowLimit).toBe(2)
+    expect(snapshot.total).toBe(250)
+    // 依赖查询会在列表之后补；列表请求按 page 参数区分。
+    const listCalls = recorded.calls.filter((call) => call.some((arg) => arg.includes('/issues?')))
+    expect(listCalls).toHaveLength(2)
+    expect(listCalls[0]?.join(' ')).toContain('sort=recentupdate')
+  })
+
   it('自建实例的头像按远端协议与端口补成绝对地址', async () => {
     const { tracker } = trackerWith({
       git: () =>

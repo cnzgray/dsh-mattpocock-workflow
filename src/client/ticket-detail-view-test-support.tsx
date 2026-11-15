@@ -83,6 +83,7 @@ export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
   fetchedAt: 1,
   loaded: 0,
   total: 0,
+  windowLimit: 100,
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -123,6 +124,7 @@ export function fakeBackend(
 
   const client: PanelClient = {
     get: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
+    more: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
     refresh(root) {
       refreshCalls.push(root)
       return Promise.resolve({ ok: true, result: refreshed })

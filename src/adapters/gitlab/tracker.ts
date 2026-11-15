@@ -43,7 +43,12 @@ import {
   parseNativeBlockers,
   type ParsedIssue,
 } from './parse.ts'
-import { callGlabApiInclude, mapGlabError, projectEndpoint, readProjectAddress } from './shared.ts'
+import {
+  callGlab,
+  callGlabApiInclude,
+  projectEndpoint,
+  readProjectAddress,
+} from './shared.ts'
 
 /** GitLab 后端依赖。 */
 export interface GitlabTrackerDeps {
@@ -91,26 +96,8 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
   const hints = new Map<string, BlockerHint>()
 
   return {
-    async fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot> {
-      const project = await readProjectAddress(deps.run, workspaceRoot)
-      const issues = await readIssues(deps, workspaceRoot, project.path, pageSize)
-      const states = new Map<number, TicketState>()
-      for (const issue of issues) {
-        if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
-      }
-      hints.set(workspaceRoot, blockerHint(project, issues))
-
-      // 首屏只等列表：阻塞数先按描述回退，原生计数留给补齐阶段。
-      const tickets = issues.map((issue) => withOpenBlockers(issue, states))
-
-      return {
-        repository: project.path,
-        fetchedAt: deps.now(),
-        loaded: tickets.length,
-        total: tickets.length,
-        tickets,
-      }
-    },
+    fetchSnapshot: (workspaceRoot, windowLimit) =>
+      readSnapshot(deps, hints, workspaceRoot, pageSize, windowLimit),
 
     async fetchChanges(workspaceRoot: string, since: number): Promise<TrackerChanges> {
       const listing = { pageSize, pageLimit: incrementalPageLimit }
@@ -172,6 +159,45 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
 /** 空的补齐结果：后端不支持原生阻塞关系时用。 */
 function emptyResolution(): BlockerResolution {
   return { open: new Map(), blockedBy: new Map() }
+}
+
+/**
+ * 读取一次列表快照。
+ *
+ * 首屏只等列表：阻塞数先按描述回退，原生计数留给补齐阶段；窗口省略时覆盖全部工单。
+ * @param deps - 后端依赖。
+ * @param hints - 按工作区保存的补齐线索。
+ * @param workspaceRoot - 工作区根目录。
+ * @param pageSize - 单页票数。
+ * @param windowLimit - 要覆盖的票数上限。
+ * @returns 工单快照。
+ */
+async function readSnapshot(
+  deps: GitlabTrackerDeps,
+  hints: Map<string, BlockerHint>,
+  workspaceRoot: string,
+  pageSize: number,
+  windowLimit: number | undefined,
+): Promise<TrackerSnapshot> {
+  const project = await readProjectAddress(deps.run, workspaceRoot)
+  const window = normalizeWindow(windowLimit)
+  const listing = await readIssues(deps, workspaceRoot, project.path, pageSize, window)
+  const issues = listing.issues
+  const states = new Map<number, TicketState>()
+  for (const issue of issues) {
+    if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
+  }
+  hints.set(workspaceRoot, blockerHint(project, issues))
+
+  const tickets = issues.map((issue) => withOpenBlockers(issue, states))
+  return {
+    repository: project.path,
+    fetchedAt: deps.now(),
+    loaded: tickets.length,
+    total: listing.total ?? tickets.length,
+    tickets,
+    ...(window === undefined ? {} : { windowLimit: window }),
+  }
 }
 
 /** 列表阶段为补齐阶段留下的线索：项目地址、列表是否已表明支持、优先探测哪张票。 */
@@ -257,22 +283,56 @@ async function readGitlabTotal(
 }
 
 /**
+ * 一页工单与响应头里的仓库总数。
+ *
+ * `X-Total` 只在带 `--include` 的请求里读；其余页没有总数。
+ */
+interface IssuesPage {
+  readonly issues: ParsedIssue[]
+  readonly total: number | undefined
+}
+
+/**
  * 读取一页页的工单。
  *
- * 没有时间窗口：列表要覆盖全部工单，读到不足一页为止。
+ * 窗口给出时只读到窗口覆盖为止；没有窗口时读到不足一页为止（覆盖全部）。
+ * 第一页带上 `--include` 读 `X-Total`，用仓库总数告诉界面「共 N 张」。
+ * @param deps - 后端依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @param project - 项目路径。
+ * @param pageSize - 单页票数。
+ * @param window - 要覆盖的票数上限；省略表示全部。
+ * @returns 窗口内的工单与仓库总数。
  */
 async function readIssues(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
   project: string,
   pageSize: number,
-): Promise<ParsedIssue[]> {
+  window?: number,
+): Promise<IssuesPage> {
   const issues: ParsedIssue[] = []
+  let total: number | undefined
 
   for (let page = 1; ; page += 1) {
-    const parsed = await readIssuesPage(deps, workspaceRoot, project, pageSize, page)
-    issues.push(...parsed)
-    if (parsed.length < pageSize) return issues
+    const listing = await readIssuesPage(
+      deps,
+      workspaceRoot,
+      project,
+      pageSize,
+      page,
+      undefined,
+      page === 1,
+    )
+    issues.push(...listing.issues)
+    total ??= listing.total
+    if (window !== undefined && issues.length >= window) break
+    if (listing.issues.length < pageSize) break
+  }
+
+  return {
+    issues: window === undefined ? issues : issues.slice(0, window),
+    total,
   }
 }
 
@@ -300,8 +360,8 @@ async function readChangedIssues(
       page,
       updatedAfter,
     )
-    issues.push(...parsed)
-    if (parsed.length < listing.pageSize) return { issues, truncated: false }
+    issues.push(...parsed.issues)
+    if (parsed.issues.length < listing.pageSize) return { issues, truncated: false }
   }
 
   const probe = await readIssuesPage(
@@ -312,9 +372,20 @@ async function readChangedIssues(
     listing.pageLimit + 1,
     updatedAfter,
   )
-  return { issues, truncated: probe.length > 0 }
+  return { issues, truncated: probe.issues.length > 0 }
 }
 
+/**
+ * 读取一页工单。
+ * @param deps - 后端依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @param project - 项目路径。
+ * @param pageSize - 单页票数。
+ * @param page - 页码，从 1 开始。
+ * @param updatedAfter - 增量窗口起点；省略时读全量列表。
+ * @param include - 是否带 `--include` 读响应头里的总数。
+ * @returns 这一页的工单与总数。
+ */
 async function readIssuesPage(
   deps: GitlabTrackerDeps,
   workspaceRoot: string,
@@ -322,15 +393,15 @@ async function readIssuesPage(
   pageSize: number,
   page: number,
   updatedAfter?: string,
-): Promise<ParsedIssue[]> {
+  include = false,
+): Promise<IssuesPage> {
   const endpoint = issuesEndpoint(project, pageSize, page, updatedAfter)
-  let output: string
-  try {
-    output = (await deps.run('glab', ['api', endpoint], { cwd: workspaceRoot })).stdout
-  } catch (error) {
-    throw mapGlabError(error)
-  }
-  return parseIssuesPage(output)
+  const args = include ? ['api', '--include', endpoint] : ['api', endpoint]
+  const output = await callGlab(deps.run, workspaceRoot, args)
+  if (!include) return { issues: parseIssuesPage(output), total: undefined }
+
+  const response = parseGlabInclude(output)
+  return { issues: parseIssuesPage(response.body), total: response.total }
 }
 
 /**
@@ -479,6 +550,9 @@ function issuesEndpoint(
   const query = ['state=all']
   if (updatedAfter !== undefined) {
     query.push('order_by=updated_at', 'sort=asc', `updated_after=${updatedAfter}`)
+  } else {
+    // 列表窗口与扩窗共用「按更新时间倒序」口径，否则窗口边界对不上。
+    query.push('order_by=updated_at', 'sort=desc')
   }
   query.push(`per_page=${String(pageSize)}`, `page=${String(page)}`)
   return `${projectEndpoint(project)}/issues?${query.join('&')}`
@@ -487,4 +561,14 @@ function issuesEndpoint(
 function normalizePositive(value: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback
   return Math.max(1, Math.trunc(value))
+}
+
+/**
+ * 归一化窗口：省略时保持省略（覆盖全部），其余至少一张。
+ * @param window - 调用方要覆盖的票数。
+ * @returns 归一化后的窗口。
+ */
+function normalizeWindow(window: number | undefined): number | undefined {
+  if (window === undefined) return undefined
+  return Math.max(1, Math.trunc(window))
 }

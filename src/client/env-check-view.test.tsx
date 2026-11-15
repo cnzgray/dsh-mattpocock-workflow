@@ -49,6 +49,7 @@ function fakeClient(
   const cacheCalls: (readonly [string, boolean])[] = []
   const client: PanelClient = {
     get: () => Promise.reject(new Error('未使用')),
+    more: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
     resolveBlockers: () => Promise.reject(new Error('未使用')),
     getDetail: () => Promise.reject(new Error('未使用')),

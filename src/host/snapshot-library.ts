@@ -22,6 +22,7 @@ import { LOG_EVENTS, SNAPSHOT_STAGES } from '../protocol/log-events.ts'
 import {
   ERROR_CODES,
   SNAPSHOT_CLEAR_CONFIRMATION,
+  SNAPSHOT_PAGE_SIZE,
   type ErrorCode,
   type RpcResult,
   type SnapshotCacheInfo,
@@ -164,6 +165,7 @@ export function buildStoredSnapshot(
     fetchedAt: raw.fetchedAt,
     loaded: tickets.length,
     total: raw.total,
+    windowLimit: raw.windowLimit ?? SNAPSHOT_PAGE_SIZE,
     blockersFinalized: false,
     metrics,
     source: 'cache',
@@ -299,7 +301,8 @@ function rawOf(stored: SnapshotStoreEntry): TrackerSnapshot {
     loaded: stored.tickets.length,
     total: stored.total,
     tickets: stored.tickets,
-    ...(stored.windowLimit === undefined ? {} : { windowLimit: stored.windowLimit }),
+    // 没有窗口字段的旧条目按首屏一页处理。
+    windowLimit: stored.windowLimit ?? SNAPSHOT_PAGE_SIZE,
   }
 }
 

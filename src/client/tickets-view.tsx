@@ -7,11 +7,11 @@
  */
 import * as React from 'react'
 
-import type {
-  ErrorCode,
-  SnapshotSource,
-  TicketSnapshot,
-  WorkspaceSnapshot,
+import {
+  type ErrorCode,
+  type SnapshotSource,
+  type TicketSnapshot,
+  type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { BACKEND_LABELS } from './backend-label.ts'
 import { ActionBar } from './action-bar.tsx'
@@ -25,6 +25,7 @@ import { useTicketActions } from './ticket-actions.ts'
 import type { NoticeTone } from './use-draft-injection.ts'
 import { SortControl } from './sort-control.tsx'
 import { TicketList } from './ticket-list.tsx'
+import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tickets-more.tsx'
 import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
@@ -92,6 +93,7 @@ export interface TicketsViewProps {
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
   const { snapshot, error, refreshError, phase, refresh, refreshFull } = props.request
+  const { loadMore, moreError, moreLoading } = props.request
   const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
   const { injected, notice, noticeTone, inject, onSkillAction } = useTicketActions(
@@ -147,6 +149,12 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
             injection={props.injection}
             focused={focused}
             now={nowValue}
+            more={{
+              ...moreStateOf(snapshot),
+              loading: moreLoading,
+              error: moreError,
+              onLoadMore: loadMore,
+            }}
             onPick={props.onOpenTicket}
             onSkillAction={onSkillAction}
           />
@@ -200,13 +208,22 @@ function TicketRows(props: {
   readonly injection: PromptInjection
   readonly focused: string | null
   readonly now: number
+  readonly more: MoreState
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
+  const { more } = props
+  // 失败时停住自动加载，只能点重试：否则哨兵还在视口里就会反复打宿主。
+  const sentinel = useMoreSentinel(
+    more.available && more.error === null && !more.loading,
+    more.onLoadMore,
+  )
+
   return (
     <>
       <div data-testid="loaded-total" style={LOADED_STYLE}>
         已加载 {props.snapshot.loaded} / 共 {props.snapshot.total}
+        {more.capped ? '，已达上限' : ''}
       </div>
       <TicketList
         tickets={props.visible}
@@ -217,6 +234,7 @@ function TicketRows(props: {
         now={props.now}
         onPick={props.onPick}
         onSkillAction={props.onSkillAction}
+        footer={more.available ? <MoreFooter state={more} sentinel={sentinel} /> : null}
       />
     </>
   )

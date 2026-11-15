@@ -50,6 +50,11 @@ export type FetchLike = (
 export interface PanelClient {
   get(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /**
+   * 扩一页列表窗口。宿主把新页并入当前快照后返回完整快照；
+   * 已经覆盖全部工单或到窗口上限时原样返回。
+   */
+  more(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
+  /**
    * 刷新快照。默认走增量；`full` 为 true 时忽略本地快照库，全量重拉一次。
    */
   refresh(
@@ -99,6 +104,8 @@ export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelCli
   return {
     get: (workspaceRoot) =>
       call(fetchImpl, RPC_METHODS.snapshotGet, { workspaceRoot }, isSnapshotResult),
+    more: (workspaceRoot) =>
+      call(fetchImpl, RPC_METHODS.snapshotMore, { workspaceRoot }, isSnapshotResult),
     refresh: (workspaceRoot, options) => {
       // 只有明确要求全量时才带上 full：缺省时宿主能用增量就用增量。
       const params: SnapshotRefreshParams =
@@ -212,6 +219,7 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('fetchedAt' in value) || typeof value.fetchedAt !== 'number') return false
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
+  if (!('windowLimit' in value) || typeof value.windowLimit !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
   if (!value.tickets.every(hasSkillAction)) return false
   if (!('metrics' in value) || typeof value.metrics !== 'object' || value.metrics === null) {

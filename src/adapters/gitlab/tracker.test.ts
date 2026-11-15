@@ -247,10 +247,11 @@ describe('GitLab 工单后端', () => {
     const glabCalls = calls.filter((call) => call[0] === 'glab')
     expect(glabCalls.length).toBeGreaterThan(0)
     for (const call of glabCalls) {
-      const endpoint = call[2] ?? ''
+      // 第一页带 `--include` 读响应头，接口路径始终是最后一个参数；GraphQL 另有分支。
+      const endpoint = call.includes('graphql') ? 'graphql' : (call[call.length - 1] ?? '')
       expect(endpoint).not.toContain('merge_requests')
       if (endpoint === 'graphql') {
-        expect(call.slice(3).join(' ')).not.toContain('merge_requests')
+        expect(call.slice(2).join(' ')).not.toContain('merge_requests')
       } else {
         expect(endpoint).toMatch(/\/issues(?:\?|\/)/)
       }

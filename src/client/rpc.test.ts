@@ -25,6 +25,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   fetchedAt: 1,
   loaded: 0,
   total: 0,
+  windowLimit: 100,
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,

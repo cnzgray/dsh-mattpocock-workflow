@@ -14,6 +14,11 @@
 每个后端的 `tracker.ts` 实现列表契约，`detail.ts` 实现可选的详情与变更能力，
 `options.ts` / `delete.ts` 实现补全候选与删除，共用 `shared.ts` 里的仓库识别、命令执行与错误映射：
 
+列表与扩窗共用同一份口径：`fetchSnapshot(root, windowLimit)` 返回「按更新时间倒序的前 N 张」，
+GitHub 用 GraphQL 游标按 100 一页续取，GitLab 与 Gitea 按各自的页大小续取到窗口覆盖；
+GitLab 首屏带 `--include` 从 `X-Total` 读仓库总数，Gitea 用 `X-Total-Count`，GitHub 用 `totalCount`。
+本地 Markdown 没有翻页概念，忽略窗口。
+
 | 后端          | 详情正文       | 评论                           | 链接地址 | 标签写 | 分配人写                        | 状态写 | 补全候选                                                   | 删除                                                               |
 | ------------- | -------------- | ------------------------------ | -------- | ------ | ------------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------ |
 | GitHub        | 是             | `gh issue view`                | 是       | 是     | 是                              | 是     | `gh label list`；`gh api .../assignees --paginate --slurp` | `gh issue delete --yes`；`viewerPermission` 为 `ADMIN`             |

@@ -147,6 +147,7 @@ describe('任务面板', () => {
       fetchedAt: NOW - 5_000,
       loaded: 1,
       total: 1,
+      windowLimit: 1,
       metrics: emptyMetrics(),
       blockersFinalized: true,
       source: 'live',

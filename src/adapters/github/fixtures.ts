@@ -19,6 +19,7 @@ const RECORDED_ISSUES = {
     repository: {
       issues: {
         totalCount: 30,
+        pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [
           {
             number: 15,

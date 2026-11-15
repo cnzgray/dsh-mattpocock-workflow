@@ -158,6 +158,7 @@ export const SNAPSHOT: WorkspaceSnapshot = {
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
   total: 30,
+  windowLimit: 100,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -220,6 +221,10 @@ export function fakeClient(
       getCalls.push(root)
       return Promise.resolve(get(root))
     },
+    more(root) {
+      // 测试里扩窗与首屏取同一份结果；窗口边界由宿主测试覆盖。
+      return Promise.resolve(get(root))
+    },
     refresh(root, options) {
       refreshCalls.push(root)
       if (options?.full === true) fullRefreshCalls.push(root)
@@ -244,6 +249,7 @@ export function fakeClient(
 export function clientWith(overrides: Partial<PanelClient>): PanelClient {
   return {
     get: () => Promise.reject(new Error('未使用')),
+    more: () => Promise.reject(new Error('未使用')),
     refresh: () => Promise.reject(new Error('未使用')),
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => Promise.reject(new Error('未使用')),

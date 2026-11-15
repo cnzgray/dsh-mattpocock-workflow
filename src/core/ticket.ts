@@ -155,8 +155,15 @@ export interface TicketOptions {
 
 /** 工单后端。GitHub / GitLab / Gitea / 本地 Markdown 都实现同一契约。 */
 export interface Tracker {
-  /** 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。 */
-  fetchSnapshot(workspaceRoot: string): Promise<TrackerSnapshot>
+  /**
+   * 读取一个工作区的工单快照；业务失败抛 {@link TrackerError}。
+   *
+   * 列表、扩窗与全量刷新共用这一份排序与窗口口径：窗口为 N 的结果必须等价于
+   * 「按更新时间倒序取前 N 张」，不出现重复引用。不实现翻页的后端忽略窗口。
+   * @param workspaceRoot - 工作区根目录。
+   * @param windowLimit - 要覆盖的票数上限；省略时由后端决定（通常是首屏一页）。
+   */
+  fetchSnapshot(workspaceRoot: string, windowLimit?: number): Promise<TrackerSnapshot>
   /**
    * 可选能力：读取某时刻之后变更过的工单。
    *
