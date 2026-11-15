@@ -1,5 +1,5 @@
 /**
- * 工作流定义：插件自带的入池命令、它们可推荐的下一步、matt 技能的命令名，
+ * 工作流定义：插件自带的命令、它们可推荐的下一步、matt 技能的命令名，
  * 以及帮助页的流程图。
  *
  * 建票命令正文（host）和帮助页（client）都从这里读取，任何一边漏了或多了命令，
@@ -20,7 +20,7 @@ export interface FlowCommand {
 }
 
 /**
- * 流程里的全部命令。入池命令由插件在内存里注册，处理命令来自 matt 的技能。
+ * 流程里的全部命令。插件命令由插件在内存里注册，处理命令来自 matt 的技能。
  */
 export const FLOW_COMMANDS = {
   intakeBug: { name: 'mattwf-bug', owner: 'plugin', summary: '把缺陷报告写成原始工单' },
@@ -38,6 +38,7 @@ export const FLOW_COMMANDS = {
   implement: { name: PANEL_SKILLS.implement, owner: 'matt', summary: '按规格实现' },
   codeReview: { name: PANEL_SKILLS.codeReview, owner: 'matt', summary: '两轴评审改动' },
   pr: { name: PANEL_SKILLS.pr, owner: 'matt', summary: '写 PR 正文' },
+  close: { name: 'mattwf-close', owner: 'plugin', summary: '判断工单能否关闭，能关就关票' },
 } as const satisfies Record<string, FlowCommand>
 
 /** 流程命令的 id。 */
@@ -282,13 +283,15 @@ export const FLOW_DIAGRAMS: readonly FlowDiagram[] = [
   {
     id: 'after-implement',
     title: '实现之后',
-    summary: '实现完成后先评审；评审意见修完再写 PR 正文，合并后关票。',
+    summary: '实现完成后先评审；评审意见修完再写 PR 正文，合并后判断能否关票，能关才关。',
     rows: [
       { nodes: [{ command: null, state: '实现完成', note: null, stops: false }] },
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'codeReview', note: '两轴评审' }] },
       { nodes: [{ command: null, state: '评审意见已修完', note: null, stops: false }] },
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'pr', note: '写 PR 正文' }] },
-      { nodes: [{ command: null, state: '已合并、票已关闭', note: null, stops: false }] },
+      { nodes: [{ command: null, state: '已合并', note: null, stops: false }] },
+      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'close', note: '改动合并之后判断' }] },
+      { nodes: [{ command: null, state: '票已关闭', note: null, stops: false }] },
     ],
   },
 ]

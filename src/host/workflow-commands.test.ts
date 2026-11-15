@@ -56,21 +56,24 @@ function fakeScope(skills: unknown): FakeScope {
   }
 }
 
-describe('入池命令正文', () => {
-  const [bugSkill, featureSkill] = createWorkflowSkills()
+describe('插件命令正文', () => {
+  const [bugSkill, featureSkill, closeSkill] = createWorkflowSkills()
 
-  it('两个命令都是只有用户能调用的内嵌技能', () => {
+  it('插件命令都是只有用户能调用的内嵌技能', () => {
     expect(createWorkflowSkills().map((skill) => skill.name)).toEqual([
       FLOW_COMMANDS.intakeBug.name,
       FLOW_COMMANDS.intakeFeature.name,
+      FLOW_COMMANDS.close.name,
     ])
-    for (const skill of [bugSkill, featureSkill]) {
+    for (const skill of [bugSkill, featureSkill, closeSkill]) {
       expect(skill).toBeDefined()
       expect(skill?.invocation).toEqual({ modelInvocable: false, userInvocable: true })
       // DSH 加载内嵌技能时要求 source 是字符串；缺了会在手势命中时加载失败。
       expect(skill?.source).toBe('runtime')
-      expect(skill?.description).toContain('只入池')
     }
+    expect(bugSkill?.description).toContain('只入池')
+    expect(featureSkill?.description).toContain('只入池')
+    expect(closeSkill?.description).toContain('只在用户显式调用时动手')
   })
 
   it('缺陷票打 bug 与 needs-triage，需求票只打 needs-triage', () => {
@@ -137,7 +140,128 @@ describe('入池命令正文', () => {
   })
 })
 
-describe('入池命令注册', () => {
+describe('关票命令正文', () => {
+  const closeSkill = createWorkflowSkills().find((skill) => skill.name === FLOW_COMMANDS.close.name)
+
+  it('只在用户显式调用时动手，读票的验收点与之后的改动、评论', () => {
+    for (const phrase of [
+      '只有用户明确调用',
+      '不在实现或 PR 之后自动触发',
+      '验收点',
+      '评论',
+      '已合并的改动',
+      '可以关闭',
+      '不可以关闭',
+      '判断不了',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('先把引用解析到当前工作区的后端与仓库，以当前状态为准', () => {
+    for (const phrase of [
+      '#N',
+      '相对工作区的文件路径',
+      '引用不明确',
+      '指向别的仓库',
+      '不要猜',
+      '当前状态',
+      '不依赖面板的本地快照',
+      '标题、正文、标签、评论',
+      'spec / 父票 / 子票',
+      '合并状态',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('关闭标准覆盖验收点、合并、问题、阻塞、子票、缺陷验证与已关闭票', () => {
+    for (const phrase of [
+      '验收点、被引用的 spec / ADR',
+      '已经合并到默认分支',
+      '未合并的 PR',
+      '待回答的问题',
+      '阻塞票',
+      '父票还有未关闭的子票',
+      '子票',
+      '复现步骤',
+      '回归测试',
+      '已经关闭',
+      '不重开',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('可关时先写判断依据再关票，覆盖四种后端并优先走跟踪文档', () => {
+    for (const phrase of [
+      '跟踪文档的关闭步骤',
+      '兜底',
+      'gh issue comment',
+      'gh issue close',
+      'glab issue note',
+      'glab issue close',
+      'tea comments',
+      'tea issues close',
+      '## Comments',
+      'Status:',
+      'resolved',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+    expect(closeSkill?.content.indexOf('判断依据')).toBeLessThan(
+      closeSkill?.content.indexOf('gh issue close') ?? Infinity,
+    )
+  })
+
+  it('判断依据包含结论、逐条证据与跑过的检查，且不泄露私有数据', () => {
+    for (const phrase of [
+      '一句话结论',
+      'commit / PR 链接',
+      '测试命令与结果',
+      '实际跑过的检查',
+      '跟随票与仓库惯例',
+      'token',
+      '本机绝对路径',
+      '私有数据',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('不可关或判断不了时不动票，在会话里报告缺口与下一步', () => {
+    for (const phrase of [
+      '不评论',
+      '不改状态',
+      '不改标签',
+      '不关票',
+      '在会话里',
+      '缺失的信息与补法',
+      '下一步建议',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('关闭失败原样报告，一次只处理一张票', () => {
+    for (const phrase of [
+      '原样报告失败原因',
+      '不要说已经关闭',
+      '一次只处理',
+      '逐张确认',
+      '不批量关',
+    ]) {
+      expect(closeSkill?.content).toContain(phrase)
+    }
+  })
+
+  it('只管关闭，不改 triage 状态标签', () => {
+    expect(closeSkill?.content).toContain('不改 triage 状态标签')
+    expect(closeSkill?.content).toContain('不替 triage 决定')
+  })
+})
+
+describe('插件命令注册', () => {
   interface RegistryFixture {
     readonly registry: SkillRegistryLike
     readonly registered: SkillRegistrationLike[]
@@ -172,6 +296,7 @@ describe('入池命令注册', () => {
     expect(fixture.registered.map((skill) => skill.name)).toEqual([
       FLOW_COMMANDS.intakeBug.name,
       FLOW_COMMANDS.intakeFeature.name,
+      FLOW_COMMANDS.close.name,
     ])
     dispose()
     for (const registeredDisposer of fixture.disposers) {
@@ -186,7 +311,7 @@ describe('入池命令注册', () => {
     expect(() => {
       registerWorkflowCommands(scope, logger)
     }).not.toThrow()
-    expect(logger.warn).toHaveBeenCalledWith('%s', 'skills 服务不可用，入池命令未注册。')
+    expect(logger.warn).toHaveBeenCalledWith('%s', 'skills 服务不可用，插件命令未注册。')
     expect(() => {
       dispose()
     }).not.toThrow()
@@ -202,6 +327,7 @@ describe('入池命令注册', () => {
 
     expect(fixture.registered.map((skill) => skill.name)).toEqual([
       FLOW_COMMANDS.intakeFeature.name,
+      FLOW_COMMANDS.close.name,
     ])
     expect(logger.error).toHaveBeenCalledWith('%s %s', 'mattwf-bug 注册失败：', '名称冲突')
   })

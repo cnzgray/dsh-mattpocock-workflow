@@ -43,9 +43,9 @@ const plugin = {
     const ctx = rawCtx as DshContext
     const logger = ctx.logger(PLUGIN_NAME)
 
-    // 入池命令是插件自带的内嵌技能：技能服务就绪后注册，缺失时只降级。
+    // 插件命令是插件自带的内嵌技能：技能服务就绪后注册，缺失时只降级。
     if (ctx.get('skills') === undefined) {
-      logger.info('%s', 'skills 服务尚未就绪，入池命令等待注册。')
+      logger.info('%s', 'skills 服务尚未就绪，插件命令等待注册。')
     }
     ctx.inject(['skills'], (scope) => {
       registerWorkflowCommands(scope, logger)

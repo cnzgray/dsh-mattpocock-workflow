@@ -104,7 +104,7 @@ describe('流程帮助视图', () => {
 })
 
 describe('实现之后场景', () => {
-  it('实现完成后先评审、再写 PR 正文，合并关票是终态', async () => {
+  it('先评审、再写 PR 正文，合并后判断能否关票，关闭是终态', async () => {
     render(<TaskPanel {...panelProps()} />)
     await screen.findAllByTestId('ticket-row')
     await openHelp()
@@ -119,17 +119,30 @@ describe('实现之后场景', () => {
     expect(svgs[0]?.getAttribute('aria-label')).toBe('实现之后')
 
     const commands = [...panel.querySelectorAll('[data-command]')]
-    expect(commands.map((node) => node.getAttribute('data-command'))).toEqual(['code-review', 'pr'])
-    expect(commands.map((node) => node.getAttribute('data-owner'))).toEqual(['matt', 'matt'])
-    expect(commands.map((node) => node.getAttribute('data-stops'))).toEqual(['true', 'true'])
+    expect(commands.map((node) => node.getAttribute('data-command'))).toEqual([
+      'code-review',
+      'pr',
+      FLOW_COMMANDS.close.name,
+    ])
+    expect(commands.map((node) => node.getAttribute('data-owner'))).toEqual([
+      'matt',
+      'matt',
+      'plugin',
+    ])
+    expect(commands.map((node) => node.getAttribute('data-stops'))).toEqual([
+      'true',
+      'true',
+      'true',
+    ])
 
     const nodes = [...panel.querySelectorAll('g[data-stops]')]
     const terminal = nodes.at(-1)
     expect(terminal?.getAttribute('data-command')).toBeNull()
     expect(terminal?.getAttribute('data-stops')).toBe('false')
-    expect(terminal?.textContent).toContain('已合并、票已关闭')
+    expect(terminal?.textContent).toContain('票已关闭')
     expect(panel.textContent).toContain('实现完成')
     expect(panel.textContent).toContain('评审意见已修完')
+    expect(panel.textContent).toContain('已合并')
   })
 })
 
