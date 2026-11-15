@@ -8,6 +8,8 @@
  */
 import * as React from 'react'
 
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import {
   COMBO_EMPTY_STYLE,
   COMBO_LIST_STYLE,
@@ -49,6 +51,7 @@ export function TokenEditor(props: {
   readonly onAssignSelf: (() => void) | undefined
   readonly onClose: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { kind, busy } = props
   const listId = React.useId()
   const [draft, setDraft] = React.useState('')
@@ -76,7 +79,7 @@ export function TokenEditor(props: {
       <input
         data-testid={`${kind}-input`}
         role="combobox"
-        aria-label={`要添加的${props.name}`}
+        aria-label={t('detail.combo.addLabel', { name: props.name })}
         aria-expanded
         aria-controls={listId}
         aria-autocomplete="list"
@@ -92,10 +95,7 @@ export function TokenEditor(props: {
         }}
         onKeyDown={onKeyDown}
         onBlur={(event) => {
-          // 焦点移到组外且没有输入内容时收起；移到候选或按钮上不收起。
-          const group = event.currentTarget.closest('[role="group"]')
-          if (query.length > 0 || group?.contains(event.relatedTarget) === true) return
-          props.onClose()
+          blurCloses(event, query, props.onClose)
         }}
         style={DETAIL_INLINE_INPUT_STYLE}
       />
@@ -121,6 +121,17 @@ export function TokenEditor(props: {
       />
     </>
   )
+}
+
+/** 焦点移到组外且没有输入内容时收起；移到候选或按钮上不收起。 */
+function blurCloses(
+  event: React.FocusEvent<HTMLInputElement>,
+  query: string,
+  onClose: () => void,
+): void {
+  const group = event.currentTarget.closest('[role="group"]')
+  if (query.length > 0 || group?.contains(event.relatedTarget) === true) return
+  onClose()
 }
 
 /**
@@ -158,6 +169,7 @@ function EditorButtons(props: {
   readonly onAssignSelf: (() => void) | undefined
   readonly onClose: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const assignSelf = props.onAssignSelf
   return (
     <>
@@ -170,7 +182,7 @@ function EditorButtons(props: {
         onClick={props.onAdd}
         style={DETAIL_SMALL_BUTTON_STYLE}
       >
-        添加
+        {t('detail.combo.add')}
       </button>
       {assignSelf === undefined ? null : (
         <button
@@ -185,7 +197,7 @@ function EditorButtons(props: {
           }}
           style={DETAIL_SMALL_BUTTON_STYLE}
         >
-          分配给我
+          {t('detail.combo.assignSelf')}
         </button>
       )}
     </>
@@ -202,13 +214,14 @@ function SuggestionList(props: {
   readonly onHover: (index: number) => void
   readonly onPick: (value: string) => void
 }): React.ReactElement {
-  const note = listNote(props.source, props.matches.length, props.query)
+  const { t } = useI18n()
+  const note = listNote(props.source, props.matches.length, props.query, t)
   return (
     <ul
       id={props.listId}
       role="listbox"
       data-testid={`${props.kind}-suggestions`}
-      aria-label="候选"
+      aria-label={t('detail.combo.candidates')}
       style={COMBO_LIST_STYLE}
     >
       {props.matches.map((item, index) => (
@@ -253,11 +266,18 @@ function SuggestionList(props: {
   )
 }
 
-function listNote(source: SuggestionSource, count: number, query: string): string | null {
-  if (source.status === 'loading') return '正在读取候选…'
-  if (source.status === 'unavailable') return `${source.reason}可以直接输入后回车添加。`
+function listNote(
+  source: SuggestionSource,
+  count: number,
+  query: string,
+  t: Translate,
+): string | null {
+  if (source.status === 'loading') return t('detail.combo.loading')
+  if (source.status === 'unavailable') {
+    return t('detail.combo.unavailable', { reason: source.reason })
+  }
   if (count > 0) return null
-  return query.length === 0 ? '没有更多候选。' : `没有匹配的候选，回车添加“${query}”。`
+  return query.length === 0 ? t('detail.combo.noMore') : t('detail.combo.noMatch', { query })
 }
 
 /**

@@ -5,7 +5,9 @@
 import * as React from 'react'
 import type { CSSProperties } from 'react'
 
-import { COLORS, SEGMENTED_STYLE, SORT_OPTIONS } from './task-panel-styles.ts'
+import { useI18n } from './i18n.tsx'
+import type { MessageKey } from './messages.ts'
+import { COLORS, SEGMENTED_STYLE, TICKET_SORT_KEYS } from './task-panel-styles.ts'
 import type { SortDirection, TicketSortKey } from './ticket-view.ts'
 
 /** 整组靠右：和左侧的状态过滤分开。 */
@@ -66,7 +68,18 @@ const DIRECTION_STYLE: CSSProperties = {
   lineHeight: '20px',
 }
 
-const DIRECTION_TEXT: Record<SortDirection, string> = { asc: '升序', desc: '降序' }
+const SORT_KEYS: Readonly<Record<TicketSortKey, MessageKey>> = {
+  status: 'sort.status',
+  updated: 'sort.updated',
+  created: 'sort.created',
+  number: 'sort.number',
+  title: 'sort.title',
+}
+
+const DIRECTION_KEYS: Readonly<Record<SortDirection, MessageKey>> = {
+  asc: 'sort.asc',
+  desc: 'sort.desc',
+}
 
 /**
  * 排序控件。
@@ -79,24 +92,27 @@ export function SortControl(props: {
   readonly onSortKey: (key: TicketSortKey) => void
   readonly onToggleDirection: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const next: SortDirection = props.direction === 'asc' ? 'desc' : 'asc'
+  const currentLabel = t(DIRECTION_KEYS[props.direction])
+  const nextLabel = t(DIRECTION_KEYS[next])
 
   return (
-    <div role="group" aria-label="排序" style={GROUP_STYLE}>
+    <div role="group" aria-label={t('sort.group')} style={GROUP_STYLE}>
       <span style={SELECT_WRAP_STYLE}>
         <select
           data-testid="sort-key"
-          aria-label="排序字段"
+          aria-label={t('sort.field')}
           value={props.sortKey}
           onChange={(event) => {
-            const key = SORT_OPTIONS.find((item) => item.value === event.target.value)?.value
+            const key = TICKET_SORT_KEYS.find((item) => item === event.target.value)
             if (key !== undefined) props.onSortKey(key)
           }}
           style={SELECT_STYLE}
         >
-          {SORT_OPTIONS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
+          {TICKET_SORT_KEYS.map((key) => (
+            <option key={key} value={key}>
+              {t(SORT_KEYS[key])}
             </option>
           ))}
         </select>
@@ -109,8 +125,8 @@ export function SortControl(props: {
         data-testid="sort-direction"
         data-direction={props.direction}
         data-hover="soft"
-        aria-label={`${DIRECTION_TEXT[props.direction]}，切换为${DIRECTION_TEXT[next]}`}
-        title={`${DIRECTION_TEXT[props.direction]}（点击切换为${DIRECTION_TEXT[next]}）`}
+        aria-label={t('sort.switchAria', { current: currentLabel, next: nextLabel })}
+        title={t('sort.switchTitle', { current: currentLabel, next: nextLabel })}
         onClick={props.onToggleDirection}
         style={DIRECTION_STYLE}
       >

@@ -31,16 +31,18 @@ import {
   TIER_DOT_STYLE,
   TIER_TEXT_STYLE,
 } from './overview-styles.ts'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import {
   factSignals,
   formatPercent,
   gapNote,
   metricText,
+  pressureDimensionBasis,
+  pressureDimensionLabel,
   pressureFacts,
   pressureGaps,
-  PRESSURE_DIMENSION_BASIS,
-  PRESSURE_DIMENSION_LABELS,
-  PRESSURE_TIER_LABELS,
+  pressureTierLabel,
 } from './overview-text.ts'
 import { COLORS } from './task-panel-styles.ts'
 
@@ -58,19 +60,20 @@ interface MetricRow {
 export function PressureSection(props: {
   readonly snapshot: WorkspaceSnapshot
 }): React.ReactElement {
+  const { t } = useI18n()
   const { snapshot } = props
   const { pressure, coverage } = snapshot.metrics
 
   return (
     <section data-testid="pressure-overview" style={SECTION_STYLE}>
       <div style={SECTION_TITLE_STYLE}>
-        <span>压力总览</span>
+        <span>{t('overview.pressure.title')}</span>
         <span
           data-testid="pressure-tier"
-          title="整体档位取三个维度里最重的一档"
+          title={t('overview.pressure.tierTitle')}
           style={TIER_BADGE_STYLES[pressure.tier]}
         >
-          {PRESSURE_TIER_LABELS[pressure.tier]}
+          {pressureTierLabel(pressure.tier, t)}
         </span>
       </div>
       <div data-testid="metric-grid" style={DIMENSION_GRID_STYLE}>
@@ -78,18 +81,21 @@ export function PressureSection(props: {
           <DimensionCard
             key={report.dimension}
             report={report}
-            rows={visibleRows(report, snapshot)}
+            rows={visibleRows(report, snapshot, t)}
           />
         ))}
       </div>
       <div style={NOTE_STYLE}>
-        整体档位取三个维度里最重的一档
+        {t('overview.pressure.note')}
         {coverage.truncated ? (
           <span data-testid="pressure-coverage">
-            ；按已加载的 {String(snapshot.loaded)} / 共 {String(snapshot.total)} 张判定。
+            {t('overview.pressure.coverage', {
+              loaded: snapshot.loaded,
+              total: snapshot.total,
+            })}
           </span>
         ) : (
-          '。'
+          t('overview.pressure.period')
         )}
       </div>
     </section>
@@ -100,9 +106,12 @@ function DimensionCard(props: {
   readonly report: PressureDimensionReport
   readonly rows: readonly MetricRow[]
 }): React.ReactElement {
+  const { t } = useI18n()
   const { report } = props
-  const name = PRESSURE_DIMENSION_LABELS[report.dimension]
-  const tierLabel = report.tier === null ? '不可用' : PRESSURE_TIER_LABELS[report.tier]
+  const name = pressureDimensionLabel(report.dimension, t)
+  const tierLabel =
+    report.tier === null ? t('overview.pressure.unavailable') : pressureTierLabel(report.tier, t)
+  const basis = pressureDimensionBasis(report.dimension, t)
 
   return (
     <div
@@ -111,15 +120,12 @@ function DimensionCard(props: {
       style={DIMENSION_CARD_STYLE}
     >
       <div style={DIMENSION_HEAD_STYLE}>
-        <span
-          style={DIMENSION_NAME_STYLE}
-          title={`看${PRESSURE_DIMENSION_BASIS[report.dimension]}`}
-        >
+        <span style={DIMENSION_NAME_STYLE} title={t('overview.pressure.basis', { basis })}>
           {name}
         </span>
         {report.provisional ? (
           <span data-testid={`pressure-provisional-${report.dimension}`} style={PROVISIONAL_STYLE}>
-            暂估
+            {t('overview.pressure.provisional')}
           </span>
         ) : null}
         <span style={{ ...TIER_TEXT_STYLE, marginLeft: 'auto' }}>
@@ -133,13 +139,16 @@ function DimensionCard(props: {
           <span data-testid={`pressure-tier-${report.dimension}`}>{tierLabel}</span>
         </span>
       </div>
-      <TierMeter tier={report.tier} label={`${name}：${tierLabel}`} />
+      <TierMeter
+        tier={report.tier}
+        label={t('overview.pressure.tierLabel', { name, tier: tierLabel })}
+      />
       <div>
         <div data-testid={`pressure-facts-${report.dimension}`} style={DIMENSION_FACT_STYLE}>
-          {pressureFacts(report)}
+          {pressureFacts(report, t)}
         </div>
-        <div style={DIMENSION_BASIS_STYLE}>看{PRESSURE_DIMENSION_BASIS[report.dimension]}</div>
-        {pressureGaps(report).map((gap) => (
+        <div style={DIMENSION_BASIS_STYLE}>{t('overview.pressure.basis', { basis })}</div>
+        {pressureGaps(report, t).map((gap) => (
           <div key={gap} data-testid={`pressure-gap-${report.dimension}`} style={NOTE_STYLE}>
             {gap}
           </div>
@@ -162,14 +171,13 @@ function DimensionCard(props: {
 function visibleRows(
   report: PressureDimensionReport,
   snapshot: WorkspaceSnapshot,
+  t: Translate,
 ): readonly MetricRow[] {
   const stated = new Set(factSignals(report).map((signal) => signal.metric))
-  return dimensionRows(report.dimension, snapshot).filter(
+  return dimensionRows(report.dimension, snapshot, t).filter(
     (row) => row.signal === undefined || !stated.has(row.signal),
   )
 }
-
-const count = (value: number): string => `${String(value)} 张`
 
 /**
  * 每个维度下面列哪些数字：规模看积压的去向，阻塞看占比与链长，时效看陈旧与停滞。
@@ -178,54 +186,72 @@ const count = (value: number): string => `${String(value)} 张`
 function dimensionRows(
   dimension: PressureDimension,
   snapshot: WorkspaceSnapshot,
+  t: Translate,
 ): readonly MetricRow[] {
   const { metrics } = snapshot
+  const count = (value: number): string => t('overview.metric.tickets', { count: value })
   switch (dimension) {
     case 'scale':
       return [
         {
           testId: 'metric-backlog',
-          label: '开放积压',
+          label: t('overview.metric.backlog'),
           value: count(metrics.openBacklog),
           signal: 'backlog',
         },
-        { testId: 'metric-ready', label: '可接容量', value: count(metrics.readyCapacity) },
-        { testId: 'metric-triage', label: '待 triage', value: count(metrics.needsTriage) },
+        {
+          testId: 'metric-ready',
+          label: t('overview.metric.readyCapacity'),
+          value: count(metrics.readyCapacity),
+        },
+        {
+          testId: 'metric-triage',
+          label: t('overview.metric.triage'),
+          value: count(metrics.needsTriage),
+        },
       ]
     case 'blocking':
       return [
         {
           testId: 'metric-blocked-ratio',
-          label: '阻塞占比',
+          label: t('overview.metric.blockedRatio'),
           value: formatPercent(metrics.blockedRatio),
           signal: 'blockedRatio',
         },
         {
           testId: 'metric-chain',
-          label: '最长阻塞链',
-          value: metricText(metrics.longestBlockerChain, (value) => `${String(value)} 层`),
-          note: gapNote(metrics.longestBlockerChain),
+          label: t('overview.metric.longestChain'),
+          value: metricText(
+            metrics.longestBlockerChain,
+            (value) => t('overview.metric.layers', { count: value }),
+            t,
+          ),
+          note: gapNote(metrics.longestBlockerChain, t),
         },
       ]
     case 'freshness':
       return [
         {
           testId: 'metric-stalled',
-          label: '停滞票',
+          label: t('overview.metric.stalled'),
           value: count(metrics.stalled),
           signal: 'stalled',
         },
         {
           testId: 'metric-stale',
-          label: '陈旧票',
-          value: metricText(metrics.staleCount, count),
-          note: gapNote(metrics.staleCount),
+          label: t('overview.metric.stale'),
+          value: metricText(metrics.staleCount, count, t),
+          note: gapNote(metrics.staleCount, t),
         },
         {
           testId: 'metric-oldest-update',
-          label: '最久未动',
-          value: metricText(metrics.oldestUpdateDays, (value) => `${String(value)} 天`),
-          note: gapNote(metrics.oldestUpdateDays),
+          label: t('overview.metric.oldestUpdate'),
+          value: metricText(
+            metrics.oldestUpdateDays,
+            (value) => t('overview.metric.days', { count: value }),
+            t,
+          ),
+          note: gapNote(metrics.oldestUpdateDays, t),
         },
       ]
   }

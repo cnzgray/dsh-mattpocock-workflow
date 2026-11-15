@@ -6,9 +6,11 @@
 import * as React from 'react'
 
 import { TRIAGE_LABELS } from '../protocol/labels.ts'
-import type { TicketAuthor, TicketSnapshot } from '../protocol/tracker.ts'
+import type { TicketAuthor, TicketSnapshot, TicketStatus } from '../protocol/tracker.ts'
 import { authorName, authorTitle } from './author-text.ts'
+import { useI18n } from './i18n.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
+import type { MessageKey } from './messages.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
 import {
@@ -21,7 +23,6 @@ import {
   LIST_STYLE,
   STATUS_BADGES,
   STATUS_DOT_STYLE,
-  STATUS_LABELS,
 } from './task-panel-styles.ts'
 import { TicketAvatar } from './ticket-avatar.tsx'
 import { TicketNumber } from './ticket-number.tsx'
@@ -54,6 +55,14 @@ export interface TicketListProps {
 
 /** 分类之外最多显示几个标签；超出的折成 `+N`，窄面板不被撑破。 */
 const MAX_EXTRA_LABELS = 3
+
+/** 工单状态到词典键。 */
+const STATUS_KEYS: Readonly<Record<TicketStatus, MessageKey>> = {
+  ready: 'status.ready',
+  blocked: 'status.blocked',
+  closed: 'status.closed',
+  open: 'status.open',
+}
 
 /** 行容器：滚动在外层，底部哨兵跟着卡片一起滚。 */
 const ROWS_STYLE: React.CSSProperties = {
@@ -106,6 +115,7 @@ function TicketRow(props: {
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { ticket } = props
 
   return (
@@ -128,7 +138,7 @@ function TicketRow(props: {
         <button
           type="button"
           data-testid="ticket-open"
-          aria-label={`打开 ${ticket.ref}：${ticket.title}`}
+          aria-label={t('tickets.a11y.open', { ref: ticket.ref, title: ticket.title })}
           style={CARD_OPEN_STYLE}
         />
         <span style={CARD_TITLE_STYLE}>
@@ -152,6 +162,7 @@ function MetaRow(props: {
   readonly ticket: TicketSnapshot
   readonly now: number
 }): React.ReactElement {
+  const { t } = useI18n()
   const { ticket } = props
   const extra = ticket.labels.filter((label) => label !== ticket.category)
   const { shown, hidden } = pickRowLabels(extra, MAX_EXTRA_LABELS)
@@ -160,7 +171,7 @@ function MetaRow(props: {
     <span style={CARD_META_STYLE}>
       <span style={STATUS_BADGES[ticket.status]}>
         <span style={STATUS_DOT_STYLE} />
-        {STATUS_LABELS[ticket.status]}
+        {t(STATUS_KEYS[ticket.status])}
       </span>
       {ticket.category === null ? null : (
         <span style={CATEGORY_BADGES[ticket.category]}>{ticket.category}</span>
@@ -194,10 +205,11 @@ function AuthorMeta(props: {
   readonly updatedAt: string
   readonly now: number
 }): React.ReactElement {
+  const { t } = useI18n()
   const { author } = props
   const name = authorName(author)
-  const full = authorTitle(author)
-  const age = formatRelativeTime(props.createdAt, props.now)
+  const full = authorTitle(author, t)
+  const age = formatRelativeTime(props.createdAt, props.now, t)
 
   return (
     <>
@@ -208,7 +220,7 @@ function AuthorMeta(props: {
       {age.length === 0 ? null : (
         <span
           data-testid="ticket-age"
-          title={`创建：${props.createdAt}；更新：${props.updatedAt}`}
+          title={t('tickets.age.title', { created: props.createdAt, updated: props.updatedAt })}
           style={ROW_AGE_STYLE}
         >
           {age}

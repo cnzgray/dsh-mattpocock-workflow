@@ -1,6 +1,6 @@
 /**
  * 能力诊断面板：插件用到的 DSH 宿主服务与界面扩展点是否可用。
- * 缺失项除状态外还写明影响与补法，文案来自 env-check-text。
+ * 缺失项除状态外还写明影响与补法，文案来自词典。
  */
 import * as React from 'react'
 
@@ -11,6 +11,7 @@ import {
   CAPABILITY_ROW_STYLE,
 } from './env-check-styles.ts'
 import { capabilityText } from './env-check-text.ts'
+import { useI18n } from './i18n.tsx'
 import { COLORS } from './task-panel-styles.ts'
 
 /**
@@ -21,13 +22,14 @@ import { COLORS } from './task-panel-styles.ts'
 export function CapabilityPanel(props: {
   readonly capabilities: readonly CapabilityDiagnostic[]
 }): React.ReactElement {
+  const { t } = useI18n()
   const present = props.capabilities.filter((entry) => entry.status === 'present').length
   const missing = props.capabilities.length - present
 
   return (
     <details data-testid="capabilities" style={CAPABILITIES_STYLE}>
       <summary data-testid="capabilities-summary" style={{ cursor: 'pointer' }}>
-        能力诊断 · present {present} / missing {missing}
+        {t('capability.summary', { present, missing })}
       </summary>
       <div style={{ paddingTop: 4 }}>
         {props.capabilities.map((entry) => (
@@ -39,7 +41,8 @@ export function CapabilityPanel(props: {
 }
 
 function CapabilityRow(props: { readonly diagnostic: CapabilityDiagnostic }): React.ReactElement {
-  const text = capabilityText(props.diagnostic)
+  const { t } = useI18n()
+  const text = capabilityText(props.diagnostic, t)
   return (
     <div
       data-testid="capability"
@@ -58,8 +61,16 @@ function CapabilityRow(props: { readonly diagnostic: CapabilityDiagnostic }): Re
       </span>
       {text.impact === null ? null : (
         <div data-testid="capability-impact" style={CAPABILITY_IMPACT_STYLE}>
-          <div>影响：{text.impact}</div>
-          {text.fix === null ? null : <div>补法：{text.fix}</div>}
+          <div>
+            {t('capability.impactLabel')}
+            {text.impact}
+          </div>
+          {text.fix === null ? null : (
+            <div>
+              {t('capability.fixLabel')}
+              {text.fix}
+            </div>
+          )}
         </div>
       )}
     </div>

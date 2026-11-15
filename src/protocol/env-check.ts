@@ -123,6 +123,7 @@ export const UI_CAPABILITY_IDS = [
   'sessions',
   'conversation',
   'uiWorkspace',
+  'locale',
   'sidebar.right.pane.tab',
   'sidebar.right.pane.tab.title',
 ] as const

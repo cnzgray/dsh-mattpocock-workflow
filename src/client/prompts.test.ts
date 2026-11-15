@@ -2,8 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import { SKILL_ACTION_SKILLS } from '../protocol/env-check.ts'
 import { DIRECT_SPEC_ENTRY, FLOW_COMMANDS, INTAKE_COMMANDS } from '../protocol/flow.ts'
-import { newBugPrompt, newFeaturePrompt, newSpecPrompt, ticketPrompt } from './prompts.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
+import {
+  newBugPrompt as newBugPromptWithT,
+  newFeaturePrompt as newFeaturePromptWithT,
+  newSpecPrompt as newSpecPromptWithT,
+  ticketPrompt,
+} from './prompts.ts'
+
 import { gestures } from './prompt-test-support.ts'
+
+const newFeaturePrompt = () => newFeaturePromptWithT(builtinZhTranslate)
+const newBugPrompt = () => newBugPromptWithT(builtinZhTranslate)
+const newSpecPrompt = () => newSpecPromptWithT(builtinZhTranslate)
 
 describe('工单技能提示词', () => {
   it('只有技能手势和工单引用，步骤留给技能正文', () => {
@@ -52,10 +63,17 @@ describe('面板入池提示词', () => {
   })
 
   it('槽位与流程定义一致，换一个入池命令不会漏掉槽位', () => {
+    const labels = {
+      symptom: '现象：',
+      steps: '复现步骤：',
+      expected: '预期行为：',
+      feature: '需求（一句话）：',
+      description: '需求描述：',
+    } as const
     for (const intake of Object.values(INTAKE_COMMANDS)) {
       const text = intake.kind === 'bug' ? newBugPrompt() : newFeaturePrompt()
       for (const slot of intake.slots) {
-        expect(text).toContain(slot)
+        expect(text).toContain(labels[slot])
       }
     }
   })
@@ -88,8 +106,8 @@ describe('面板直达规格提示词', () => {
 
   it('槽位来自直达规格入口定义，只有一处需求描述', () => {
     const text = newSpecPrompt()
-    for (const slot of DIRECT_SPEC_ENTRY.slots) expect(text).toContain(slot)
-    expect(DIRECT_SPEC_ENTRY.slots).toContain('需求描述：')
+    expect(DIRECT_SPEC_ENTRY.slots).toEqual(['description'])
+    expect(text).toContain('需求描述：')
     expect(text.split('\n').filter((line) => line.endsWith('：'))).toHaveLength(1)
   })
 

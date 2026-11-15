@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import type { ErrorCode, RpcErrorBody } from '../protocol/tracker.ts'
 import { errorText, isEnvIssue } from './error-text.ts'
+import { useI18n } from './i18n.tsx'
 import { BUTTON_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
 
 /** 错误横幅依赖。 */
@@ -21,9 +22,10 @@ export interface ErrorBannerProps {
  * @returns 错误横幅。
  */
 export function ErrorBanner(props: ErrorBannerProps): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div role="alert" data-testid="error" style={ERROR_STYLE}>
-      <div>{errorText(props.error)}</div>
+      <div>{errorText(props.error, t)}</div>
       {isEnvIssue(props.error.code) ? (
         <button
           type="button"
@@ -34,7 +36,7 @@ export function ErrorBanner(props: ErrorBannerProps): React.ReactElement {
           }}
           style={{ ...BUTTON_STYLE, marginTop: 6 }}
         >
-          查看环境检查
+          {t('error.openEnvCheck')}
         </button>
       ) : null}
     </div>

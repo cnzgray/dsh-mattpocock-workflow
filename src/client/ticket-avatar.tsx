@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import type { TicketAuthor } from '../protocol/tracker.ts'
 import { authorName, authorTitle } from './author-text.ts'
+import { useI18n } from './i18n.tsx'
 import { AVATAR_COLORS, AVATAR_FALLBACK_STYLE, AVATAR_STYLE } from './ticket-row-styles.ts'
 
 /** 头像组件依赖。 */
@@ -19,10 +20,11 @@ export interface TicketAvatarProps {
  * @returns 圆形头像图片或首字母色块。
  */
 export function TicketAvatar(props: TicketAvatarProps): React.ReactElement {
+  const { t } = useI18n()
   const [failedSrc, setFailedSrc] = React.useState<string | null>(null)
   const { author } = props
-  const label = `创建人：${authorName(author)}`
-  const hint = authorTitle(author)
+  const label = t('ticket.avatar.label', { name: authorName(author) })
+  const hint = authorTitle(author, t)
   const src = usableAvatarUrl(author.avatarUrl)
 
   if (src !== null && src !== failedSrc) {

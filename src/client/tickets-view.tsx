@@ -13,11 +13,13 @@ import {
   type TicketSnapshot,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
-import { BACKEND_LABELS } from './backend-label.ts'
 import { ActionBar } from './action-bar.tsx'
+import { backendLabel } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
 import { FolderIcon, RefreshIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
+import type { MessageKey } from './messages.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
@@ -37,7 +39,6 @@ import {
   CHIP_STYLE,
   COLORS,
   EMPTY_STYLE,
-  FILTERS,
   HEADER_STYLE,
   LOADED_STYLE,
   REFRESH_BUTTON_STYLE,
@@ -45,6 +46,7 @@ import {
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
   SEGMENTED_STYLE,
+  TICKET_FILTERS,
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
 import {
@@ -64,6 +66,15 @@ const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
   padding: '2px 6px',
   fontSize: 12,
   color: COLORS.secondary,
+}
+
+/** 过滤条件到词典键。 */
+const FILTER_KEYS: Readonly<Record<TicketFilter, MessageKey>> = {
+  all: 'filter.all',
+  open: 'filter.open',
+  closed: 'filter.closed',
+  blocked: 'filter.blocked',
+  ready: 'filter.ready',
 }
 
 /** 刷新失败原因：贴在数据时间旁边，说明数据没更新，但不盖住列表。 */
@@ -100,6 +111,7 @@ export interface TicketsViewProps {
 
 /** 工单列表视图。 */
 export function TicketsView(props: TicketsViewProps): React.ReactElement {
+  const { t } = useI18n()
   const clock = props.now ?? Date.now
   const { snapshot, error, refreshError, phase, refresh, refreshFull } = props.request
   const { loadMore, moreError, moreLoading } = props.request
@@ -129,7 +141,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         now={nowValue}
         loading={phase === 'loading'}
         busy={busy}
-        notice={snapshotRefreshNotice(snapshot, refreshError)}
+        notice={snapshotRefreshNotice(snapshot, refreshError, t)}
         onRefresh={refresh}
         onRefreshFull={refreshFull}
       />
@@ -169,7 +181,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
         </>
       ) : phase === 'loading' ? (
         <div data-testid="loading" style={EMPTY_STYLE}>
-          正在读取工单…
+          {t('snapshot.loading')}
         </div>
       ) : null}
       <Footer injection={props.injection} notice={notice} tone={noticeTone} />
@@ -220,6 +232,7 @@ function TicketRows(props: {
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { more } = props
   // 失败时停住自动加载，只能点重试：否则哨兵还在视口里就会反复打宿主。
   const sentinel = useMoreSentinel(
@@ -230,12 +243,12 @@ function TicketRows(props: {
   return (
     <>
       <div data-testid="loaded-total" style={LOADED_STYLE}>
-        已加载 {props.snapshot.loaded} / 共 {props.snapshot.total}
-        {more.capped ? '，已达上限' : ''}
+        {t('tickets.loaded', { loaded: props.snapshot.loaded, total: props.snapshot.total })}
+        {more.capped ? t('tickets.loadedCapped') : ''}
       </div>
       <TicketList
         tickets={props.visible}
-        emptyText={props.ticketCount === 0 ? '这个仓库还没有工单。' : '没有符合筛选条件的工单。'}
+        emptyText={t(props.ticketCount === 0 ? 'tickets.emptyRepo' : 'tickets.emptyFilter')}
         injected={props.injected}
         injection={props.injection}
         focused={props.focused}
@@ -250,6 +263,7 @@ function TicketRows(props: {
 
 /** 数据来源徽标：本地缓存的数据不是实时的，标出来才不会误判。 */
 function SourceBadge(props: { readonly source: SnapshotSource }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <span
       data-testid="snapshot-source"
@@ -258,7 +272,7 @@ function SourceBadge(props: { readonly source: SnapshotSource }): React.ReactEle
         color: props.source === 'cache' ? COLORS.warn : COLORS.secondary,
       }}
     >
-      {props.source === 'cache' ? '本地缓存' : '实时'}
+      {props.source === 'cache' ? t('source.cache') : t('source.live')}
     </span>
   )
 }
@@ -273,6 +287,7 @@ function Header(props: {
   readonly onRefresh: () => void
   readonly onRefreshFull: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <header style={HEADER_STYLE}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -283,12 +298,13 @@ function Header(props: {
             style={REPO_NAME_STYLE}
             {...(props.snapshot === null ? {} : { title: props.snapshot.repository })}
           >
-            {props.snapshot?.repository ?? (props.loading ? '正在识别仓库…' : '未识别到仓库')}
+            {props.snapshot?.repository ??
+              (props.loading ? t('repo.identifying') : t('repo.unidentified'))}
           </span>
         </div>
         {props.snapshot === null ? null : (
           <span data-testid="backend-badge" style={BACKEND_BADGE_STYLE}>
-            {BACKEND_LABELS[props.snapshot.backend]}
+            {backendLabel(props.snapshot.backend, t)}
           </span>
         )}
         {/* 数据来源：本地缓存的数据不是实时的，必须让用户一眼看出来。 */}
@@ -307,8 +323,8 @@ function Header(props: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none' }}>
         <span data-testid="snapshot-age" style={AGE_STYLE}>
           {props.snapshot === null
-            ? '尚无快照'
-            : formatRelativeTime(props.snapshot.fetchedAt, props.now)}
+            ? t('snapshot.none')
+            : formatRelativeTime(props.snapshot.fetchedAt, props.now, t)}
         </span>
         {props.notice === null ? null : (
           <span data-testid="refresh-error" title={props.notice} style={REFRESH_ERROR_STYLE}>
@@ -324,7 +340,7 @@ function Header(props: {
           style={{ ...REFRESH_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
         >
           <RefreshIcon />
-          {props.busy ? '刷新中…' : '刷新'}
+          {props.busy ? t('refresh.busy') : t('refresh.action')}
         </button>
         <button
           type="button"
@@ -334,7 +350,7 @@ function Header(props: {
           onClick={props.onRefreshFull}
           style={{ ...SECONDARY_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
         >
-          全量刷新
+          {t('refresh.full')}
         </button>
       </div>
     </header>
@@ -349,19 +365,20 @@ function Toolbar(props: {
   readonly onFilter: (filter: TicketFilter) => void
   readonly onSort: (key: TicketSortKey) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div style={TOOLBAR_STYLE}>
-      <div role="group" aria-label="状态过滤" style={SEGMENTED_STYLE}>
-        {FILTERS.map((item) => (
+      <div role="group" aria-label={t('filter.group')} style={SEGMENTED_STYLE}>
+        {TICKET_FILTERS.map((value) => (
           <Chip
-            key={item.value}
-            testId={`filter-${item.value}`}
-            label={item.label}
-            stat={CHIP_STATS[item.value]}
+            key={value}
+            testId={`filter-${value}`}
+            label={t(FILTER_KEYS[value])}
+            stat={CHIP_STATS[value]}
             count={props.counts}
-            active={props.filter === item.value}
+            active={props.filter === value}
             onClick={() => {
-              props.onFilter(item.value)
+              props.onFilter(value)
             }}
           />
         ))}
@@ -423,6 +440,7 @@ function Footer(props: {
   readonly notice: string | null
   readonly tone: NoticeTone | null
 }): React.ReactElement | null {
+  const { t } = useI18n()
   if (props.injection.canInjectCurrent && props.notice === null) return null
 
   return (
@@ -437,9 +455,11 @@ function Footer(props: {
     >
       {props.injection.canInjectCurrent ? null : (
         <div data-testid="no-session-hint" style={{ color: COLORS.secondary, fontSize: 12 }}>
-          {props.injection.canStartNewSession
-            ? '当前没有可用会话，无法填入当前会话；可以用小箭头开新会话。'
-            : '当前没有可用会话，提示词无法填入输入框。'}
+          {t(
+            props.injection.canStartNewSession
+              ? 'injection.footerNewSession'
+              : 'injection.footerUnavailable',
+          )}
         </div>
       )}
       {props.notice === null ? null : (

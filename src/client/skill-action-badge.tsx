@@ -13,6 +13,8 @@ import type { CSSProperties } from 'react'
 
 import type { TicketSnapshot } from '../protocol/tracker.ts'
 import { CheckIcon, InsertDraftIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
 import { actionBadgeLabel, actionHint } from './skill-action-text.ts'
 import { SplitAction } from './split-action.tsx'
@@ -36,8 +38,9 @@ export interface SkillActionBadgeProps {
  */
 export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactElement {
   const { ticket } = props
-  const label = actionBadgeLabel(ticket)
-  const hint = actionHint(ticket)
+  const { t } = useI18n()
+  const label = actionBadgeLabel(ticket, t)
+  const hint = actionHint(ticket, t)
 
   if (ticket.skillAction === 'none') {
     return (
@@ -54,7 +57,7 @@ export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactEleme
   }
 
   const canFill = props.injection.canInjectCurrent
-  const buttonHint = badgeHint(hint, props.injected, canFill)
+  const buttonHint = badgeHint(hint, props.injected, canFill, t)
 
   return (
     <SplitAction
@@ -74,7 +77,7 @@ export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactEleme
       primaryHover="action"
       disabled={!canFill}
       canStartNewSession={props.injection.canStartNewSession}
-      newSessionTitle={`在新会话开始这张工单的处理：${hint}`}
+      newSessionTitle={t('skill.newSession', { hint })}
       onPrimary={() => {
         props.onSkillAction(ticket, 'current-session')
       }}
@@ -87,9 +90,9 @@ export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactEleme
   )
 }
 
-function badgeHint(hint: string, injected: boolean, canInject: boolean): string {
+function badgeHint(hint: string, injected: boolean, canInject: boolean, t: Translate): string {
   const parts = [hint]
-  if (injected) parts.push('提示词已填入输入框')
-  if (!canInject) parts.push('当前没有可用会话，无法填入提示词')
-  return parts.join('；')
+  if (injected) parts.push(t('injection.filledShort'))
+  if (!canInject) parts.push(t('injection.noSessionShort'))
+  return parts.join(t('common.hintSeparator'))
 }

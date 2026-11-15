@@ -16,6 +16,7 @@ import {
   ENV_SKIP_STYLE,
 } from './env-check-styles.ts'
 import { envCheckTitle } from './env-check-text.ts'
+import { useI18n } from './i18n.tsx'
 import type { PromptInjection } from './injection.ts'
 import { remedyContent, type RemedyAction } from './env-remedy-text.ts'
 import { BUTTON_STYLE } from './task-panel-styles.ts'
@@ -37,16 +38,21 @@ export function RemedySection(props: {
   readonly report: EnvCheckReport
   readonly handlers: RemedyHandlers
 }): React.ReactElement | null {
+  const { t } = useI18n()
   const remedy = props.item.remedy
   if (remedy === null) return null
 
-  const content = remedyContent(remedy.code, {
-    backend: props.report.backend,
-    repository: props.report.repository,
-    subject: remedy.subject ?? props.item.subject,
-    title: envCheckTitle(props.item),
-    detail: props.item.detail,
-  })
+  const content = remedyContent(
+    remedy.code,
+    {
+      backend: props.report.backend,
+      repository: props.report.repository,
+      subject: remedy.subject ?? props.item.subject,
+      title: envCheckTitle(props.item, t),
+      detail: props.item.detail,
+    },
+    t,
+  )
 
   return (
     <div data-testid="env-remedy" data-code={remedy.code} style={ENV_REMEDY_STYLE}>
@@ -73,6 +79,7 @@ function RemedyActionView(props: {
   readonly action: RemedyAction
   readonly handlers: RemedyHandlers
 }): React.ReactElement {
+  const { t } = useI18n()
   switch (props.action.kind) {
     case 'command':
       return (
@@ -82,8 +89,8 @@ function RemedyActionView(props: {
           </pre>
           <CopyButton
             text={props.action.command}
-            label="复制命令"
-            noun="命令"
+            label={t('env.remedy.copyCommand')}
+            noun={t('env.remedy.commandNoun')}
             testId="env-remedy-copy-command"
           />
         </div>
@@ -99,7 +106,7 @@ function RemedyActionView(props: {
           onClick={props.handlers.onRetry}
           style={BUTTON_STYLE}
         >
-          {props.handlers.busy ? '检查中…' : '重新检查'}
+          {props.handlers.busy ? t('env.checking') : t('env.recheck')}
         </button>
       )
   }
@@ -109,6 +116,7 @@ function SessionAction(props: {
   readonly prompt: string
   readonly injection: PromptInjection
 }): React.ReactElement {
+  const { t } = useI18n()
   const [fillFailed, setFillFailed] = React.useState(false)
   const canInject = props.injection.canInjectCurrent
 
@@ -117,29 +125,29 @@ function SessionAction(props: {
       <button
         type="button"
         data-testid="env-remedy-fill"
-        aria-label="填入输入框，把解决提示词放进当前会话"
+        aria-label={t('env.remedy.fillAria')}
         disabled={!canInject}
         onClick={() => {
           setFillFailed(props.injection.inject(props.prompt, 'current-session') !== 'filled')
         }}
         style={BUTTON_STYLE}
       >
-        填入输入框
+        {t('env.remedy.fill')}
       </button>
       <CopyButton
         text={props.prompt}
-        label="复制提示词"
-        noun="提示词"
+        label={t('env.remedy.copyPrompt')}
+        noun={t('env.remedy.promptNoun')}
         testId="env-remedy-copy-prompt"
       />
       {canInject ? null : (
         <div data-testid="env-remedy-no-session" style={ENV_SKIP_STYLE}>
-          当前没有可用会话，无法填入输入框；可以复制提示词。
+          {t('env.remedy.noSession')}
         </div>
       )}
       {fillFailed ? (
         <div role="status" data-testid="env-remedy-fill-failed" style={ENV_REMEDY_NOTICE_STYLE}>
-          填入失败：当前会话不可用。
+          {t('env.remedy.fillFailed')}
         </div>
       ) : null}
     </div>
@@ -152,6 +160,7 @@ function CopyButton(props: {
   readonly noun: string
   readonly testId: string
 }): React.ReactElement {
+  const { t } = useI18n()
   const [state, setState] = React.useState<'idle' | 'copied' | 'failed'>('idle')
 
   React.useEffect(() => {
@@ -176,11 +185,11 @@ function CopyButton(props: {
         }}
         style={BUTTON_STYLE}
       >
-        {state === 'copied' ? '已复制' : props.label}
+        {state === 'copied' ? t('common.copied') : props.label}
       </button>
       {state === 'failed' ? (
         <span role="status" data-testid={`${props.testId}-failed`} style={ENV_REMEDY_NOTICE_STYLE}>
-          复制失败，请手动选择{props.noun}。
+          {t('env.remedy.copyFailed', { noun: props.noun })}
         </span>
       ) : null}
     </div>

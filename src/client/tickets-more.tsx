@@ -9,6 +9,7 @@ import {
   type RpcErrorBody,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { useI18n } from './i18n.tsx'
 import { COLORS } from './task-panel-styles.ts'
 
 /** 列表底部哨兵：滚到这里就自动扩一页；失败时停在这里等重试。 */
@@ -69,14 +70,15 @@ export function MoreFooter(props: {
   readonly state: MoreState
   readonly sentinel: React.RefObject<HTMLDivElement | null>
 }): React.ReactElement {
+  const { t } = useI18n()
   const { state } = props
   return (
     <div ref={props.sentinel} data-testid="load-more" style={MORE_STYLE}>
       {state.loading
-        ? '正在加载更多…'
+        ? t('tickets.more.loading')
         : state.error === null
-          ? '继续向下滚动加载更多'
-          : `加载更多失败：${state.error.message}`}
+          ? t('tickets.more.scroll')
+          : t('tickets.more.failed', { message: state.error.message })}
       {state.error === null ? null : (
         <button
           type="button"
@@ -84,7 +86,7 @@ export function MoreFooter(props: {
           onClick={state.onLoadMore}
           style={MORE_RETRY_STYLE}
         >
-          重试
+          {t('common.retry')}
         </button>
       )}
     </div>

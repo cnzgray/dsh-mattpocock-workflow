@@ -3,6 +3,7 @@
  * 避免同一行出现两套名字或两套悬停说明。
  */
 import type { TicketAuthor } from '../protocol/tracker.ts'
+import type { Translate } from './i18n-runtime.ts'
 
 /**
  * 行内显示的名字：有展示名时用展示名，否则退回登录名。
@@ -16,10 +17,11 @@ export function authorName(author: TicketAuthor): string {
 /**
  * 悬停时的完整信息：展示名加登录名；没有展示名时只给登录名。
  * @param author - 创建人。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 悬停文案。
  */
-export function authorTitle(author: TicketAuthor): string {
+export function authorTitle(author: TicketAuthor, t: Translate): string {
   return author.displayName === null
     ? `@${author.login}`
-    : `${author.displayName}（@${author.login}）`
+    : t('ticket.author.title', { name: author.displayName, login: author.login })
 }

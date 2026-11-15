@@ -40,6 +40,39 @@ export default defineConfig(
     rules: { 'no-console': 'off' },
   },
   {
+    // 文案词典是扁平数据表，键集本身就是文件长度；单文件让中英两套键在同一处对照。
+    files: ['src/client/messages.ts'],
+    rules: { 'max-lines': ['error', { max: 1200, skipBlankLines: true, skipComments: true }] },
+  },
+  {
+    // 面板界面的用户可见文案必须走 messages.ts；词典、测试与测试夹具除外。
+    files: ['src/client/**/*.{ts,tsx}'],
+    ignores: [
+      'src/client/messages.ts',
+      'src/client/*-styles.ts',
+      'src/client/**/*.test.{ts,tsx}',
+      'src/client/**/*-test-support.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'ExportDefaultDeclaration', message: '请用具名导出。' },
+        {
+          selector: 'Literal[value=/[\\u4e00-\\u9fff]/]',
+          message: '界面文案请写进 src/client/messages.ts，不要在组件里写死中文。',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/[\\u4e00-\\u9fff]/]',
+          message: '界面文案请写进 src/client/messages.ts，不要在模板里写死中文。',
+        },
+        {
+          selector: 'JSXText[value=/[\\u4e00-\\u9fff]/]',
+          message: '界面文案请写进 src/client/messages.ts，不要在 JSX 里写死中文。',
+        },
+      ],
+    },
+  },
+  {
     // 测试里一个 describe 往往很长，不限制函数长度；文件上限也放宽，覆盖用例比拆分更有价值。
     files: ['**/*.test.ts', '**/*.test.tsx'],
     rules: {

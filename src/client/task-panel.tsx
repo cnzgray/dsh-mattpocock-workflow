@@ -15,6 +15,7 @@ import { ActionBar } from './action-bar.tsx'
 import type { PromptInjection } from './injection.ts'
 import { EnvCheckView } from './env-check-view.tsx'
 import { HelpView } from './help-view.tsx'
+import { useI18n } from './i18n.tsx'
 import { OverviewView } from './overview-view.tsx'
 import type { PanelClient } from './rpc.ts'
 import { useSnapshotRequest, type SnapshotRequestState } from './snapshot-request.ts'
@@ -299,24 +300,25 @@ function ViewTabs(props: {
   /** 页签栏右侧、灯泡左边的动作；只有列表页有。 */
   readonly actions: React.ReactNode
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div style={VIEW_BAR_STYLE}>
-      <div role="group" aria-label="视图" style={VIEW_TABS_STYLE}>
+      <div role="group" aria-label={t('view.group')} style={VIEW_TABS_STYLE}>
         <ViewChip
           testId="view-tickets"
-          label="列表"
+          label={t('view.tickets')}
           active={props.view === 'tickets'}
           onClick={props.onOpenTickets}
         />
         <ViewChip
           testId="view-overview"
-          label="概览"
+          label={t('view.overview')}
           active={props.view === 'overview'}
           onClick={props.onOpenOverview}
         />
         <ViewChip
           testId="view-env"
-          label="环境检查"
+          label={t('view.env')}
           active={props.view === 'env'}
           onClick={props.onOpenEnvCheck}
         />
@@ -350,12 +352,13 @@ function ViewChip(props: {
 }
 
 function TipsButton(props: { readonly onClick: () => void }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <button
       type="button"
       data-testid="tips"
-      aria-label="流程帮助"
-      title="流程帮助"
+      aria-label={t('view.help')}
+      title={t('view.help')}
       onClick={props.onClick}
       style={ICON_BUTTON_STYLE}
     >

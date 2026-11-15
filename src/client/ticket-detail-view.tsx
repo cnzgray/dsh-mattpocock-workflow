@@ -13,15 +13,16 @@
  */
 import * as React from 'react'
 
-import { BACKEND_LABELS } from '../protocol/backend.ts'
 import type {
   RpcErrorBody,
   TicketDetail,
   TicketPatch,
   TicketSnapshot,
 } from '../protocol/tracker.ts'
+import { backendLabel } from './backend-label.ts'
 import { errorText } from './error-text.ts'
 import { ChevronLeftIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
 import type { PromptInjection } from './injection.ts'
 import type { PanelClient } from './rpc.ts'
 import { SkillActionBadge } from './skill-action-badge.tsx'
@@ -82,6 +83,7 @@ export interface TicketDetailViewProps {
 
 /** 工单详情视图。 */
 export function TicketDetailView(props: TicketDetailViewProps): React.ReactElement {
+  const { t } = useI18n()
   const { client, workspaceRoot, ticket } = props
   const ref = ticket.ref
   const number = ticket.number
@@ -110,7 +112,7 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
   })
   const options = useTicketOptions(client, workspaceRoot, detail?.capabilities.labels === true)
   const { injected, notice, onSkillAction } = useTicketActions(workspaceRoot, props.injection)
-  const link = useCopyLink(detail?.url ?? null)
+  const link = useCopyLink(detail?.url ?? null, t)
   const busy = mutation.busy || deletion.deleting
   useEscapeKey(props.onBack)
 
@@ -149,7 +151,7 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
         <LoadError error={request.error} onRetry={request.reload} />
       ) : (
         <div data-testid="detail-loading" style={EMPTY_STYLE}>
-          正在读取工单详情…
+          {t('detail.loading')}
         </div>
       )}
     </div>
@@ -163,6 +165,7 @@ function DetailHeader(props: {
   /** 右侧的技能按钮、工单操作与更多菜单。 */
   readonly children: React.ReactNode
 }): React.ReactElement {
+  const { t } = useI18n()
   const { detail } = props
   const url = detail?.url ?? null
 
@@ -172,12 +175,12 @@ function DetailHeader(props: {
         type="button"
         data-testid="detail-back"
         data-hover="soft"
-        title="返回列表（Esc）"
+        title={t('detail.backTitle')}
         onClick={props.onBack}
         style={DETAIL_BACK_STYLE}
       >
         <ChevronLeftIcon />
-        返回列表
+        {t('detail.back')}
       </button>
       {url === null ? (
         <span data-testid="detail-ref" title={props.refText} style={DETAIL_REF_STYLE}>
@@ -190,7 +193,7 @@ function DetailHeader(props: {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          title={`在浏览器打开 ${url}`}
+          title={t('detail.openInBrowser', { url })}
           style={DETAIL_REF_LINK_STYLE}
         >
           {props.refText}
@@ -198,7 +201,7 @@ function DetailHeader(props: {
       )}
       {detail === null ? null : (
         <span data-testid="detail-backend" style={BACKEND_BADGE_STYLE}>
-          {BACKEND_LABELS[detail.backend]}
+          {backendLabel(detail.backend, t)}
         </span>
       )}
       {/* 左边是身份（编号、后端），右边是工单操作。 */}
@@ -219,6 +222,7 @@ function DetailContent(props: {
   readonly deletion: TicketDeletion
   readonly onApply: (patch: TicketPatch) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { detail, deletion } = props
   const fieldProps = { detail, busy: props.busy, onApply: props.onApply }
 
@@ -228,7 +232,7 @@ function DetailContent(props: {
         <DeleteConfirm
           refText={detail.ref}
           title={detail.title}
-          backendLabel={BACKEND_LABELS[detail.backend]}
+          backendLabel={backendLabel(detail.backend, t)}
           deleting={deletion.deleting}
           error={deletion.error}
           onCancel={deletion.cancel}
@@ -245,7 +249,7 @@ function DetailContent(props: {
       <PropertyStrip {...fieldProps} options={props.options} />
       {props.mutationError === null ? null : (
         <div role="alert" data-testid="detail-error" style={DETAIL_ERROR_STYLE}>
-          {errorText(props.mutationError)}
+          {errorText(props.mutationError, t)}
         </div>
       )}
       <Timeline detail={detail} />
@@ -257,6 +261,7 @@ const NOWRAP_STYLE: React.CSSProperties = { whiteSpace: 'nowrap' }
 
 /** 标题、实心状态徽标，以及“谁在何时创建、更新时间、几条评论”。 */
 function TitleBlock(props: { readonly detail: TicketDetail }): React.ReactElement {
+  const { t } = useI18n()
   const { detail } = props
   return (
     <div style={DETAIL_STACK_STYLE}>
@@ -266,17 +271,19 @@ function TitleBlock(props: { readonly detail: TicketDetail }): React.ReactElemen
       <div data-testid="detail-meta" style={TITLE_META_ROW_STYLE}>
         <span data-testid="detail-state" style={STATE_PILL_STYLES[detail.state]}>
           <span style={STATUS_DOT_STYLE} aria-hidden="true" />
-          {detail.state === 'open' ? '开放' : '已关闭'}
+          {t(detail.state === 'open' ? 'detail.state.open' : 'detail.state.closed')}
         </span>
         {/* 每段整体不断行，分隔点跟在上一段末尾，换行时新行不会以“·”开头。 */}
         <span style={NOWRAP_STYLE}>
           {detail.author === null ? null : (
             <span style={TITLE_META_NAME_STYLE}>{detail.author} </span>
           )}
-          创建于 {formatTime(detail.createdAt)} ·
+          {t('detail.createdAt', { time: formatTime(detail.createdAt) })} ·
         </span>
-        <span style={NOWRAP_STYLE}>更新于 {formatTime(detail.updatedAt)} ·</span>
-        <span style={NOWRAP_STYLE}>{detail.comments.length} 条评论</span>
+        <span style={NOWRAP_STYLE}>
+          {t('detail.updatedAt', { time: formatTime(detail.updatedAt) })} ·
+        </span>
+        <span style={NOWRAP_STYLE}>{t('detail.comments', { count: detail.comments.length })}</span>
       </div>
     </div>
   )
@@ -286,10 +293,11 @@ function LoadError(props: {
   readonly error: RpcErrorBody | null
   readonly onRetry: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div style={DETAIL_SCROLL_STYLE}>
       <div role="alert" data-testid="detail-load-error" style={ERROR_STYLE}>
-        <div>{props.error === null ? '读取工单详情失败。' : errorText(props.error)}</div>
+        <div>{props.error === null ? t('detail.loadFailed') : errorText(props.error, t)}</div>
         <button
           type="button"
           data-testid="detail-retry"
@@ -297,7 +305,7 @@ function LoadError(props: {
           onClick={props.onRetry}
           style={{ ...BUTTON_STYLE, marginTop: 6 }}
         >
-          重试
+          {t('common.retry')}
         </button>
       </div>
     </div>

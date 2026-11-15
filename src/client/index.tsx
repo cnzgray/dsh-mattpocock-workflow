@@ -18,6 +18,8 @@ import * as React from 'react'
 import { useAgentActivitySignal, type UseSessionsLike } from './agent-activity.ts'
 import { createClientCapabilities, type ClientCapabilities } from './capabilities.ts'
 import type { UiCapabilityId } from '../protocol/env-check.ts'
+import { I18nProvider } from './i18n.tsx'
+import { createI18nRuntime, readLocaleService, type I18nRuntime } from './i18n-runtime.ts'
 import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
 import { createPanelClient, type PanelClient } from './rpc.ts'
 import { startPanelFollow } from './panel-follow.ts'
@@ -114,12 +116,21 @@ export const inject: string[] = []
  */
 export function apply(ctx: ClientContextLike): void {
   if (typeof ctx.inject !== 'function') {
-    console.warn(`[${PLUGIN_NAME}] 当前 DSH 不提供 ctx.inject，任务面板未注册。`)
+    console.warn(`[${PLUGIN_NAME}] ctx.inject is unavailable; task panel not registered.`)
     return
   }
 
-  const client = createPanelClient()
+  const i18n = createI18nRuntime()
+  const client = createPanelClient(i18n.t)
   const capabilities = createClientCapabilities()
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(
+      () => () => {
+        i18n.dispose()
+      },
+      `${PLUGIN_NAME}: locale runtime`,
+    )
+  }
 
   ctx.inject(['slots', 'sidebarRightTabs'], (scope) => {
     const slots = readSlots(scope.get('slots'))
@@ -127,7 +138,7 @@ export function apply(ctx: ClientContextLike): void {
     capabilities.mark('slots', slots !== undefined)
     capabilities.mark('sidebarRightTabs', tabs !== undefined)
     if (slots === undefined || tabs === undefined) {
-      console.warn(`[${PLUGIN_NAME}] slots 或 sidebarRightTabs 不可用，任务面板未注册。`)
+      console.warn(`[${PLUGIN_NAME}] slots or sidebarRightTabs unavailable; panel not registered.`)
       return
     }
 
@@ -138,6 +149,7 @@ export function apply(ctx: ClientContextLike): void {
       listeners: new Set(),
     }
     registerInjection(scope, injectionRef, capabilities)
+    registerLocale(scope, i18n, capabilities)
 
     scope.effect(
       () =>
@@ -151,11 +163,11 @@ export function apply(ctx: ClientContextLike): void {
               id: 'task-panel',
               order: 20,
               title: () => 'MattWorkflow',
-              description: () => '查看、筛选并开始处理工单',
+              description: () => i18n.t('tab.guide.description'),
             },
           ],
         }),
-      `${PLUGIN_NAME}: 页签类型`,
+      `${PLUGIN_NAME}: tab type`,
     )
 
     scope.effect(
@@ -164,11 +176,11 @@ export function apply(ctx: ClientContextLike): void {
           registerSlot('sidebar.right.pane.tab', capabilities, () =>
             slots.register(
               { name: 'sidebar.right.pane.tab', key: TAB_ID },
-              createTaskTab(client, injectionRef, capabilities),
+              createTaskTab(client, injectionRef, capabilities, i18n),
             ),
           ),
         ),
-      `${PLUGIN_NAME}: 页签内容`,
+      `${PLUGIN_NAME}: tab content`,
     )
 
     scope.effect(
@@ -178,14 +190,33 @@ export function apply(ctx: ClientContextLike): void {
             slots.register({ name: 'sidebar.right.pane.tab.title', key: TAB_ID }, TaskTabTitle),
           ),
         ),
-      `${PLUGIN_NAME}: 页签标题`,
+      `${PLUGIN_NAME}: tab title`,
     )
 
     // 页签类型注册之后才装跟随：第一次 openTab 不能撞上「kind 未注册」。
     scope.effect(
       () => startPanelFollow(scope, { tabKind: TAB_KIND, capabilities }),
-      `${PLUGIN_NAME}: 面板跟随`,
+      `${PLUGIN_NAME}: panel follow`,
     )
+  })
+}
+
+/**
+ * 晚绑定 locale 服务：晚到也能接上，缺失时面板继续用内置中文。
+ * 接上或断开时同步更新能力诊断。
+ */
+function registerLocale(
+  scope: ClientContextLike,
+  i18n: I18nRuntime,
+  capabilities: ClientCapabilities,
+): void {
+  scope.inject(['locale'], (inner) => {
+    const attachment = i18n.attach(readLocaleService(inner.get('locale')))
+    capabilities.mark('locale', attachment.attached)
+    return () => {
+      capabilities.mark('locale', false)
+      attachment.dispose()
+    }
   })
 }
 
@@ -228,6 +259,7 @@ function createTaskTab(
   client: PanelClient,
   injectionRef: InjectionRef,
   capabilities: ClientCapabilities,
+  i18n: I18nRuntime,
 ): React.ComponentType<TaskTabProps> {
   return function TaskTab(props: TaskTabProps): React.ReactElement {
     const sessionId = props.sessionId
@@ -248,13 +280,15 @@ function createTaskTab(
     )
 
     return (
-      <TaskPanel
-        client={client}
-        workspaceRoot={cwd}
-        injection={injection}
-        refreshSignal={refreshSignal}
-        clientCapabilities={capabilities.read}
-      />
+      <I18nProvider i18n={i18n}>
+        <TaskPanel
+          client={client}
+          workspaceRoot={cwd}
+          injection={injection}
+          refreshSignal={refreshSignal}
+          clientCapabilities={capabilities.read}
+        />
+      </I18nProvider>
     )
   }
 }

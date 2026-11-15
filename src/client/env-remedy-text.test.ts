@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { ENV_REMEDY_CODES, type EnvRemedyCode } from '../protocol/env-check.ts'
-import { remedyContent, type RemedyAction, type RemedyContext } from './env-remedy-text.ts'
+import {
+  remedyContent as remedyContentWithT,
+  type RemedyAction,
+  type RemedyContext,
+} from './env-remedy-text.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
+
+const remedyContent = (code: EnvRemedyCode, context: RemedyContext) =>
+  remedyContentWithT(code, context, builtinZhTranslate)
 
 const CONTEXT: RemedyContext = {
   backend: 'github',

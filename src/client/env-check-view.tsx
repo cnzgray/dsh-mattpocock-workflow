@@ -24,16 +24,25 @@ import {
   ENV_HIGHLIGHT_STYLE,
   ENV_SKIP_STYLE,
   ENV_STATUS_COLORS,
-  ENV_STATUS_LABELS,
   ENV_SUMMARY_STYLE,
   ENV_TITLE_STYLE,
 } from './env-check-styles.ts'
 import { envBackendLabel, envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import type { PromptInjection } from './injection.ts'
+import type { MessageKey } from './messages.ts'
 import { formatRelativeTime } from './relative-time.ts'
 import type { PanelClient } from './rpc.ts'
 import { BUTTON_STYLE, COLORS, EMPTY_STYLE, ERROR_STYLE } from './task-panel-styles.ts'
+
+/** 检查状态到词典键。 */
+const STATUS_KEYS: Readonly<Record<EnvCheckStatus, MessageKey>> = {
+  pass: 'env.status.pass',
+  fail: 'env.status.fail',
+  skipped: 'env.status.skipped',
+}
 
 /** 本地快照库小节：跟检查项卡片同一种边框，只是排成纵向。 */
 const ENV_CACHE_SECTION_STYLE: React.CSSProperties = {
@@ -83,6 +92,7 @@ interface EnvCheckState {
  * @returns 检查结果列表与能力诊断。
  */
 export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
+  const { t } = useI18n()
   const { report, error, phase, recheck } = useEnvCheckRequest(props.client, props.workspaceRoot)
   const busy = phase === 'loading' || phase === 'refreshing'
   const capabilities = [...(report?.capabilities ?? []), ...props.clientCapabilities()]
@@ -102,11 +112,13 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
     >
       <header style={ENV_HEADER_STYLE}>
         <span data-testid="env-summary" style={ENV_SUMMARY_STYLE}>
-          环境检查 {report?.items.filter((item) => item.status === 'pass').length ?? 0}/
-          {report?.items.length ?? 0}
+          {t('env.summary', {
+            pass: report?.items.filter((item) => item.status === 'pass').length ?? 0,
+            total: report?.items.length ?? 0,
+          })}
         </span>
         <span data-testid="env-backend" style={ENV_BACKEND_STYLE}>
-          {envBackendLabel(report?.backend ?? null)}
+          {envBackendLabel(report?.backend ?? null, t)}
         </span>
         <button
           type="button"
@@ -116,7 +128,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
           data-hover="soft"
           style={BUTTON_STYLE}
         >
-          {busy ? '检查中…' : '重新检查'}
+          {busy ? t('env.checking') : t('env.recheck')}
         </button>
       </header>
 
@@ -130,7 +142,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
       )}
       {report === null && phase === 'loading' ? (
         <div data-testid="env-loading" style={EMPTY_STYLE}>
-          正在检查环境…
+          {t('env.loading')}
         </div>
       ) : null}
       {report === null ? null : (
@@ -154,7 +166,8 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
 interface CacheState {
   readonly info: SnapshotCacheInfo | null
   readonly error: RpcErrorBody | null
-  readonly notice: string | null
+  /** 清空成功的条数；提示按当前语言在渲染期生成。 */
+  readonly notice: number | null
   readonly busy: boolean
   readonly clear: () => void
 }
@@ -166,20 +179,21 @@ interface CacheState {
  * @returns 缓存信息、失败原因、反馈与清空动作。
  */
 function useSnapshotCache(client: PanelClient, workspaceRoot: string | undefined): CacheState {
+  const { t } = useI18n()
   const [info, setInfo] = React.useState<SnapshotCacheInfo | null>(null)
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
-  const [notice, setNotice] = React.useState<string | null>(null)
+  const [notice, setNotice] = React.useState<number | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const load = React.useCallback(async (): Promise<void> => {
     if (workspaceRoot === undefined) return
-    const result = await requestCache(client, workspaceRoot, false)
+    const result = await requestCache(client, workspaceRoot, false, t)
     if (!result.ok) {
       setError(result.error)
       return
     }
     setInfo(result.result)
-  }, [client, workspaceRoot])
+  }, [client, workspaceRoot, t])
 
   React.useEffect(() => {
     setInfo(null)
@@ -193,16 +207,16 @@ function useSnapshotCache(client: PanelClient, workspaceRoot: string | undefined
     setBusy(true)
     setError(null)
     setNotice(null)
-    const result = await requestCache(client, workspaceRoot, true)
+    const result = await requestCache(client, workspaceRoot, true, t)
     setBusy(false)
     // 清空失败要说出来，不能让用户以为已经清掉了。
     if (!result.ok) {
       setError(result.error)
       return
     }
-    setNotice(`已清除 ${String(result.result.cleared)} 条本地快照。`)
+    setNotice(result.result.cleared)
     await load()
-  }, [client, workspaceRoot, load])
+  }, [client, workspaceRoot, load, t])
 
   const clear = React.useCallback((): void => {
     void clearAsync()
@@ -216,36 +230,45 @@ async function requestCache(
   client: PanelClient,
   workspaceRoot: string,
   clear: boolean,
+  t: Translate,
 ): Promise<RpcResult<SnapshotCacheInfo>> {
   try {
     return await client.cache(workspaceRoot, clear ? { clear: true } : undefined)
   } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : '未知错误'
+    const detail = cause instanceof Error ? cause.message : t('common.unknownError')
     return {
       ok: false,
-      error: { code: 'fetch-failed', message: `本地快照库操作失败：${detail}` },
+      error: {
+        code: 'fetch-failed',
+        message: t('env.cache.operationFailed', { detail }),
+      },
     }
   }
 }
 
 function CacheSection(props: { readonly state: CacheState }): React.ReactElement {
+  const { t } = useI18n()
   const info = props.state.info
 
   return (
     <section data-testid="env-cache" style={ENV_CACHE_SECTION_STYLE}>
-      <div style={ENV_TITLE_STYLE}>本地快照库</div>
+      <div style={ENV_TITLE_STYLE}>{t('env.cache.title')}</div>
       <div data-testid="env-cache-location" style={ENV_DETAIL_STYLE}>
-        {info === null ? '正在读取本地快照库…' : info.location}
+        {info === null ? t('env.cache.loading') : info.location}
       </div>
       <div data-testid="env-cache-entries" style={ENV_DETAIL_STYLE}>
-        {info === null ? '条目数未知' : `${String(info.entries)} 条快照`}
+        {info === null
+          ? t('env.cache.entriesUnknown')
+          : t('env.cache.entries', { count: info.entries })}
       </div>
       <div data-testid="env-cache-written" style={ENV_DETAIL_STYLE}>
         {info === null
-          ? '写入时间未知'
+          ? t('env.cache.writtenUnknown')
           : info.lastWrittenAt === null
-            ? '还没有写入记录'
-            : `最近写入：${formatRelativeTime(info.lastWrittenAt, Date.now())}`}
+            ? t('env.cache.neverWritten')
+            : t('env.cache.lastWritten', {
+                time: formatRelativeTime(info.lastWrittenAt, Date.now(), t),
+              })}
       </div>
       <button
         type="button"
@@ -255,11 +278,11 @@ function CacheSection(props: { readonly state: CacheState }): React.ReactElement
         onClick={props.state.clear}
         style={BUTTON_STYLE}
       >
-        {props.state.busy ? '清除中…' : '清除本地快照库'}
+        {props.state.busy ? t('env.cache.clearing') : t('env.cache.clear')}
       </button>
       {props.state.notice === null ? null : (
         <div data-testid="env-cache-notice" style={ENV_SKIP_STYLE}>
-          {props.state.notice}
+          {t('env.cache.cleared', { count: props.state.notice })}
         </div>
       )}
       {props.state.error === null ? null : (
@@ -272,6 +295,7 @@ function CacheSection(props: { readonly state: CacheState }): React.ReactElement
 }
 
 function useEnvCheckRequest(client: PanelClient, workspaceRoot: string | undefined): EnvCheckState {
+  const { t } = useI18n()
   const [report, setReport] = React.useState<EnvCheckReport | null>(null)
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
   const [phase, setPhase] = React.useState<Phase>('loading')
@@ -284,10 +308,7 @@ function useEnvCheckRequest(client: PanelClient, workspaceRoot: string | undefin
 
       if (workspaceRoot === undefined) {
         setReport(null)
-        setError({
-          code: 'invalid-params',
-          message: '当前会话没有工作区目录，无法检查环境。请在打开的工作区里重新打开面板。',
-        })
+        setError({ code: 'invalid-params', message: t('env.noWorkspace') })
         setPhase('error')
         return
       }
@@ -306,7 +327,7 @@ function useEnvCheckRequest(client: PanelClient, workspaceRoot: string | undefin
         setPhase('error')
       }
     },
-    [client, workspaceRoot],
+    [client, workspaceRoot, t],
   )
 
   React.useEffect(() => {
@@ -388,6 +409,7 @@ function ErrorAlert(props: {
   readonly canRetry: boolean
   readonly onRetry: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div role="alert" data-testid="env-error" style={ERROR_STYLE}>
       <div>{props.error.message}</div>
@@ -399,7 +421,7 @@ function ErrorAlert(props: {
           onClick={props.onRetry}
           style={{ ...BUTTON_STYLE, marginTop: 6 }}
         >
-          {props.busy ? '检查中…' : '重新检查'}
+          {props.busy ? t('env.checking') : t('env.recheck')}
         </button>
       ) : null}
     </div>
@@ -448,6 +470,7 @@ function ItemCard(props: {
   readonly registerCard: (key: string, node: HTMLDivElement | null) => void
   readonly onJump: (target: EnvCheckRef) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { item } = props
   const key = refKey(item)
   const blockedBy = item.blockedBy
@@ -457,7 +480,7 @@ function ItemCard(props: {
       : props.items.find(
           (candidate) => candidate.id === blockedBy.id && candidate.subject === blockedBy.subject,
         )
-  const blockerTitle = blocker === undefined ? null : envCheckTitle(blocker)
+  const blockerTitle = blocker === undefined ? null : envCheckTitle(blocker, t)
 
   return (
     <div
@@ -478,7 +501,7 @@ function ItemCard(props: {
       <StatusIcon status={item.status} />
       <div style={{ minWidth: 0 }}>
         <div data-testid="env-item-title" style={ENV_TITLE_STYLE}>
-          {envCheckTitle(item)}
+          {envCheckTitle(item, t)}
         </div>
         <div data-testid="env-item-detail" style={ENV_DETAIL_STYLE}>
           {item.detail}
@@ -488,17 +511,17 @@ function ItemCard(props: {
         ) : null}
         {blockerTitle === null || blockedBy === null ? null : (
           <div data-testid="env-item-blocked" style={ENV_SKIP_STYLE}>
-            因为「{blockerTitle}」未通过
+            {t('env.blockedBy', { title: blockerTitle })}
             <button
               type="button"
               data-testid="env-jump"
-              aria-label={`跳到「${blockerTitle}」`}
+              aria-label={t('env.jump', { title: blockerTitle })}
               onClick={() => {
                 props.onJump(blockedBy)
               }}
               style={{ ...ENV_HIGHLIGHT_STYLE, marginLeft: 6 }}
             >
-              跳到「{blockerTitle}」
+              {t('env.jump', { title: blockerTitle })}
             </button>
           </div>
         )}
@@ -508,6 +531,7 @@ function ItemCard(props: {
 }
 
 function StatusIcon(props: { readonly status: EnvCheckStatus }): React.ReactElement {
+  const { t } = useI18n()
   const color = ENV_STATUS_COLORS[props.status]
   const path =
     props.status === 'pass'
@@ -523,7 +547,7 @@ function StatusIcon(props: { readonly status: EnvCheckStatus }): React.ReactElem
       viewBox="0 0 16 16"
       fill="none"
       role="img"
-      aria-label={ENV_STATUS_LABELS[props.status]}
+      aria-label={t(STATUS_KEYS[props.status])}
       style={{ color, flex: 'none', marginTop: 1 }}
     >
       <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.3" />

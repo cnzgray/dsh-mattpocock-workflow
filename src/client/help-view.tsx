@@ -8,7 +8,10 @@
  */
 import * as React from 'react'
 
-import { FLOW_COMMANDS, FLOW_DIAGRAMS, type FlowDiagram, type FlowNode } from '../protocol/flow.ts'
+import { FLOW_COMMANDS } from '../protocol/flow.ts'
+import { HELP_DIAGRAMS, type HelpDiagram, type HelpNode } from './help-flow.ts'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import {
   BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
@@ -47,7 +50,7 @@ const STOP_DOT_STYLE = {
 } as const
 
 interface PlacedNode {
-  readonly node: FlowNode
+  readonly node: HelpNode
   readonly x: number
   readonly y: number
   readonly width: number
@@ -86,8 +89,9 @@ const DIAGRAM_MAX_WIDTH = 360
  * @returns 返回按钮、场景页签、当前场景的流程图与图例。
  */
 export function HelpView(props: HelpViewProps): React.ReactElement {
-  const [activeId, setActiveId] = React.useState(FLOW_DIAGRAMS[0]?.id ?? '')
-  const active = FLOW_DIAGRAMS.find((diagram) => diagram.id === activeId) ?? FLOW_DIAGRAMS[0]
+  const { t } = useI18n()
+  const [activeId, setActiveId] = React.useState(HELP_DIAGRAMS[0]?.id ?? '')
+  const active = HELP_DIAGRAMS.find((diagram) => diagram.id === activeId) ?? HELP_DIAGRAMS[0]
 
   return (
     <div
@@ -105,9 +109,9 @@ export function HelpView(props: HelpViewProps): React.ReactElement {
         }}
       >
         <button type="button" data-testid="help-back" onClick={props.onBack} style={BUTTON_STYLE}>
-          ← 返回
+          {t('common.back')}
         </button>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>流程帮助</span>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{t('view.help')}</span>
       </header>
       <div
         style={{
@@ -121,7 +125,7 @@ export function HelpView(props: HelpViewProps): React.ReactElement {
         }}
       >
         <p style={{ margin: 0, color: COLORS.secondary, fontSize: 12, lineHeight: 1.6 }}>
-          入池只建票、不处理；处理从票出发，每一步都在命令之间停下，等你发下一条命令。
+          {t('help.intro')}
         </p>
         <ScenarioTabs
           activeId={active?.id}
@@ -158,9 +162,14 @@ function ScenarioTabs(props: {
   readonly activeId: string | undefined
   readonly onSelect: (id: string) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
-    <div role="tablist" aria-label="场景" style={{ ...SEGMENTED_STYLE, alignSelf: 'flex-start' }}>
-      {FLOW_DIAGRAMS.map((diagram) => {
+    <div
+      role="tablist"
+      aria-label={t('help.scenarios')}
+      style={{ ...SEGMENTED_STYLE, alignSelf: 'flex-start' }}
+    >
+      {HELP_DIAGRAMS.map((diagram) => {
         const selected = diagram.id === props.activeId
         return (
           <button
@@ -177,7 +186,7 @@ function ScenarioTabs(props: {
             }}
             style={{ ...CHIP_STYLE, ...(selected ? CHIP_ACTIVE_STYLE : undefined) }}
           >
-            {diagram.title}
+            {t(diagram.titleKey)}
           </button>
         )
       })}
@@ -186,6 +195,7 @@ function ScenarioTabs(props: {
 }
 
 function Legend(): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div
       data-testid="flow-legend"
@@ -202,15 +212,15 @@ function Legend(): React.ReactElement {
     >
       <span data-testid="legend-plugin" style={LEGEND_ITEM_STYLE}>
         <Swatch color={COLORS.accent} filled />
-        mattwf- 插件命令
+        {t('help.legend.plugin')}
       </span>
       <span data-testid="legend-matt" style={LEGEND_ITEM_STYLE}>
         <Swatch color={COLORS.borderStrong} />
-        matt 技能
+        {t('help.legend.matt')}
       </span>
       <span data-testid="legend-stop" style={LEGEND_ITEM_STYLE}>
         <span style={STOP_DOT_STYLE} />
-        agent 停下，等你发下一条命令
+        {t('help.legend.stop')}
       </span>
     </div>
   )
@@ -231,7 +241,8 @@ function Swatch(props: { readonly color: string; readonly filled?: boolean }): R
   )
 }
 
-function Diagram(props: { readonly diagram: FlowDiagram }): React.ReactElement {
+function Diagram(props: { readonly diagram: HelpDiagram }): React.ReactElement {
+  const { t } = useI18n()
   const layout = layoutDiagram(props.diagram)
   const markerId = `flow-arrow-${props.diagram.id}`
 
@@ -239,15 +250,15 @@ function Diagram(props: { readonly diagram: FlowDiagram }): React.ReactElement {
     <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: COLORS.text }}>
-          {props.diagram.title}
+          {t(props.diagram.titleKey)}
         </h3>
         <p style={{ margin: 0, color: COLORS.secondary, fontSize: 12, lineHeight: 1.6 }}>
-          {props.diagram.summary}
+          {t(props.diagram.summaryKey)}
         </p>
       </div>
       <svg
         role="img"
-        aria-label={props.diagram.title}
+        aria-label={t(props.diagram.titleKey)}
         viewBox={`0 0 ${String(SVG_WIDTH)} ${String(layout.height)}`}
         width="100%"
         style={{
@@ -289,10 +300,7 @@ function Diagram(props: { readonly diagram: FlowDiagram }): React.ReactElement {
         {layout.rows
           .flatMap((row) => row.lines.flat())
           .map((placed, index) => (
-            <NodeShape
-              key={`${String(index)}-${placed.node.command ?? placed.node.state ?? ''}`}
-              placed={placed}
-            />
+            <NodeShape key={`${String(index)}-${placed.node.command ?? ''}`} placed={placed} />
           ))}
       </svg>
     </section>
@@ -394,11 +402,12 @@ function edgePoints(row: PlacedRow, side: 'top' | 'bottom'): readonly EdgePoint[
 }
 
 function NodeShape(props: { readonly placed: PlacedNode }): React.ReactElement {
+  const { t } = useI18n()
   const { placed } = props
   const { node } = placed
   const command = node.command === null ? null : FLOW_COMMANDS[node.command]
   const centerX = placed.x + placed.width / 2
-  const label = command === null ? (node.state ?? '') : command.name
+  const label = command === null ? helpStateText(node, t) : command.name
   const plugin = command?.owner === 'plugin'
 
   return (
@@ -436,7 +445,7 @@ function NodeShape(props: { readonly placed: PlacedNode }): React.ReactElement {
           fontSize={8.5}
           fill={COLORS.secondary}
         >
-          {node.note}
+          {t(node.note)}
         </text>
       )}
       {node.stops ? (
@@ -446,12 +455,18 @@ function NodeShape(props: { readonly placed: PlacedNode }): React.ReactElement {
   )
 }
 
-function layoutDiagram(diagram: FlowDiagram): DiagramLayout {
+/** 状态节点的显示文字：标签字面值原样，面板状态文案走词典。 */
+function helpStateText(node: HelpNode, t: Translate): string {
+  if (node.state === null) return ''
+  return 'text' in node.state ? node.state.text : t(node.state.key)
+}
+
+function layoutDiagram(diagram: HelpDiagram): DiagramLayout {
   let y = PADDING
   const rows: PlacedRow[] = []
 
   for (const row of diagram.rows) {
-    const lines: readonly (readonly FlowNode[])[] = splitLines(row.nodes)
+    const lines: readonly (readonly HelpNode[])[] = splitLines(row.nodes)
     const rowHeight = lines.length * NODE_HEIGHT + (lines.length - 1) * LINE_GAP
     const placedLines = lines.map((lineNodes, lineIndex) => {
       const width = (SVG_WIDTH - PADDING * 2 - NODE_GAP * (lineNodes.length - 1)) / lineNodes.length
@@ -492,9 +507,9 @@ function layoutDiagram(diagram: FlowDiagram): DiagramLayout {
 }
 
 /** 一行最多三个节点；四个节点折成两行，窄侧栏里也放得下。 */
-function splitLines(nodes: readonly FlowNode[]): readonly (readonly FlowNode[])[] {
+function splitLines(nodes: readonly HelpNode[]): readonly (readonly HelpNode[])[] {
   if (nodes.length <= 3) return [nodes]
-  const lines: FlowNode[][] = []
+  const lines: HelpNode[][] = []
   for (let index = 0; index < nodes.length; index += 2) {
     lines.push(nodes.slice(index, index + 2))
   }

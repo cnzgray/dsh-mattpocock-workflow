@@ -1,6 +1,6 @@
 /**
- * 环境检查的中文文案。宿主只送 id、后端、subject 和解决码，标题、能力说明
- * 都在这里拼，文案只维护一处。主题相关的样式不在这里。
+ * 环境检查的界面文案。宿主只送 id、后端、subject 和解决码，标题、能力说明
+ * 都在这里按词典键拼，文案只维护一处。主题相关的样式不在这里。
  */
 import type { BackendKind } from '../protocol/backend.ts'
 import type {
@@ -9,124 +9,144 @@ import type {
   HostCapabilityId,
   UiCapabilityId,
 } from '../protocol/env-check.ts'
-import { BACKEND_LABELS } from './backend-label.ts'
+import { backendLabel } from './backend-label.ts'
+import type { Translate } from './i18n-runtime.ts'
+import type { MessageKey } from './messages.ts'
 
 /** 环境检查顶部的后端标记；本地后端写全名，避免与“没有后端”混淆。 */
-export function envBackendLabel(backend: BackendKind | null): string {
-  if (backend === null) return '未判定'
-  return backend === 'markdown' ? '本地 Markdown' : (BACKEND_LABELS[backend] ?? backend)
+export function envBackendLabel(backend: BackendKind | null, t: Translate): string {
+  if (backend === null) return t('backend.undetermined')
+  return backend === 'markdown' ? t('backend.markdownLong') : backendLabel(backend, t)
 }
 
-/** 后端名到标题前缀的映射。 */
-const CLI_TITLES: Readonly<Record<string, { readonly cli: string; readonly auth: string }>> = {
-  github: { cli: 'GitHub CLI (gh) 已安装', auth: 'gh 已登录' },
-  gitlab: { cli: 'GitLab CLI (glab) 已安装', auth: 'glab 已登录远端实例' },
-  gitea: { cli: 'Gitea CLI (tea) 已安装', auth: 'tea 已登录远端实例' },
+/** 后端 subject 的显示名：已知后端走短名，未知值原样显示。 */
+function backendName(subject: string, t: Translate): string {
+  return subject === 'github' ||
+    subject === 'gitlab' ||
+    subject === 'gitea' ||
+    subject === 'markdown'
+    ? backendLabel(subject, t)
+    : subject
+}
+
+/** 后端名到标题键的映射。 */
+const CLI_TITLES: Readonly<
+  Record<string, { readonly cli: MessageKey; readonly auth: MessageKey }>
+> = {
+  github: { cli: 'env.title.cliGithub', auth: 'env.title.authGithub' },
+  gitlab: { cli: 'env.title.cliGitlab', auth: 'env.title.authGitlab' },
+  gitea: { cli: 'env.title.cliGitea', auth: 'env.title.authGitea' },
 }
 
 /**
  * 检查项的标题，写成该项应达到的状态。
  * @param item - 检查结果。
- * @returns 中文标题。
+ * @param t - 翻译入口；省略时用内置中文。
+ * @returns 标题。
  */
-export function envCheckTitle(item: EnvCheckItem): string {
+export function envCheckTitle(item: EnvCheckItem, t: Translate): string {
   switch (item.id) {
     case 'home':
-      return '用户主目录可解析'
+      return t('env.title.home')
     case 'backend':
       // 带候选后端时点名它：用户一眼看出插件认的是哪个后端、缺的是哪一步。
       return item.subject === null
-        ? '已选择工单后端'
-        : `已选择工单后端（${BACKEND_LABELS[item.subject] ?? item.subject}）`
+        ? t('env.title.backend')
+        : t('env.title.backendWith', { backend: backendName(item.subject, t) })
     case 'cli':
-      return CLI_TITLES[item.subject ?? '']?.cli ?? '命令行工具已安装'
+      return t(CLI_TITLES[item.subject ?? '']?.cli ?? 'env.title.cliGeneric')
     case 'auth':
-      return CLI_TITLES[item.subject ?? '']?.auth ?? '命令行工具已登录'
+      return t(CLI_TITLES[item.subject ?? '']?.auth ?? 'env.title.authGeneric')
     case 'repository':
-      if (item.subject === 'github') return 'GitHub 仓库可达'
-      if (item.subject === 'gitlab') return 'GitLab 仓库可达'
-      if (item.subject === 'gitea') return 'Gitea 仓库可达'
-      return '仓库可达'
+      if (item.subject === 'github') return t('env.title.repositoryGithub')
+      if (item.subject === 'gitlab') return t('env.title.repositoryGitlab')
+      if (item.subject === 'gitea') return t('env.title.repositoryGitea')
+      return t('env.title.repositoryGeneric')
     case 'workspace':
-      return '工作区已初始化'
+      return t('env.title.workspace')
     case 'local-issues':
-      return '本地工单目录可用'
+      return t('env.title.localIssues')
     case 'skill':
-      return `技能 ${item.subject ?? ''} 已安装`
+      return t('env.title.skill', { skill: item.subject ?? '' })
   }
 }
 
 type CapabilityId = HostCapabilityId | UiCapabilityId
 
 interface CapabilityContent {
-  readonly label: string
+  readonly label: MessageKey
   /** 缺失时影响什么。 */
-  readonly impact: string
+  readonly impact: MessageKey
   /** 缺失时怎么补。 */
-  readonly fix: string
+  readonly fix: MessageKey
 }
 
 /** 能力诊断的显示名、影响与补法。宿主侧和界面侧的 id 在同一张表里。 */
 const CAPABILITIES: Readonly<Record<CapabilityId, CapabilityContent>> = {
   subprocess: {
-    label: '子进程服务',
-    impact: '无法运行 git 与后端命令行，工单列表和环境检查都不可用。',
-    fix: '确认 DSH 的 subprocess 服务已启用，或升级 DSH 后重启。',
+    label: 'capability.subprocess.label',
+    impact: 'capability.subprocess.impact',
+    fix: 'capability.subprocess.fix',
   },
   timer: {
-    label: '计时服务',
-    impact: '探测没有超时保护，环境检查可能长时间不返回。',
-    fix: '确认 DSH 的 timer 服务已启用，或升级 DSH 后重启。',
+    label: 'capability.timer.label',
+    impact: 'capability.timer.impact',
+    fix: 'capability.timer.fix',
   },
   connection: {
-    label: '连接服务',
-    impact: '面板无法与宿主通信，打不开工单列表和环境检查。',
-    fix: '确认 DSH 的 connection 服务已启用，或升级 DSH 后重启。',
+    label: 'capability.connection.label',
+    impact: 'capability.connection.impact',
+    fix: 'capability.connection.fix',
   },
   skills: {
-    label: '技能清单服务',
-    impact: '读不到 DSH 技能清单，技能检查只能按磁盘目录判定。',
-    fix: '确认 DSH 的 skills 服务已启用，或把技能装到 DSH 会扫描的目录（工作区的 .dsh/skills 或 .agents/skills）下。',
+    label: 'capability.skills.label',
+    impact: 'capability.skills.impact',
+    fix: 'capability.skills.fix',
   },
   slots: {
-    label: '插槽注册',
-    impact: '注册不了面板页签，右栏里看不到 MattWorkflow。',
-    fix: '升级 DSH 到提供 slots 的版本后重启。',
+    label: 'capability.slots.label',
+    impact: 'capability.slots.impact',
+    fix: 'capability.slots.fix',
   },
   sidebarRightTabs: {
-    label: '右栏页签注册',
-    impact: '注册不了页签类型，右栏里看不到 MattWorkflow。',
-    fix: '升级 DSH 到提供 sidebarRightTabs 的版本后重启。',
+    label: 'capability.sidebarRightTabs.label',
+    impact: 'capability.sidebarRightTabs.impact',
+    fix: 'capability.sidebarRightTabs.fix',
   },
   sidebarRight: {
-    label: '右栏控制',
-    impact: '新会话里不会自动恢复 MattWorkflow 页签，右栏保持折叠。',
-    fix: '升级 DSH 到提供 sidebarRight 服务的版本后重启；或按 ⌘⌥B 手动展开右栏。',
+    label: 'capability.sidebarRight.label',
+    impact: 'capability.sidebarRight.impact',
+    fix: 'capability.sidebarRight.fix',
   },
   sessions: {
-    label: '会话状态',
-    impact: '确定不了当前会话，提示词注入不可用。',
-    fix: '升级 DSH 到提供 sessions 的版本后重启。',
+    label: 'capability.sessions.label',
+    impact: 'capability.sessions.impact',
+    fix: 'capability.sessions.fix',
   },
   conversation: {
-    label: '对话输入',
-    impact: '访问不了输入框，提示词注入不可用。',
-    fix: '升级 DSH 到提供 conversation 的版本后重启。',
+    label: 'capability.conversation.label',
+    impact: 'capability.conversation.impact',
+    fix: 'capability.conversation.fix',
   },
   uiWorkspace: {
-    label: '新建会话能力',
-    impact: '分裂动作的小箭头不可用，只能把提示词填进当前会话。',
-    fix: '升级或启用宿主的工作区导航能力（uiWorkspace）后重启。',
+    label: 'capability.uiWorkspace.label',
+    impact: 'capability.uiWorkspace.impact',
+    fix: 'capability.uiWorkspace.fix',
+  },
+  locale: {
+    label: 'capability.locale.label',
+    impact: 'capability.locale.impact',
+    fix: 'capability.locale.fix',
   },
   'sidebar.right.pane.tab': {
-    label: '页签内容插槽',
-    impact: '面板内容无处挂载，打开页签只会看到空内容。',
-    fix: '升级 DSH 到提供 sidebar.right.pane.tab 插槽的版本后重启。',
+    label: 'capability.sidebar.right.pane.tab.label',
+    impact: 'capability.sidebar.right.pane.tab.impact',
+    fix: 'capability.sidebar.right.pane.tab.fix',
   },
   'sidebar.right.pane.tab.title': {
-    label: '页签标题插槽',
-    impact: '页签标题只能显示默认值。',
-    fix: '升级 DSH 到提供 sidebar.right.pane.tab.title 插槽的版本后重启。',
+    label: 'capability.sidebar.right.pane.tab.title.label',
+    impact: 'capability.sidebar.right.pane.tab.title.impact',
+    fix: 'capability.sidebar.right.pane.tab.title.fix',
   },
 }
 
@@ -137,9 +157,13 @@ const CAPABILITY_BY_ID: ReadonlyMap<string, CapabilityContent> = new Map(
 /**
  * 能力诊断的一行文案。
  * @param diagnostic - 一项能力诊断。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 显示名、类别、状态；缺失时再带影响与补法。
  */
-export function capabilityText(diagnostic: CapabilityDiagnostic): {
+export function capabilityText(
+  diagnostic: CapabilityDiagnostic,
+  t: Translate,
+): {
   readonly label: string
   readonly category: string
   readonly state: string
@@ -150,10 +174,14 @@ export function capabilityText(diagnostic: CapabilityDiagnostic): {
   const missing = diagnostic.status === 'missing'
 
   return {
-    label: content?.label ?? diagnostic.id,
-    category: diagnostic.category === 'host-service' ? '宿主服务' : '界面扩展点',
-    state: missing ? '缺失' : '可用',
-    impact: missing ? (content?.impact ?? null) : null,
-    fix: missing ? (content?.fix ?? null) : null,
+    label: content === undefined ? diagnostic.id : t(content.label),
+    category: t(
+      diagnostic.category === 'host-service'
+        ? 'capability.category.host'
+        : 'capability.category.ui',
+    ),
+    state: t(missing ? 'capability.state.missing' : 'capability.state.present'),
+    impact: missing && content !== undefined ? t(content.impact) : null,
+    fix: missing && content !== undefined ? t(content.fix) : null,
   }
 }

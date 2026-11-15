@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import type { TicketSnapshot } from '../protocol/tracker.ts'
 import { CheckIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
 import { COLORS } from './task-panel-styles.ts'
 import {
   LOCAL_REF_STYLE,
@@ -48,7 +49,8 @@ function CopyableNumber(props: {
   readonly number: number
   readonly url: string
 }): React.ReactElement {
-  const { copy, onCopy } = useCopyLink(props.url)
+  const { t } = useI18n()
+  const { copy, onCopy } = useCopyLink(props.url, t)
   const copied = copy.status === 'copied'
   const failed = copy.status === 'failed'
   const color = copied ? COLORS.success : failed ? COLORS.error : undefined
@@ -60,9 +62,13 @@ function CopyableNumber(props: {
         data-testid="ticket-ref"
         data-hover="link"
         data-copy={copy.status}
-        aria-label={`复制 #${String(props.number)} 的链接`}
+        aria-label={t('ticket.number.copyAria', { number: props.number })}
         title={
-          copied ? '已复制链接' : failed ? (copy.message ?? '复制失败') : `复制链接 ${props.url}`
+          copied
+            ? t('ticket.number.copiedTitle')
+            : failed
+              ? (copy.message ?? t('ticket.number.copyFailed'))
+              : t('ticket.number.copyTitle', { url: props.url })
         }
         onClick={(event) => {
           // 行容器上挂着“打开详情”，点编号只复制。
@@ -75,7 +81,7 @@ function CopyableNumber(props: {
       </button>
       {copied ? (
         <span role="status" style={VISUALLY_HIDDEN_STYLE}>
-          已复制链接地址。
+          {t('ticket.number.copiedNotice')}
         </span>
       ) : null}
     </>

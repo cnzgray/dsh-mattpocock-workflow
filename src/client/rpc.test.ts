@@ -8,6 +8,7 @@ import {
   type TicketDetail,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
 import { createPanelClient, type FetchLike, type HttpResponseLike } from './rpc.ts'
 
 const ENV_REPORT: EnvCheckReport = {
@@ -90,7 +91,7 @@ function recordingFetch(result: HttpResponseLike): {
 describe('快照 RPC 客户端', () => {
   it('向插件私有路由发送 snapshot.get', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.get('/repo')
 
@@ -108,7 +109,7 @@ describe('快照 RPC 客户端', () => {
 
   it('向插件私有路由发送 snapshot.refresh', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.refresh('/repo')
 
@@ -117,7 +118,7 @@ describe('快照 RPC 客户端', () => {
 
   it('向插件私有路由发送 snapshot.resolveBlockers', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.resolveBlockers('/repo')
 
@@ -129,7 +130,7 @@ describe('快照 RPC 客户端', () => {
 
   it('增量刷新不带 full 参数', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.refresh('/repo')
 
@@ -141,7 +142,7 @@ describe('快照 RPC 客户端', () => {
 
   it('全量刷新时在请求参数里带上 full', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: SNAPSHOT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.refresh('/repo', { full: true })
 
@@ -158,6 +159,7 @@ describe('快照 RPC 客户端', () => {
   ] as const)('快照缺少 %s 时返回 fetch-failed', async (_field, patch) => {
     const legacy = { ...SNAPSHOT, ...patch }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -170,6 +172,7 @@ describe('快照 RPC 客户端', () => {
   it('快照的刷新失败原因格式不对时返回 fetch-failed', async () => {
     const broken = { ...SNAPSHOT, refreshError: { code: 'fetch-failed' } }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: broken })).fetchImpl,
     )
 
@@ -181,13 +184,19 @@ describe('快照 RPC 客户端', () => {
 
   it('成功响应原样返回', async () => {
     const expected: RpcResult<WorkspaceSnapshot> = { ok: true, result: SNAPSHOT }
-    const client = createPanelClient(recordingFetch(response(expected)).fetchImpl)
+    const client = createPanelClient(
+      builtinZhTranslate,
+      recordingFetch(response(expected)).fetchImpl,
+    )
 
     await expect(client.get('/repo')).resolves.toEqual(expected)
   })
 
   it('HTTP 非 2xx 返回 fetch-failed', async () => {
-    const client = createPanelClient(recordingFetch(response({}, false, 502)).fetchImpl)
+    const client = createPanelClient(
+      builtinZhTranslate,
+      recordingFetch(response({}, false, 502)).fetchImpl,
+    )
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
@@ -196,7 +205,10 @@ describe('快照 RPC 客户端', () => {
   })
 
   it('响应体不是快照结果时返回 fetch-failed', async () => {
-    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+    const client = createPanelClient(
+      builtinZhTranslate,
+      recordingFetch(response({ ok: true, result: {} })).fetchImpl,
+    )
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
@@ -215,6 +227,7 @@ describe('快照 RPC 客户端', () => {
       blockersFinalized: SNAPSHOT.blockersFinalized,
     }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -235,6 +248,7 @@ describe('快照 RPC 客户端', () => {
       tickets: SNAPSHOT.tickets,
     }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -253,6 +267,7 @@ describe('快照 RPC 客户端', () => {
       tickets: SNAPSHOT.tickets,
     }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -268,6 +283,7 @@ describe('快照 RPC 客户端', () => {
       const ticket = Object.fromEntries(Object.entries(TICKET).filter(([key]) => key !== field))
       const legacy = { ...SNAPSHOT, tickets: [ticket] }
       const client = createPanelClient(
+        builtinZhTranslate,
         recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
       )
 
@@ -281,6 +297,7 @@ describe('快照 RPC 客户端', () => {
   it('工单的技能动作不在词表里时返回 fetch-failed', async () => {
     const legacy = { ...SNAPSHOT, tickets: [{ ...TICKET, skillAction: 'unknown' }] }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
     )
 
@@ -291,7 +308,7 @@ describe('快照 RPC 客户端', () => {
   })
 
   it('网络异常返回 fetch-failed 并保留原因', async () => {
-    const client = createPanelClient(() => Promise.reject(new Error('offline')))
+    const client = createPanelClient(builtinZhTranslate, () => Promise.reject(new Error('offline')))
 
     await expect(client.get('/repo')).resolves.toMatchObject({
       ok: false,
@@ -300,7 +317,7 @@ describe('快照 RPC 客户端', () => {
   })
   it('向插件私有路由发送 env.check', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: ENV_REPORT }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.envCheck('/repo')
 
@@ -312,6 +329,7 @@ describe('快照 RPC 客户端', () => {
 
   it('环境检查响应缺少 items 时返回 fetch-failed', async () => {
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: { checkedAt: 1, backend: 'github' } })).fetchImpl,
     )
 
@@ -325,7 +343,7 @@ describe('快照 RPC 客户端', () => {
 describe('工单详情 RPC 客户端', () => {
   it('向插件私有路由发送 ticket.get', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: DETAIL }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.getDetail('/repo', '#25', 25)
 
@@ -337,7 +355,7 @@ describe('工单详情 RPC 客户端', () => {
 
   it('向插件私有路由发送 ticket.update 并带上补丁', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: { applied: true } }))
-    const client = createPanelClient(fetchImpl)
+    const client = createPanelClient(builtinZhTranslate, fetchImpl)
 
     await client.updateTicket('/repo', '#25', 25, { labels: ['bug', 'ready-for-agent'] })
 
@@ -355,6 +373,7 @@ describe('工单详情 RPC 客户端', () => {
   it('详情缺少能力位时返回 fetch-failed', async () => {
     const incomplete = { ...DETAIL, capabilities: undefined }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: incomplete })).fetchImpl,
     )
 
@@ -365,7 +384,10 @@ describe('工单详情 RPC 客户端', () => {
   })
 
   it('变更回执缺少 applied 时返回 fetch-failed', async () => {
-    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+    const client = createPanelClient(
+      builtinZhTranslate,
+      recordingFetch(response({ ok: true, result: {} })).fetchImpl,
+    )
 
     await expect(
       client.updateTicket('/repo', '#25', 25, { state: 'closed' }),
@@ -384,7 +406,7 @@ describe('本地快照库 RPC 客户端', () => {
   it('读取本地快照库时只带工作区', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: CACHE_INFO }))
 
-    const result = await createPanelClient(fetchImpl).cache('/repo')
+    const result = await createPanelClient(builtinZhTranslate, fetchImpl).cache('/repo')
 
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
       method: 'snapshot.cache',
@@ -398,7 +420,7 @@ describe('本地快照库 RPC 客户端', () => {
       response({ ok: true, result: { ...CACHE_INFO, entries: 0, cleared: 3 } }),
     )
 
-    await createPanelClient(fetchImpl).cache('/repo', { clear: true })
+    await createPanelClient(builtinZhTranslate, fetchImpl).cache('/repo', { clear: true })
 
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
       method: 'snapshot.cache',
@@ -413,6 +435,7 @@ describe('本地快照库 RPC 客户端', () => {
     ['cleared', { cleared: undefined }],
   ] as const)('快照库信息缺少 %s 时返回 fetch-failed', async (_field, patch) => {
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: { ...CACHE_INFO, ...patch } })).fetchImpl,
     )
 
@@ -431,7 +454,7 @@ describe('补全候选与删除 RPC 客户端', () => {
     }
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: options }))
 
-    const result = await createPanelClient(fetchImpl).getOptions('/repo')
+    const result = await createPanelClient(builtinZhTranslate, fetchImpl).getOptions('/repo')
 
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
       method: 'ticket.options',
@@ -443,6 +466,7 @@ describe('补全候选与删除 RPC 客户端', () => {
   it('候选形状不对时返回 fetch-failed', async () => {
     const malformed = { labels: [{ name: 1 }], assignees: [] }
     const client = createPanelClient(
+      builtinZhTranslate,
       recordingFetch(response({ ok: true, result: malformed })).fetchImpl,
     )
 
@@ -455,7 +479,11 @@ describe('补全候选与删除 RPC 客户端', () => {
   it('ticket.delete 总是带上确认词 delete', async () => {
     const { fetchImpl, calls } = recordingFetch(response({ ok: true, result: { deleted: true } }))
 
-    const result = await createPanelClient(fetchImpl).deleteTicket('/repo', '#25', 25)
+    const result = await createPanelClient(builtinZhTranslate, fetchImpl).deleteTicket(
+      '/repo',
+      '#25',
+      25,
+    )
 
     expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
       method: 'ticket.delete',
@@ -465,7 +493,10 @@ describe('补全候选与删除 RPC 客户端', () => {
   })
 
   it('删除回执缺少 deleted 时返回 fetch-failed', async () => {
-    const client = createPanelClient(recordingFetch(response({ ok: true, result: {} })).fetchImpl)
+    const client = createPanelClient(
+      builtinZhTranslate,
+      recordingFetch(response({ ok: true, result: {} })).fetchImpl,
+    )
 
     await expect(client.deleteTicket('/repo', '#25', 25)).resolves.toMatchObject({
       ok: false,

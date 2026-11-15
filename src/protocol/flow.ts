@@ -6,7 +6,7 @@
  * 两边的防漂移测试都会失败。这里只放常量，不放生成文本或渲染逻辑。
  */
 import { PANEL_SKILLS } from './env-check.ts'
-import { TRACKER_LABELS, type TrackerLabelNames } from './labels.ts'
+import type { TrackerLabelNames } from './labels.ts'
 
 /** 命令的归属：插件自带，还是 matt 的技能。 */
 export type FlowOwner = 'plugin' | 'matt'
@@ -86,11 +86,14 @@ export type NextStepId = keyof typeof NEXT_STEPS
 /** 入池的两种票。 */
 export type IntakeKind = 'bug' | 'feature'
 
+/** 提示词里的引导槽位；文案由界面按稳定 id 翻译，协议只定义有哪些槽位。 */
+export type PromptSlotId = 'symptom' | 'steps' | 'expected' | 'feature' | 'description'
+
 /** 一段提示词需要的定义：用哪个流程命令、留哪些槽位。入池命令与直达规格入口共用。 */
 export interface PromptEntry {
   readonly command: FlowCommandId
   /** 填进输入框的槽位；只是引导，不做格式校验。 */
-  readonly slots: readonly string[]
+  readonly slots: readonly PromptSlotId[]
 }
 
 /** 一个入池命令的定义。 */
@@ -107,14 +110,14 @@ export const INTAKE_COMMANDS = {
   bug: {
     kind: 'bug',
     command: 'intakeBug',
-    slots: ['现象：', '复现步骤：', '预期行为：'],
+    slots: ['symptom', 'steps', 'expected'],
     labelRoles: ['bug', 'needsTriage'],
     nextSteps: ['triage'],
   },
   feature: {
     kind: 'feature',
     command: 'intakeFeature',
-    slots: ['需求（一句话）：'],
+    slots: ['feature'],
     labelRoles: ['needsTriage'],
     nextSteps: ['triage', 'toSpec', 'grillWithDocs', 'wayfinder'],
   },
@@ -127,171 +130,5 @@ export const INTAKE_COMMANDS = {
  */
 export const DIRECT_SPEC_ENTRY = {
   command: 'toSpec',
-  slots: ['需求描述：'],
+  slots: ['description'],
 } as const satisfies PromptEntry
-
-/** 流程图的一个节点：命令节点或状态节点，二选一。 */
-export interface FlowNode {
-  /** 命令节点对应的命令；状态节点为 null。 */
-  readonly command: FlowCommandId | null
-  /** 状态节点显示的标签；命令节点为 null。 */
-  readonly state: string | null
-  /** 节点下方的一句说明；没有为 null。 */
-  readonly note: string | null
-  /** agent 在这里停下，等用户发下一条命令。 */
-  readonly stops: boolean
-}
-
-/** 流程图的一行；一行里多个节点表示分叉。 */
-export interface FlowRow {
-  readonly nodes: readonly FlowNode[]
-}
-
-/** 帮助页上的一张流程图；行按从上到下的顺序相连。 */
-export interface FlowDiagram {
-  readonly id: string
-  readonly title: string
-  readonly summary: string
-  readonly rows: readonly FlowRow[]
-}
-
-/** 命令节点的公共字段；`stops` 默认 true，终点节点再单独覆盖。 */
-const STOPPING_COMMAND_NODE = { command: null, state: null, note: null, stops: true } as const
-
-/** 帮助页的六张图：入池状态机、需求链、直达规格、缺陷链、访谈与画图的取舍，以及实现之后。 */
-export const FLOW_DIAGRAMS: readonly FlowDiagram[] = [
-  {
-    id: 'intake-triage',
-    title: '入池与 triage',
-    summary: '原始报告先变成池里的票，再由 triage 定性。',
-    rows: [
-      {
-        nodes: [
-          { ...STOPPING_COMMAND_NODE, command: 'intakeBug', note: '缺陷' },
-          { ...STOPPING_COMMAND_NODE, command: 'intakeFeature', note: '需求' },
-        ],
-      },
-      {
-        nodes: [{ command: null, state: TRACKER_LABELS.needsTriage, note: null, stops: false }],
-      },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'triage', note: '定性' }] },
-      {
-        nodes: [
-          {
-            command: null,
-            state: TRACKER_LABELS.readyForAgent,
-            note: null,
-            stops: false,
-          },
-          {
-            command: null,
-            state: TRACKER_LABELS.readyForHuman,
-            note: null,
-            stops: false,
-          },
-          { command: null, state: TRACKER_LABELS.needsInfo, note: null, stops: false },
-          { command: null, state: TRACKER_LABELS.wontfix, note: null, stops: false },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'feature-chain',
-    title: '需求链',
-    summary:
-      '需求先入池，再按情况走定性、访谈或画图；之后写规格、拆票、实现。需求已经清楚可以直接走直达入口。',
-    rows: [
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'intakeFeature', note: '一句话需求' }] },
-      {
-        nodes: [{ command: null, state: TRACKER_LABELS.needsTriage, note: null, stops: false }],
-      },
-      {
-        nodes: [
-          { ...STOPPING_COMMAND_NODE, command: 'triage', note: '默认' },
-          { ...STOPPING_COMMAND_NODE, command: 'toSpec', note: '讨论已清楚' },
-          { ...STOPPING_COMMAND_NODE, command: 'grillWithDocs', note: '需求还模糊' },
-          { ...STOPPING_COMMAND_NODE, command: 'wayfinder', note: '一个会话装不下' },
-        ],
-      },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toSpec', note: '走完之后' }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'implement', note: null, stops: false }] },
-    ],
-  },
-  {
-    id: 'direct-spec',
-    title: '需求已明确',
-    summary:
-      '需求已经清楚时不必先入池：直接 /to-spec 写上需求描述，它会建好带规格的需求票，再拆票、实现。',
-    rows: [
-      { nodes: [{ command: null, state: '需求相对明确', note: null, stops: false }] },
-      {
-        nodes: [
-          { ...STOPPING_COMMAND_NODE, command: DIRECT_SPEC_ENTRY.command, note: '带上需求描述' },
-        ],
-      },
-      {
-        nodes: [
-          {
-            command: null,
-            state: TRACKER_LABELS.readyForAgent,
-            note: '规格已写好',
-            stops: false,
-          },
-        ],
-      },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
-      { nodes: [{ command: 'implement', state: null, note: null, stops: false }] },
-    ],
-  },
-  {
-    id: 'bug-chain',
-    title: '缺陷链',
-    summary: '缺陷一律先 triage；难查的再诊断，根因清楚的直接实现。',
-    rows: [
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'intakeBug', note: '三行槽位' }] },
-      {
-        nodes: [{ command: null, state: TRACKER_LABELS.needsTriage, note: null, stops: false }],
-      },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'triage', note: null }] },
-      {
-        nodes: [
-          { ...STOPPING_COMMAND_NODE, command: 'diagnosingBugs', note: '确实难查' },
-          { command: 'implement', state: null, note: '根因已经清楚', stops: false },
-        ],
-      },
-      { nodes: [{ command: 'implement', state: null, note: '诊断之后', stops: false }] },
-    ],
-  },
-  {
-    id: 'choose-interview',
-    title: '访谈还是画图',
-    summary: '需求需要讨论时，按一个会话装不装得下来选。',
-    rows: [
-      {
-        nodes: [{ command: null, state: '需求需要讨论', note: null, stops: false }],
-      },
-      {
-        nodes: [
-          { ...STOPPING_COMMAND_NODE, command: 'grillWithDocs', note: '一个会话装得下' },
-          { ...STOPPING_COMMAND_NODE, command: 'wayfinder', note: '一个会话装不下' },
-        ],
-      },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toSpec', note: null }] },
-    ],
-  },
-  {
-    id: 'after-implement',
-    title: '实现之后',
-    summary: '实现完成后先评审；评审意见修完再写 PR 正文，合并后判断能否关票，能关才关。',
-    rows: [
-      { nodes: [{ command: null, state: '实现完成', note: null, stops: false }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'codeReview', note: '两轴评审' }] },
-      { nodes: [{ command: null, state: '评审意见已修完', note: null, stops: false }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'pr', note: '写 PR 正文' }] },
-      { nodes: [{ command: null, state: '已合并', note: null, stops: false }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'close', note: '改动合并之后判断' }] },
-      { nodes: [{ command: null, state: '票已关闭', note: null, stops: false }] },
-    ],
-  },
-]

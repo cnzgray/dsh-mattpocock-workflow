@@ -20,8 +20,11 @@ import {
   FLOW_COMMANDS,
   INTAKE_COMMANDS,
   type PromptEntry,
+  type PromptSlotId,
 } from '../protocol/flow.ts'
 import type { TicketSkillAction } from '../protocol/labels.ts'
+import type { Translate } from './i18n-runtime.ts'
+import type { MessageKey } from './messages.ts'
 
 /** 生成某张票的提示词所需的最小信息。 */
 export interface TicketPromptTarget {
@@ -45,31 +48,47 @@ export function ticketPrompt(ticket: TicketPromptTarget): string | null {
   return `/${SKILL_ACTION_SKILLS[ticket.skillAction]} ${ticket.ref}`
 }
 
+/** 槽位 id 到词典键：提示词只翻译引导标签，技能手势与命令名保持原样。 */
+const SLOT_KEYS: Readonly<Record<PromptSlotId, MessageKey>> = {
+  symptom: 'prompt.slot.symptom',
+  steps: 'prompt.slot.steps',
+  expected: 'prompt.slot.expected',
+  feature: 'prompt.slot.feature',
+  description: 'prompt.slot.description',
+}
+
 /**
  * 「+ 新建需求」填入的开场提示词：进入需求入池。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 以 mattwf-feature 手势开头、后面是槽位的注入文本。
  */
-export function newFeaturePrompt(): string {
-  return slotPrompt(INTAKE_COMMANDS.feature)
+export function newFeaturePrompt(t: Translate): string {
+  return slotPrompt(INTAKE_COMMANDS.feature, t)
 }
 
 /**
  * 「+ bug」填入的开场提示词：进入缺陷入池。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 以 mattwf-bug 手势开头、后面是槽位的注入文本。
  */
-export function newBugPrompt(): string {
-  return slotPrompt(INTAKE_COMMANDS.bug)
+export function newBugPrompt(t: Translate): string {
+  return slotPrompt(INTAKE_COMMANDS.bug, t)
 }
 
 /**
  * 「to-spec 需求」填入的开场提示词：需求已经明确时直接建带规格的需求票。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 以 to-spec 手势开头、后面是需求描述槽位的注入文本。
  */
-export function newSpecPrompt(): string {
-  return slotPrompt(DIRECT_SPEC_ENTRY)
+export function newSpecPrompt(t: Translate): string {
+  return slotPrompt(DIRECT_SPEC_ENTRY, t)
 }
 
 /** 手势开头、空行后是槽位：入池命令与直达规格入口共用这条拼装规则。 */
-function slotPrompt(entry: PromptEntry): string {
-  return [`/${FLOW_COMMANDS[entry.command].name}`, '', ...entry.slots].join('\n')
+function slotPrompt(entry: PromptEntry, t: Translate): string {
+  return [
+    `/${FLOW_COMMANDS[entry.command].name}`,
+    '',
+    ...entry.slots.map((slot) => t(SLOT_KEYS[slot])),
+  ].join('\n')
 }

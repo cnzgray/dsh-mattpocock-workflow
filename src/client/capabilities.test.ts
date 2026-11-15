@@ -13,6 +13,7 @@ describe('界面能力记录器', () => {
       'sessions',
       'conversation',
       'uiWorkspace',
+      'locale',
       'sidebar.right.pane.tab',
       'sidebar.right.pane.tab.title',
     ])

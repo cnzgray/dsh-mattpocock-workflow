@@ -3,6 +3,7 @@
  * 不参与判档——档位与指标仍以宿主附上的 `snapshot.metrics` 为准。
  */
 import type { PressureTier, TicketSnapshot } from '../protocol/tracker.ts'
+import type { Translate } from './i18n-runtime.ts'
 
 const DAY_MS = 86_400_000
 const WEEK_MS = 7 * DAY_MS
@@ -71,11 +72,13 @@ export interface AgeBucket {
  * 开放票按“距上次更新多少天”分档。
  * @param tickets - 快照里的工单；只统计开放票。
  * @param now - 截止时间，取快照的 `fetchedAt`。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 四档计数，顺序从新到旧固定。
  */
 export function updateAgeBuckets(
   tickets: readonly TicketSnapshot[],
   now: number,
+  t: Translate,
 ): readonly AgeBucket[] {
   const counts: Record<AgeBucketKey, number> = { week: 0, fortnight: 0, month: 0, older: 0 }
   for (const ticket of tickets) {
@@ -89,10 +92,10 @@ export function updateAgeBuckets(
     else counts.older += 1
   }
   return [
-    { key: 'week', label: '7 天内', count: counts.week },
-    { key: 'fortnight', label: '8–14 天', count: counts.fortnight },
-    { key: 'month', label: '15–30 天', count: counts.month },
-    { key: 'older', label: '超过 30 天', count: counts.older },
+    { key: 'week', label: t('overview.age.week'), count: counts.week },
+    { key: 'fortnight', label: t('overview.age.fortnight'), count: counts.fortnight },
+    { key: 'month', label: t('overview.age.month'), count: counts.month },
+    { key: 'older', label: t('overview.age.older'), count: counts.older },
   ]
 }
 

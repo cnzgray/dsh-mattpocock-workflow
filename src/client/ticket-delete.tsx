@@ -9,6 +9,7 @@ import * as React from 'react'
 import { TICKET_DELETE_CONFIRMATION, type RpcErrorBody } from '../protocol/tracker.ts'
 import { errorText } from './error-text.ts'
 import { MoreIcon, TrashIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
 import { DETAIL_BUTTON_STYLE, DETAIL_INPUT_STYLE } from './ticket-detail-styles.ts'
 import {
   DANGER_BUTTON_STYLE,
@@ -24,6 +25,7 @@ import {
 
 /** 头部右侧的“更多”菜单；目前只有删除一项。 */
 export function MoreMenu(props: { readonly onDelete: () => void }): React.ReactElement {
+  const { t } = useI18n()
   const [open, setOpen] = React.useState(false)
   const wrapper = React.useRef<HTMLDivElement>(null)
   const menuId = React.useId()
@@ -56,8 +58,8 @@ export function MoreMenu(props: { readonly onDelete: () => void }): React.ReactE
         type="button"
         data-testid="detail-more"
         data-hover="soft"
-        aria-label="更多操作"
-        title="更多操作"
+        aria-label={t('detail.delete.more')}
+        title={t('detail.delete.more')}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -69,7 +71,7 @@ export function MoreMenu(props: { readonly onDelete: () => void }): React.ReactE
         <MoreIcon />
       </button>
       {open ? (
-        <div id={menuId} role="menu" aria-label="更多操作" style={MENU_STYLE}>
+        <div id={menuId} role="menu" aria-label={t('detail.delete.more')} style={MENU_STYLE}>
           <button
             type="button"
             role="menuitem"
@@ -84,7 +86,7 @@ export function MoreMenu(props: { readonly onDelete: () => void }): React.ReactE
             style={MENU_ITEM_DANGER_STYLE}
           >
             <TrashIcon />
-            删除工单…
+            {t('detail.delete.menu')}
           </button>
         </div>
       ) : null}
@@ -102,6 +104,7 @@ export function DeleteConfirm(props: {
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const [typed, setTyped] = React.useState('')
   const titleId = React.useId()
   const inputId = React.useId()
@@ -121,13 +124,15 @@ export function DeleteConfirm(props: {
       style={DELETE_PANEL_STYLE}
     >
       <h3 id={titleId} style={DELETE_PANEL_TITLE_STYLE}>
-        永久删除 {props.refText}？
+        {t('detail.delete.title', { ref: props.refText })}
       </h3>
       <p style={DELETE_PANEL_TEXT_STYLE}>
-        「{props.title}」和它的全部评论会从 {props.backendLabel} 上删除，无法恢复。
+        {t('detail.delete.body', { title: props.title, backend: props.backendLabel })}
       </p>
       <label htmlFor={inputId} style={DELETE_PANEL_TEXT_STYLE}>
-        输入 <code>{TICKET_DELETE_CONFIRMATION}</code> 确认：
+        {t('detail.delete.confirmBefore')}
+        <code>{TICKET_DELETE_CONFIRMATION}</code>
+        {t('detail.delete.confirmAfter')}
       </label>
       <input
         id={inputId}
@@ -147,7 +152,7 @@ export function DeleteConfirm(props: {
       />
       {props.error === null ? null : (
         <div role="alert" data-testid="delete-error" style={DELETE_PANEL_TEXT_STYLE}>
-          {errorText(props.error)}
+          {errorText(props.error, t)}
         </div>
       )}
       <DeleteActions
@@ -166,6 +171,7 @@ function DeleteActions(props: {
   readonly onCancel: () => void
   readonly onConfirm: () => void
 }): React.ReactElement {
+  const { t } = useI18n()
   return (
     <div style={DELETE_PANEL_ACTIONS_STYLE}>
       <button
@@ -176,7 +182,7 @@ function DeleteActions(props: {
         onClick={props.onCancel}
         style={DETAIL_BUTTON_STYLE}
       >
-        取消
+        {t('detail.delete.cancel')}
       </button>
       <button
         type="button"
@@ -186,7 +192,7 @@ function DeleteActions(props: {
         onClick={props.onConfirm}
         style={DANGER_BUTTON_STYLE}
       >
-        {props.deleting ? '正在删除…' : '永久删除'}
+        {props.deleting ? t('detail.delete.deleting') : t('detail.delete.confirm')}
       </button>
     </div>
   )

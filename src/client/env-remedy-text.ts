@@ -1,12 +1,13 @@
 /**
- * 解决区的中文文案与动作类型。protocol 只送解决码和对象，
+ * 解决区的文案与动作类型。protocol 只送解决码和对象，
  * 每个码对应的文案、动作与链接只在这里维护。
  *
  * 表是全覆盖的 `Record<EnvRemedyCode, …>`：新增解决码忘了写文案时，
- * 类型检查会失败，不会出现「有码无文案」。
+ * 类型检查会失败，不会出现「有码无文案」。命令、路径、技能名与链接原样保留。
  */
 import type { BackendKind } from '../protocol/backend.ts'
 import { PANEL_SKILLS, type EnvCliBackend, type EnvRemedyCode } from '../protocol/env-check.ts'
+import type { Translate } from './i18n-runtime.ts'
 
 /** 解决区渲染所需的上下文。 */
 export interface RemedyContext {
@@ -64,9 +65,6 @@ const CLI: Readonly<Record<EnvCliBackend, CliText>> = {
 
 const SKILLS_REPO = 'https://github.com/mattpocock/skills'
 
-/** DSH 启动报告的位置；探测失败与重试的文案共用。 */
-const DSH_LOGS = '~/.dsh/logs（DSH_HOME/logs）'
-
 function cliOf(subject: string | null): CliText | undefined {
   return subject === 'github' || subject === 'gitlab' || subject === 'gitea'
     ? CLI[subject]
@@ -107,91 +105,104 @@ function repositoryCommand(context: RemedyContext): string {
   return 'git remote -v'
 }
 
-const REMEDIES: Readonly<Record<EnvRemedyCode, (context: RemedyContext) => RemedyContent>> = {
-  'install-cli': (context) => {
+const REMEDIES: Readonly<
+  Record<EnvRemedyCode, (context: RemedyContext, t: Translate) => RemedyContent>
+> = {
+  'install-cli': (context, t) => {
     const cli = cliOf(context.subject)
     return {
       summary:
         cli === undefined
-          ? '安装后端对应的命令行工具（gh / glab / tea），装好后重新检查。'
-          : `安装 ${cli.label}：命令在本机终端运行，装好后重新检查。`,
+          ? t('env.remedy.installCliGeneric')
+          : t('env.remedy.installCli', { cli: cli.label }),
       action: { kind: 'command', command: installCommand(context.subject) },
       ...(cli === undefined
         ? {}
-        : { link: { href: cli.installUrl, label: `${cli.label} 安装说明` } }),
+        : {
+            link: {
+              href: cli.installUrl,
+              label: t('env.remedy.installCliLink', { cli: cli.label }),
+            },
+          }),
     }
   },
-  'login-cli': (context) => {
+  'login-cli': (context, t) => {
     const cli = cliOf(context.subject)
     return {
       summary:
         cli === undefined
-          ? '登录后端对应的命令行工具（gh / glab / tea），登录后重新检查。'
-          : `登录 ${cli.label}；自建实例要在登录时填实例地址，登录后重新检查。`,
+          ? t('env.remedy.loginCliGeneric')
+          : t('env.remedy.loginCli', { cli: cli.label }),
       action: { kind: 'command', command: loginCommand(context.subject) },
     }
   },
-  'install-skill': (context) => {
-    const skill = context.subject ?? '缺失技能'
+  'install-skill': (context, t) => {
+    const skill = context.subject ?? t('env.remedy.skillMissing')
     return {
-      summary: `让当前会话把 ${skill} 技能装到 DSH 会扫描的技能目录（如 .agents/skills），来源是 mattpocock/skills。`,
+      summary: t('env.remedy.installSkillSummary', { skill }),
       action: {
         kind: 'session',
-        prompt: `安装 mattpocock/skills 里的 ${skill} 技能到当前工作区 DSH 会扫描的技能目录（如 .agents/skills 或 .dsh/skills），让环境检查项「${context.title}」通过。装好后告诉我，我再重新检查。`,
+        prompt: t('env.remedy.installSkillPrompt', { skill, title: context.title }),
       },
-      link: { href: SKILLS_REPO, label: 'mattpocock/skills 仓库' },
+      link: { href: SKILLS_REPO, label: t('env.remedy.installSkillLink') },
     }
   },
-  'init-workspace': (context) => ({
-    summary: `让当前会话运行 ${PANEL_SKILLS.setup}，把工作区按面板要求初始化。`,
+  'init-workspace': (context, t) => ({
+    summary: t('env.remedy.initWorkspaceSummary', { skill: PANEL_SKILLS.setup }),
     action: {
       kind: 'session',
       prompt: [
         `/${PANEL_SKILLS.setup}`,
         '',
-        `初始化当前工作区。环境检查项「${context.title}」未通过：${context.detail}。`,
-        '按技能完成初始化后告诉我，我再重新检查。',
+        t('env.remedy.initWorkspacePrompt', { title: context.title, detail: context.detail }),
+        t('env.remedy.initWorkspaceOutro'),
       ].join('\n'),
     },
   }),
-  'place-local-issues': (context) => ({
-    summary:
-      '把工单放进工作区的 .scratch/<feature>/issues/，每个文件开头写 Status: 行；约定见 docs/local-issues.md。',
+  'place-local-issues': (context, t) => ({
+    summary: t('env.remedy.placeLocalIssuesSummary'),
     action: {
       kind: 'session',
-      prompt: `环境检查项「${context.title}」未通过：${context.detail}。按 docs/local-issues.md 的约定，在当前工作区的 .scratch/<feature>/issues/ 下补上本地工单文件（文件名以编号开头，开头写 # 标题 与 Status: 行）。放好后告诉我，我再重新检查。`,
+      prompt: t('env.remedy.placeLocalIssuesPrompt', {
+        title: context.title,
+        detail: context.detail,
+      }),
     },
   }),
-  'check-repository-access': (context) => ({
-    summary: `核对当前账号对 ${context.repository ?? '远端仓库'} 的访问权限；命令只读，不会改动仓库。`,
+  'check-repository-access': (context, t) => ({
+    summary: t('env.remedy.checkRepositoryAccessSummary', {
+      repository: context.repository ?? t('env.remedy.remoteRepository'),
+    }),
     action: { kind: 'command', command: repositoryCommand(context) },
   }),
-  'check-remote-address': () => ({
-    summary: '核对 origin 指向的仓库地址；远端写错时先改正，再重新检查。',
+  'check-remote-address': (_context, t) => ({
+    summary: t('env.remedy.checkRemoteAddressSummary'),
     action: { kind: 'command', command: 'git remote -v' },
   }),
-  'check-network': () => ({
-    summary: '网络不可达：检查代理与网络设置，确认能访问代码托管服务后重新检查。',
+  'check-network': (_context, t) => ({
+    summary: t('env.remedy.checkNetworkSummary'),
     action: { kind: 'retry' },
   }),
-  'check-home': () => ({
-    summary:
-      '宿主进程没有可用的用户主目录。在启动 DSH 的终端或服务配置里设置 HOME，然后重启 DSH；命令只核对当前环境。',
+  'check-home': (_context, t) => ({
+    summary: t('env.remedy.checkHomeSummary'),
     action: { kind: 'command', command: 'printenv HOME' },
   }),
-  'check-logs': () => ({
-    summary: `探测没有返回结果。DSH 日志在 ${DSH_LOGS} 下，最新一份就是本次启动的报告。`,
+  'check-logs': (_context, t) => ({
+    summary: t('env.remedy.checkLogsSummary', { location: t('env.logs.location') }),
     action: { kind: 'retry' },
   }),
-  'fix-backend': (context) => ({
-    summary: '让当前会话修好后端选择：核对 origin 远端，或补上 glab / tea 的安装与登录。',
+  'fix-backend': (context, t) => ({
+    summary: t('env.remedy.fixBackendSummary'),
     action: {
       kind: 'session',
-      prompt: `环境检查项「${context.title}」未通过：${context.detail}。检查当前仓库的 origin 远端：GitHub 仓库要指向 github.com；GitLab 自建实例需要安装并登录 glab；Gitea 实例需要安装并登录 tea。修好后告诉我，我再重新检查。`,
+      prompt: t('env.remedy.fixBackendPrompt', {
+        title: context.title,
+        detail: context.detail,
+      }),
     },
   }),
-  retry: () => ({
-    summary: `重新检查一次，确认是否为偶发失败；仍然失败时看 ${DSH_LOGS} 下最新的启动报告。`,
+  retry: (_context, t) => ({
+    summary: t('env.remedy.retrySummary', { location: t('env.logs.location') }),
     action: { kind: 'retry' },
   }),
 }
@@ -200,8 +211,13 @@ const REMEDIES: Readonly<Record<EnvRemedyCode, (context: RemedyContext) => Remed
  * 取一条解决的文案与动作。
  * @param code - 解决码。
  * @param context - 后端、仓库、对象与失败项信息。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 摘要、动作与可选链接。
  */
-export function remedyContent(code: EnvRemedyCode, context: RemedyContext): RemedyContent {
-  return REMEDIES[code](context)
+export function remedyContent(
+  code: EnvRemedyCode,
+  context: RemedyContext,
+  t: Translate,
+): RemedyContent {
+  return REMEDIES[code](context, t)
 }

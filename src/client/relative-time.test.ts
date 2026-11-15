@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatRelativeTime } from './relative-time.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
+import { formatRelativeTime as formatRelativeTimeWithT } from './relative-time.ts'
 
 const NOW = Date.parse('2026-11-12T15:00:00Z')
+const formatRelativeTime = (value: number | string, now: number) =>
+  formatRelativeTimeWithT(value, now, builtinZhTranslate)
 
 describe('相对时间文案', () => {
   it.each([

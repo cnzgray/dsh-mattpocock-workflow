@@ -15,6 +15,8 @@ import type {
 } from '../protocol/tracker.ts'
 import { copyText } from './clipboard.ts'
 import { errorText } from './error-text.ts'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import type { PanelClient } from './rpc.ts'
 import type { Suggestion, SuggestionSource } from './ticket-combobox.tsx'
 import type { CopyState, OptionsState } from './ticket-detail-fields.tsx'
@@ -168,6 +170,7 @@ export function useTicketOptions(
   workspaceRoot: string,
   eager: boolean,
 ): OptionsState {
+  const { t } = useI18n()
   const [load, setLoad] = React.useState<OptionsLoad>({ status: 'idle' })
   const started = React.useRef(false)
   const mounted = React.useRef(true)
@@ -197,14 +200,18 @@ export function useTicketOptions(
     if (eager) request()
   }, [eager, request])
 
-  return React.useMemo(() => optionsState(load, request), [load, request])
+  // 不缓存：失败原因与候选说明在渲染期按当前语言物化，语言切换必须重新取词。
+  return optionsState(load, request, t)
 }
 
-function optionsState(load: OptionsLoad, request: () => void): OptionsState {
+function optionsState(load: OptionsLoad, request: () => void, t: Translate): OptionsState {
   if (load.status !== 'ready') {
     const source: SuggestionSource =
       load.status === 'failed'
-        ? { status: 'unavailable', reason: `读取候选失败：${errorText(load.error)}` }
+        ? {
+            status: 'unavailable',
+            reason: t('detail.optionsFailed', { detail: errorText(load.error, t) }),
+          }
         : { status: 'loading' }
     return { labels: source, assignees: source, labelColors: new Map(), request }
   }
@@ -304,7 +311,10 @@ const COPIED_RESET_MS = 2000
  * @param url - 工单地址；null 时复制不做任何事。
  * @returns 复制状态与触发入口。
  */
-export function useCopyLink(url: string | null): {
+export function useCopyLink(
+  url: string | null,
+  t: Translate,
+): {
   readonly copy: CopyState
   readonly onCopy: () => void
 } {
@@ -324,7 +334,7 @@ export function useCopyLink(url: string | null): {
     copy,
     onCopy: () => {
       if (url === null) return
-      void copyText(url).then(setCopy)
+      void copyText(url, t).then(setCopy)
     },
   }
 }

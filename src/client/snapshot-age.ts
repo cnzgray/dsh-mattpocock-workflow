@@ -24,22 +24,3 @@ export function useNow(clock: () => number): number {
 
   return now
 }
-
-/**
- * 把快照时间格式化成中文的相对时间。
- * @param fetchedAt - 快照生成时间（毫秒）。
- * @param now - 当前时间（毫秒）。
- * @returns “刚刚”“3 分钟前”等文案。
- */
-export function formatAge(fetchedAt: number, now: number): string {
-  const seconds = Math.max(0, Math.floor((now - fetchedAt) / 1000))
-  if (seconds < 60) return '刚刚'
-
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${String(minutes)} 分钟前`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${String(hours)} 小时前`
-
-  return `${String(Math.floor(hours / 24))} 天前`
-}

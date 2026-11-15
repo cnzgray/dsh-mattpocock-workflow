@@ -9,7 +9,7 @@ import * as React from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { NewSessionIcon } from './icons.tsx'
-import { NO_NEW_SESSION } from './injection.ts'
+import { useI18n } from './i18n.tsx'
 import { SPLIT_DISABLED_STYLE } from './task-panel-styles.ts'
 
 /**
@@ -86,9 +86,13 @@ export interface SplitActionProps {
  * @returns 主键加小箭头。
  */
 export function SplitAction(props: SplitActionProps): React.ReactElement {
+  const { t } = useI18n()
   const arrowHint = props.canStartNewSession
     ? props.newSessionTitle
-    : `${props.newSessionTitle}（${props.newSessionDisabledHint ?? NO_NEW_SESSION}）`
+    : t('injection.disabledHint', {
+        title: props.newSessionTitle,
+        reason: props.newSessionDisabledHint ?? t('injection.noNewSession'),
+      })
 
   return (
     <div

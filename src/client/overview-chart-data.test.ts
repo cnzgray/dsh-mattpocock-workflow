@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TicketSnapshot } from '../protocol/tracker.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
 import { tierLevel, updateAgeBuckets, weeklyFlow } from './overview-chart-data.ts'
 
 const NOW = Date.parse('2026-11-13T00:00:00Z')
@@ -74,6 +75,7 @@ describe('updateAgeBuckets', () => {
         ticket({ updatedAt: '2026-09-01T00:00:00Z', state: 'closed', status: 'closed' }),
       ],
       NOW,
+      builtinZhTranslate,
     )
 
     expect(buckets.map((bucket) => [bucket.key, bucket.count])).toEqual([

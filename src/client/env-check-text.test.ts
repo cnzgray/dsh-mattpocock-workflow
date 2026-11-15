@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
+import type { BackendKind } from '../protocol/backend.ts'
 import type { CapabilityDiagnostic, EnvCheckItem } from '../protocol/env-check.ts'
-import { capabilityText, envBackendLabel, envCheckTitle } from './env-check-text.ts'
+import {
+  capabilityText as capabilityTextWithT,
+  envBackendLabel as envBackendLabelWithT,
+  envCheckTitle as envCheckTitleWithT,
+} from './env-check-text.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
+
+const t = builtinZhTranslate
+const envCheckTitle = (subject: EnvCheckItem) => envCheckTitleWithT(subject, t)
+const envBackendLabel = (backend: BackendKind | null) => envBackendLabelWithT(backend, t)
+const capabilityText = (diagnostic: CapabilityDiagnostic) => capabilityTextWithT(diagnostic, t)
 
 function item(overrides: Partial<EnvCheckItem>): EnvCheckItem {
   return {
@@ -74,6 +85,15 @@ describe('环境检查文案', () => {
     const present = capabilityText(capability({ id: 'sessions', category: 'ui-extension' }))
     expect(present.impact).toBeNull()
     expect(present.fix).toBeNull()
+  })
+
+  it('界面语言服务缺失时说明面板停留在内置中文', () => {
+    const missing = capabilityText(
+      capability({ id: 'locale', category: 'ui-extension', status: 'missing' }),
+    )
+    expect(missing.label).toBe('界面语言服务')
+    expect(missing.impact).toContain('内置中文')
+    expect(missing.fix).toContain('locale')
   })
 
   it('新建会话能力缺失时说明只能填当前会话与补法', () => {

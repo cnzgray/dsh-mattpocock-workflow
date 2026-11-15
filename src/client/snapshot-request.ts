@@ -12,6 +12,8 @@
 import * as React from 'react'
 
 import type { RpcErrorBody, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import type { PanelClient } from './rpc.ts'
 
 /** 请求阶段。 */
@@ -54,16 +56,18 @@ type RequestMode = 'get' | 'refresh' | 'refresh-full' | 'auto'
  * 说明数据不是最新的。
  * @param snapshot - 当前快照；没有数据时为 null。
  * @param refreshError - 客户端最近一次刷新失败的原因。
+ * @param t - 翻译入口；省略时用内置中文。
  * @returns 要显示的原因文案；没有原因时为 null。
  */
 export function snapshotRefreshNotice(
   snapshot: WorkspaceSnapshot | null,
   refreshError: RpcErrorBody | null,
+  t: Translate,
 ): string | null {
   if (refreshError !== null) return refreshError.message
   const hostMessage = snapshot?.refreshError?.message
   if (hostMessage !== undefined) return hostMessage
-  if (snapshot?.stale === true) return '数据可能不是最新的'
+  if (snapshot?.stale === true) return t('snapshot.stale')
   return null
 }
 
@@ -125,8 +129,9 @@ export function useSnapshotRequest(
   workspaceRoot: string | undefined,
   options?: SnapshotRequestOptions,
 ): SnapshotRequestState {
+  const { t } = useI18n()
   const { snapshot, error, refreshError, phase, moreError, moreLoading, load, more } =
-    useSnapshotLoader(client, workspaceRoot)
+    useSnapshotLoader(client, workspaceRoot, t)
   const signal = options?.signal ?? 0
   // 一轮缓存只自动刷新一次：刷新失败时不再反复打宿主。
   const autoRefreshed = React.useRef(false)
@@ -227,6 +232,7 @@ interface LoadTarget {
   readonly setPhase: (next: SnapshotPhase) => void
   readonly setMoreError: (next: RpcErrorBody | null) => void
   readonly setMoreLoading: (next: boolean) => void
+  readonly t: Translate
 }
 
 /**
@@ -235,7 +241,11 @@ interface LoadTarget {
  * @param workspaceRoot - 当前工作区。
  * @returns 当前状态与发起请求的入口。
  */
-function useSnapshotLoader(client: PanelClient, workspaceRoot: string | undefined): Loader {
+function useSnapshotLoader(
+  client: PanelClient,
+  workspaceRoot: string | undefined,
+  t: Translate,
+): Loader {
   const [snapshot, setSnapshot] = React.useState<WorkspaceSnapshot | null>(null)
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
   const [refreshError, setRefreshError] = React.useState<RpcErrorBody | null>(null)
@@ -263,8 +273,9 @@ function useSnapshotLoader(client: PanelClient, workspaceRoot: string | undefine
       setPhase,
       setMoreError,
       setMoreLoading,
+      t,
     }),
-    [client, workspaceRoot],
+    [client, workspaceRoot, t],
   )
   const load = React.useCallback(
     (mode: RequestMode): Promise<WorkspaceSnapshot | null> => loadSnapshot(target, mode),
@@ -307,7 +318,7 @@ async function loadSnapshot(
     target.setSnapshot(null)
     target.latest.current = null
     target.hasData.current = false
-    target.setError({ code: 'invalid-params', message: '当前会话没有工作区目录，无法读取工单。' })
+    target.setError({ code: 'invalid-params', message: target.t('error.snapshotNoWorkspace') })
     target.setPhase('error')
     return null
   }

@@ -6,9 +6,6 @@
  * 因此结果只能诚实地说「已请求」，不能说「已完成」。
  */
 
-/** 宿主缺新建会话能力时的原因；悬停说明与反馈文案共用。 */
-export const NO_NEW_SESSION = '宿主未提供新建会话能力'
-
 /** 提示词要送去的会话。 */
 export type InjectionTarget = 'current-session' | 'new-session'
 

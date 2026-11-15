@@ -3,6 +3,7 @@
  * 与宿主通信；不导入 core 或 adapters。
  */
 import type { EnvCheckReport } from '../protocol/env-check.ts'
+import type { Translate } from './i18n-runtime.ts'
 import {
   TICKET_ACTION_REASONS,
   TICKET_SKILL_ACTIONS,
@@ -97,46 +98,55 @@ export interface PanelClient {
 
 /**
  * 创建走插件私有 HTTP 路由的客户端。
+ * @param t - 翻译入口；请求失败的原因按当前语言生成。
  * @param fetchImpl - fetch 实现，默认用全局 fetch。
  * @returns 面板客户端。
  */
-export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelClient {
+export function createPanelClient(t: Translate, fetchImpl: FetchLike = defaultFetch): PanelClient {
   return {
     get: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotGet, { workspaceRoot }, isSnapshotResult),
+      call(fetchImpl, t, RPC_METHODS.snapshotGet, { workspaceRoot }, isSnapshotResult),
     more: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotMore, { workspaceRoot }, isSnapshotResult),
+      call(fetchImpl, t, RPC_METHODS.snapshotMore, { workspaceRoot }, isSnapshotResult),
     refresh: (workspaceRoot, options) => {
       // 只有明确要求全量时才带上 full：缺省时宿主能用增量就用增量。
       const params: SnapshotRefreshParams =
         options?.full === true ? { workspaceRoot, full: true } : { workspaceRoot }
-      return call(fetchImpl, RPC_METHODS.snapshotRefresh, params, isSnapshotResult)
+      return call(fetchImpl, t, RPC_METHODS.snapshotRefresh, params, isSnapshotResult)
     },
     cache: (workspaceRoot, options) => {
       const params: SnapshotCacheParams =
         options?.clear === true
           ? { workspaceRoot, clear: true, confirm: SNAPSHOT_CLEAR_CONFIRMATION }
           : { workspaceRoot }
-      return call(fetchImpl, RPC_METHODS.snapshotCache, params, isSnapshotCacheResult)
+      return call(fetchImpl, t, RPC_METHODS.snapshotCache, params, isSnapshotCacheResult)
     },
     resolveBlockers: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.snapshotResolveBlockers, { workspaceRoot }, isSnapshotResult),
+      call(fetchImpl, t, RPC_METHODS.snapshotResolveBlockers, { workspaceRoot }, isSnapshotResult),
     envCheck: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.envCheck, { workspaceRoot }, isEnvCheckResult),
+      call(fetchImpl, t, RPC_METHODS.envCheck, { workspaceRoot }, isEnvCheckResult),
     getDetail: (workspaceRoot, ref, number) =>
-      call(fetchImpl, RPC_METHODS.ticketGet, { workspaceRoot, ref, number }, isTicketDetailResult),
+      call(
+        fetchImpl,
+        t,
+        RPC_METHODS.ticketGet,
+        { workspaceRoot, ref, number },
+        isTicketDetailResult,
+      ),
     updateTicket: (workspaceRoot, ref, number, patch) =>
       call(
         fetchImpl,
+        t,
         RPC_METHODS.ticketUpdate,
         { workspaceRoot, ref, number, patch },
         isTicketUpdateResult,
       ),
     getOptions: (workspaceRoot) =>
-      call(fetchImpl, RPC_METHODS.ticketOptions, { workspaceRoot }, isTicketOptionsResult),
+      call(fetchImpl, t, RPC_METHODS.ticketOptions, { workspaceRoot }, isTicketOptionsResult),
     deleteTicket: (workspaceRoot, ref, number) =>
       call(
         fetchImpl,
+        t,
         RPC_METHODS.ticketDelete,
         { workspaceRoot, ref, number, confirm: TICKET_DELETE_CONFIRMATION },
         isTicketDeleteResult,
@@ -146,6 +156,7 @@ export function createPanelClient(fetchImpl: FetchLike = defaultFetch): PanelCli
 
 async function call<T>(
   fetchImpl: FetchLike,
+  t: Translate,
   method: string,
   params: unknown,
   isResult: (value: unknown) => value is RpcResult<T>,
@@ -158,17 +169,17 @@ async function call<T>(
     })
 
     if (!response.ok) {
-      return failure(ERROR_CODES.fetchFailed, `请求失败（HTTP ${String(response.status)}）。`)
+      return failure(ERROR_CODES.fetchFailed, t('error.rpcHttpFailed', { status: response.status }))
     }
 
     const body = await response.json()
     if (!isResult(body)) {
-      return failure(ERROR_CODES.fetchFailed, '宿主返回的响应格式不正确。')
+      return failure(ERROR_CODES.fetchFailed, t('error.rpcBadResponse'))
     }
     return body
   } catch (error) {
-    const detail = error instanceof Error ? error.message : '未知错误'
-    return failure(ERROR_CODES.fetchFailed, `网络请求失败：${detail}`)
+    const detail = error instanceof Error ? error.message : t('common.unknownError')
+    return failure(ERROR_CODES.fetchFailed, t('error.rpcNetworkFailed', { detail }))
   }
 }
 

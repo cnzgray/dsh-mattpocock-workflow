@@ -143,12 +143,6 @@ export const ENV_STATUS_COLORS: Record<EnvCheckStatus, string> = {
   skipped: COLORS.tertiary,
 }
 
-export const ENV_STATUS_LABELS: Record<EnvCheckStatus, string> = {
-  pass: '通过',
-  fail: '失败',
-  skipped: '跳过',
-}
-
 export const CAPABILITIES_STYLE: CSSProperties = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 8,

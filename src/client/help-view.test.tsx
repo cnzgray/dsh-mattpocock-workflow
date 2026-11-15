@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 
-import { FLOW_COMMANDS, FLOW_DIAGRAMS } from '../protocol/flow.ts'
+import { FLOW_COMMANDS } from '../protocol/flow.ts'
+import { HELP_DIAGRAMS } from './help-flow.ts'
+import { builtinZhTranslate } from './i18n-runtime.ts'
 import { panelProps, rowRefs } from './task-panel-test-support.ts'
 import { TaskPanel } from './task-panel.tsx'
 
@@ -54,7 +56,7 @@ describe('流程帮助视图', () => {
     await openHelp()
 
     const drawn = new Set<string | null>()
-    for (const diagram of FLOW_DIAGRAMS) {
+    for (const diagram of HELP_DIAGRAMS) {
       fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
       for (const node of screen.getByTestId('flow-diagrams').querySelectorAll('[data-command]')) {
         drawn.add(node.getAttribute('data-command'))
@@ -73,20 +75,20 @@ describe('流程帮助视图', () => {
     await screen.findAllByTestId('ticket-row')
     await openHelp()
 
-    const first = FLOW_DIAGRAMS[0]
-    const last = FLOW_DIAGRAMS.at(-1)
+    const first = HELP_DIAGRAMS[0]
+    const last = HELP_DIAGRAMS.at(-1)
     if (first === undefined || last === undefined) throw new Error('缺少流程图')
 
-    expect(screen.getAllByRole('tab')).toHaveLength(FLOW_DIAGRAMS.length)
+    expect(screen.getAllByRole('tab')).toHaveLength(HELP_DIAGRAMS.length)
     expect(screen.getByTestId(`flow-tab-${first.id}`).getAttribute('aria-selected')).toBe('true')
     const svgs = (): NodeListOf<Element> =>
       screen.getByTestId('flow-diagrams').querySelectorAll('svg[role="img"]')
     expect(svgs()).toHaveLength(1)
-    expect(svgs()[0]?.getAttribute('aria-label')).toBe(first.title)
+    expect(svgs()[0]?.getAttribute('aria-label')).toBe(builtinZhTranslate(first.titleKey))
 
     fireEvent.click(screen.getByTestId(`flow-tab-${last.id}`))
     expect(svgs()).toHaveLength(1)
-    expect(svgs()[0]?.getAttribute('aria-label')).toBe(last.title)
+    expect(svgs()[0]?.getAttribute('aria-label')).toBe(builtinZhTranslate(last.titleKey))
     expect(screen.getByTestId(`flow-tab-${first.id}`).getAttribute('aria-selected')).toBe('false')
   })
 
@@ -109,7 +111,7 @@ describe('实现之后场景', () => {
     await screen.findAllByTestId('ticket-row')
     await openHelp()
 
-    const diagram = FLOW_DIAGRAMS.find((item) => item.id === 'after-implement')
+    const diagram = HELP_DIAGRAMS.find((item) => item.id === 'after-implement')
     if (diagram === undefined) throw new Error('缺少“实现之后”场景')
 
     fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
@@ -152,7 +154,7 @@ describe('直达规格场景', () => {
     await screen.findAllByTestId('ticket-row')
     await openHelp()
 
-    const diagram = FLOW_DIAGRAMS.find((item) => item.id === 'direct-spec')
+    const diagram = HELP_DIAGRAMS.find((item) => item.id === 'direct-spec')
     if (diagram === undefined) throw new Error('缺少“需求已明确”场景')
 
     fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))

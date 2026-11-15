@@ -4,12 +4,9 @@
  */
 import * as React from 'react'
 
-import {
-  NO_NEW_SESSION,
-  type InjectionOutcome,
-  type InjectionTarget,
-  type PromptInjection,
-} from './injection.ts'
+import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 
 /** 注入反馈的色调：成功与「已请求」是信息，失败才告警。 */
 export type NoticeTone = 'info' | 'error'
@@ -29,17 +26,25 @@ export interface DraftInjection {
  * @returns 按目标注入的入口与当前提示。
  */
 export function useDraftInjection(injection: PromptInjection): DraftInjection {
-  const [notice, setNotice] = React.useState<string | null>(null)
-  const [noticeTone, setNoticeTone] = React.useState<NoticeTone | null>(null)
+  const { t } = useI18n()
+  const [state, setState] = React.useState<InjectionNoticeState | null>(null)
+  const notice = state === null ? null : injectionNotice(state.outcome, state.target, t)
+  const noticeTone: NoticeTone | null =
+    state === null ? null : state.outcome === 'unavailable' ? 'error' : 'info'
 
   const inject = (text: string, target: InjectionTarget): InjectionOutcome => {
     const outcome = injection.inject(text, target)
-    setNotice(injectionNotice(outcome, target))
-    setNoticeTone(outcome === 'unavailable' ? 'error' : 'info')
+    // 只存结果与目标：语言切换后同一句提示按当前语言重新渲染。
+    setState({ outcome, target })
     return outcome
   }
 
   return { notice, noticeTone, inject }
+}
+
+interface InjectionNoticeState {
+  readonly outcome: InjectionOutcome
+  readonly target: InjectionTarget
 }
 
 /**
@@ -48,15 +53,15 @@ export function useDraftInjection(injection: PromptInjection): DraftInjection {
  * @param target - 本次注入的目标会话。
  * @returns 要显示的提示。
  */
-function injectionNotice(outcome: InjectionOutcome, target: InjectionTarget): string | null {
+function injectionNotice(outcome: InjectionOutcome, target: InjectionTarget, t: Translate): string {
   switch (outcome) {
     case 'filled':
-      return '提示词已填入当前会话的输入框。'
+      return t('injection.filled')
     case 'requested':
-      return '已请求在新会话填入提示词，请到新会话确认后发送。'
+      return t('injection.requested')
     case 'unavailable':
       return target === 'new-session'
-        ? `${NO_NEW_SESSION}，未能开启新会话。`
-        : '没有找到当前会话的输入框，未能填入提示词。'
+        ? t('injection.unavailableNewSession', { reason: t('injection.noNewSession') })
+        : t('injection.unavailableCurrent')
   }
 }

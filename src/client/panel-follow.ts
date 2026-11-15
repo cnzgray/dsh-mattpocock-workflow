@@ -69,7 +69,7 @@ export function startPanelFollow(scope: PanelFollowScope, options: PanelFollowOp
       options.capabilities.mark('sidebarRight', sidebar !== undefined)
       if (sidebar === undefined) {
         console.warn(
-          `[${PLUGIN_NAME}] 宿主没有可用的 sidebarRight 服务，新会话里不会自动恢复页签。`,
+          `[${PLUGIN_NAME}] sidebarRight is unavailable; the tab will not reopen in new sessions.`,
         )
       }
 
@@ -84,7 +84,7 @@ export function startPanelFollow(scope: PanelFollowScope, options: PanelFollowOp
     })
     dispose = disposerOf(injected)
   } catch (error) {
-    console.warn(`[${PLUGIN_NAME}] 面板跟随没能装上。`, error)
+    console.warn(`[${PLUGIN_NAME}] panel follow could not be installed.`, error)
     return () => undefined
   }
 
@@ -121,7 +121,9 @@ function createFollow(tabKind: string): {
       if (tabs === undefined) {
         if (!warned) {
           warned = true
-          console.warn(`[${PLUGIN_NAME}] 宿主右栏没有页签清单，判断不了页签归属，不跟随。`)
+          console.warn(
+            `[${PLUGIN_NAME}] sidebarRight has no tab inventory; cannot determine ownership, not following.`,
+          )
         }
         return
       }
@@ -135,7 +137,7 @@ function createFollow(tabKind: string): {
       if (hasTab(tabs, mounted, tabKind)) return
       opener.open(sidebar, mounted)
     } catch (error) {
-      console.warn(`[${PLUGIN_NAME}] 读宿主右栏状态失败，本次不跟随。`, error)
+      console.warn(`[${PLUGIN_NAME}] failed to read sidebarRight state; not following.`, error)
     }
   }
 
@@ -146,7 +148,10 @@ function createFollow(tabKind: string): {
         evaluate(sidebar)
       })
     } catch (error) {
-      console.warn(`[${PLUGIN_NAME}] 订阅右栏会话变化失败，面板跟随不生效。`, error)
+      console.warn(
+        `[${PLUGIN_NAME}] failed to subscribe to sidebar session changes; panel follow is inactive.`,
+        error,
+      )
     }
     return stop
   }
@@ -188,7 +193,7 @@ function createOpener(tabKind: string): {
         schedule(sidebar, target, attemptsLeft - 1)
         return
       }
-      console.warn(`[${PLUGIN_NAME}] 打不开 MattWorkflow 页签，这次不跟随。`, error)
+      console.warn(`[${PLUGIN_NAME}] failed to open the MattWorkflow tab; not following.`, error)
     }
   }
 

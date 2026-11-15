@@ -8,6 +8,7 @@ import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import { ACTIVITY_SETTLE_MS } from './agent-activity.ts'
+import { createFakeLocaleService } from './i18n-test-support.ts'
 import { apply } from './index.tsx'
 import { createFakeRightColumn } from './panel-follow-test-support.ts'
 
@@ -108,7 +109,12 @@ interface Harness {
  * @returns 记录下来的宿主调用。
  */
 function setup(
-  options: { readonly withUiWorkspace?: boolean; readonly withConversation?: boolean } = {},
+  options: {
+    readonly withUiWorkspace?: boolean
+    readonly withConversation?: boolean
+    /** 提供 locale 服务时的当前语言；省略表示宿主没有 locale 服务。 */
+    readonly localeActive?: string
+  } = {},
 ): Harness {
   const drafts: { sessionId: string; text: string }[] = []
   const startCalls: StartCall[] = []
@@ -132,6 +138,9 @@ function setup(
     },
     sidebarRightTabs: { register: () => () => undefined },
     sidebarRight: rightColumn.service,
+  }
+  if (options.localeActive !== undefined) {
+    services.locale = createFakeLocaleService(options.localeActive).service
   }
   if (options.withUiWorkspace !== false) {
     services.uiWorkspace = {
@@ -229,6 +238,14 @@ function setup(
 }
 
 describe('客户端入口', () => {
+  it('locale 服务就绪时面板按宿主当前语言渲染', async () => {
+    setup({ localeActive: 'en' })
+
+    await screen.findByTestId('tickets-view')
+    expect(screen.getByTestId('view-tickets').textContent).toBe('Tickets')
+    expect(screen.getByTestId('view-env').textContent).toBe('Environment')
+  })
+
   it('注入能力就绪前禁用面板动作，就绪后恢复', async () => {
     const harness = setup({ withConversation: false })
     await screen.findByTestId('new-feature')

@@ -10,7 +10,10 @@
 import * as React from 'react'
 
 import { PlusIcon } from './icons.tsx'
+import { useI18n } from './i18n.tsx'
+import type { Translate } from './i18n-runtime.ts'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
+import type { MessageKey } from './messages.ts'
 import { newBugPrompt, newFeaturePrompt, newSpecPrompt } from './prompts.ts'
 import { SplitAction } from './split-action.tsx'
 import {
@@ -23,43 +26,43 @@ import {
 /** 一个按钮的固定配置；回调与注入端口由动作栏传入。 */
 interface DraftActionDefinition {
   readonly testId: string
-  readonly label: string
-  readonly title: string
-  readonly ariaLabel: string
-  readonly newSessionTitle: string
+  readonly labelKey: MessageKey
+  readonly titleKey: MessageKey
+  readonly ariaKey: MessageKey
+  readonly newSessionKey: MessageKey
   readonly primaryStyle: React.CSSProperties
   readonly primaryHover: 'primary' | 'secondary'
   /** 点主键或小箭头时填入的提示词。 */
-  readonly prompt: () => string
+  readonly prompt: (t: Translate) => string
 }
 
 const DRAFT_ACTIONS: readonly DraftActionDefinition[] = [
   {
     testId: 'new-feature',
-    label: '需求',
-    title: '把需求入池提示词填入当前会话',
-    ariaLabel: '新建需求：填入当前会话',
-    newSessionTitle: '在新会话开始：新建需求',
+    labelKey: 'action.feature.label',
+    titleKey: 'action.feature.title',
+    ariaKey: 'action.feature.aria',
+    newSessionKey: 'action.feature.newSession',
     primaryStyle: FEATURE_ACTION_STYLE,
     primaryHover: 'primary',
     prompt: newFeaturePrompt,
   },
   {
     testId: 'new-bug',
-    label: 'bug',
-    title: '把缺陷入池提示词填入当前会话',
-    ariaLabel: 'bug：填入当前会话',
-    newSessionTitle: '在新会话开始：报 bug',
+    labelKey: 'action.bug.label',
+    titleKey: 'action.bug.title',
+    ariaKey: 'action.bug.aria',
+    newSessionKey: 'action.bug.newSession',
     primaryStyle: BUG_ACTION_STYLE,
     primaryHover: 'secondary',
     prompt: newBugPrompt,
   },
   {
     testId: 'new-spec',
-    label: 'to-spec',
-    title: '把 /to-spec 提示词填入当前会话，直接创建需求票',
-    ariaLabel: 'to-spec 需求：把 /to-spec 提示词填入当前会话，直接创建需求票',
-    newSessionTitle: '在新会话开始：to-spec 需求',
+    labelKey: 'action.spec.label',
+    titleKey: 'action.spec.title',
+    ariaKey: 'action.spec.aria',
+    newSessionKey: 'action.spec.newSession',
     primaryStyle: SPEC_ACTION_STYLE,
     primaryHover: 'primary',
     prompt: newSpecPrompt,
@@ -91,25 +94,26 @@ function DraftAction(props: {
   readonly injection: PromptInjection
   readonly onInject: (text: string, target: InjectionTarget) => void
 }): React.ReactElement {
+  const { t } = useI18n()
   const { action, injection, onInject } = props
   return (
     <SplitAction
       testId={action.testId}
-      label={action.label}
+      label={t(action.labelKey)}
       icon={<PlusIcon />}
       compact
-      title={action.title}
-      ariaLabel={action.ariaLabel}
+      title={t(action.titleKey)}
+      ariaLabel={t(action.ariaKey)}
       primaryStyle={action.primaryStyle}
       primaryHover={action.primaryHover}
       disabled={!injection.canInjectCurrent}
       canStartNewSession={injection.canStartNewSession}
-      newSessionTitle={action.newSessionTitle}
+      newSessionTitle={t(action.newSessionKey)}
       onPrimary={() => {
-        onInject(action.prompt(), 'current-session')
+        onInject(action.prompt(t), 'current-session')
       }}
       onStartSession={() => {
-        onInject(action.prompt(), 'new-session')
+        onInject(action.prompt(t), 'new-session')
       }}
     />
   )
