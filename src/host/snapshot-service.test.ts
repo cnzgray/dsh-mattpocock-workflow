@@ -474,14 +474,42 @@ describe('本地快照库与增量刷新', () => {
     expect(snapshotCalls).toHaveLength(0)
   })
 
+  it('库里的计数不自洽时作废并全量拉取', async () => {
+    const store = memoryStore([
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        loaded: 3,
+        total: 2,
+        tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3 })],
+      }),
+    ])
+    const { service, snapshotCalls } = serviceWith(
+      [snapshot({ tickets: [ticket({ number: 1 }), ticket({ number: 3 })], loaded: 2, total: 2 })],
+      'gitea',
+      undefined,
+      { store },
+    )
+
+    const result = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
+
+    // 已加载数不可能大于后端总数：这份库不可能是对的，直接重拉。
+    expect(store.removed).toEqual([ROOT])
+    expect(snapshotCalls).toHaveLength(1)
+    expect(result.loaded).toBeLessThanOrEqual(result.total)
+  })
+
   it('刷新时走增量，把变更合并进缓存', async () => {
-    const store = memoryStore([storedEntry()])
-    const { service, changeCalls, snapshotCalls } = serviceWith([snapshot()], 'github', undefined, {
+    const store = memoryStore([
+      storedEntry({ backend: 'gitea', repositoryKey: 'gitea@github.com/cnzgray/repo' }),
+    ])
+    const { service, changeCalls, snapshotCalls } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
       changes: () =>
         Promise.resolve({
           tickets: [ticket({ number: 2, title: '改过的票', updatedAt: '2026-02-01T00:00:00Z' })],
           truncated: false,
+          total: 30,
         }),
     })
 
@@ -495,10 +523,16 @@ describe('本地快照库与增量刷新', () => {
   })
 
   it('增量窗口从上次成功拉取的时刻向前重叠一小段', async () => {
-    const store = memoryStore([storedEntry({ fetchedAt: 5_000 })])
-    const { service, changeCalls } = serviceWith([snapshot()], 'github', undefined, {
+    const store = memoryStore([
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        fetchedAt: 5_000,
+      }),
+    ])
+    const { service, changeCalls } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false }),
+      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30 }),
     })
 
     await service.handle('snapshot.refresh', { workspaceRoot: ROOT })
@@ -517,18 +551,21 @@ describe('本地快照库与增量刷新', () => {
     })
     const store = memoryStore([
       storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
         fetchedAt: 1_000,
         loaded: 1,
         total: 2,
         tickets: [ticket({ number: 1, title: '旧的票', updatedAt: '2026-01-01T00:00:00Z' })],
       }),
     ])
-    const { service } = serviceWith([full], 'github', undefined, {
+    const { service } = serviceWith([full], 'gitea', undefined, {
       store,
       changes: () =>
         Promise.resolve({
           tickets: [ticket({ number: 2, title: '新的票', updatedAt: '2026-02-01T00:00:00Z' })],
           truncated: false,
+          total: 2,
         }),
     })
 
@@ -542,17 +579,115 @@ describe('本地快照库与增量刷新', () => {
     )
   })
 
+  it('远端删除的票在下一次刷新后从列表消失', async () => {
+    const first = ticket({ number: 1, title: '还在的票' })
+    const second = ticket({ number: 3, title: '另一张还在的票' })
+    const kept = [first, second]
+    const store = memoryStore([
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        loaded: 3,
+        total: 3,
+        tickets: [first, ticket({ number: 2, title: '远端已删除' }), second],
+      }),
+    ])
+    const { service, snapshotCalls, logs } = serviceWith(
+      [snapshot({ tickets: kept, loaded: 2, total: 2 })],
+      'gitea',
+      undefined,
+      {
+        store,
+        // 删除不产生变更记录：增量里没有这张票，只能靠权威总数发现它已经不存在。
+        changes: () => Promise.resolve({ tickets: [], truncated: false, total: 2 }),
+      },
+    )
+
+    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+
+    expect(result.tickets.map((item) => item.ref).sort()).toEqual(['#1', '#3'])
+    expect(result.loaded).toBe(2)
+    expect(result.total).toBe(2)
+    // 漂移检测当次退回全量，不发布不一致的增量结果，并记录这次退让。
+    expect(snapshotCalls).toHaveLength(1)
+    expect(
+      logs.some(
+        (entry) =>
+          entry.level === 'warn' &&
+          entry.fields.result === 'fallback' &&
+          entry.fields.reason === 'drift',
+      ),
+    ).toBe(true)
+  })
+
   it('增量被截断时退回全量重拉', async () => {
-    const store = memoryStore([storedEntry()])
-    const { service, snapshotCalls } = serviceWith([snapshot()], 'github', undefined, {
+    const store = memoryStore([
+      storedEntry({ backend: 'gitea', repositoryKey: 'gitea@github.com/cnzgray/repo' }),
+    ])
+    const { service, snapshotCalls } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: true }),
+      changes: () => Promise.resolve({ tickets: [], truncated: true, total: 30 }),
     })
 
     const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
 
     expect(snapshotCalls).toHaveLength(1)
     expect(result.source).toBe('live')
+  })
+
+  it('权威总数不可用时退回全量，不发布也不写库', async () => {
+    const store = memoryStore([
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        loaded: 4,
+        total: 30,
+      }),
+    ])
+    const full = snapshot({
+      tickets: [ticket({ number: 1, title: '远端还在的票' })],
+      loaded: 1,
+      total: 1,
+    })
+    const { service, snapshotCalls } = serviceWith([full], 'gitea', undefined, {
+      store,
+      changes: () => Promise.resolve({ tickets: [], truncated: false, total: Number.NaN }),
+    })
+
+    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+
+    // 总数不可用时当次走全量，不沿用旧总数，也不写入增量结果。
+    expect(snapshotCalls).toHaveLength(1)
+    expect(result.tickets.map((item) => item.ref)).toEqual(['#1'])
+    expect(result.loaded).toBe(1)
+    expect(result.total).toBe(1)
+    expect(store.writes).toHaveLength(1)
+    expect(store.writes[0]?.total).toBe(1)
+  })
+
+  it('有窗口上限的缓存不走增量对账', async () => {
+    const store = memoryStore([
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        windowLimit: 100,
+      }),
+    ])
+    const { service, snapshotCalls, changeCalls } = serviceWith(
+      [snapshot({ loaded: 4, total: 4 })],
+      'gitea',
+      undefined,
+      {
+        store,
+        changes: () => Promise.resolve({ tickets: [], truncated: false, total: 4 }),
+      },
+    )
+
+    await service.handle('snapshot.refresh', { workspaceRoot: ROOT })
+
+    // 窗口截断让总数对账失效：这类缓存只能全量重拉。
+    expect(changeCalls).toHaveLength(0)
+    expect(snapshotCalls).toHaveLength(1)
   })
 
   it('刷新失败时保留旧数据并带上失败原因', async () => {
@@ -573,7 +708,7 @@ describe('本地快照库与增量刷新', () => {
     const store = memoryStore([storedEntry()])
     const { service, snapshotCalls, changeCalls } = serviceWith([snapshot()], 'github', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false }),
+      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30 }),
     })
 
     await service.handle('snapshot.refresh', { workspaceRoot: ROOT, full: true })

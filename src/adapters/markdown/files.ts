@@ -136,6 +136,8 @@ export interface LocalTicketChanges {
    * 少了它们，变更工单的阻塞数就会与全量扫描对不上。
    */
   readonly context: readonly MarkdownTicketFile[]
+  /** `issues/` 下的工单文件总数；目录扫描本来就能看到全部文件，不用额外读取。 */
+  readonly total: number
 }
 
 /**
@@ -159,6 +161,7 @@ export async function readChangedTicketFiles(
 
   const changed: MarkdownTicketFile[] = []
   const context: MarkdownTicketFile[] = []
+  let total = 0
 
   for (const feature of sortEntries(features)) {
     if (feature.kind !== 'directory') continue
@@ -170,6 +173,7 @@ export async function readChangedTicketFiles(
     const candidates = sortEntries(entries).filter(
       (entry) => entry.kind === 'file' && entry.name.endsWith('.md'),
     )
+    total += candidates.length
     if (candidates.length === 0) continue
 
     const moved: MarkdownTicketFile[] = []
@@ -197,7 +201,7 @@ export async function readChangedTicketFiles(
     }
   }
 
-  return { changed, context }
+  return { changed, context, total }
 }
 
 /**

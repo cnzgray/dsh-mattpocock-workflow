@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { TrackerError } from '../../core/tracker-error.ts'
-import { GH_CHANGES_OUTPUT, GH_ISSUES_OUTPUT, GH_TRUNCATED_CHANGES_OUTPUT } from './fixtures.ts'
-import { parseIssueChangesGraphql, parseIssueGraphql } from './graphql.ts'
+import { GH_ISSUES_OUTPUT } from './fixtures.ts'
+import { parseIssueGraphql } from './graphql.ts'
 
 describe('GraphQL 工单解析', () => {
   it('解析总数与每张票的字段', () => {
@@ -146,37 +146,5 @@ describe('GraphQL 工单解析', () => {
     })
 
     expect(() => parseIssueGraphql(output)).toThrow(/blockedBy/)
-  })
-})
-
-describe('GraphQL 增量解析', () => {
-  it('解析窗口内变更过的工单与仓库总数', () => {
-    const parsed = parseIssueChangesGraphql(GH_CHANGES_OUTPUT)
-
-    expect(parsed.tickets.map((ticket) => ticket.ref)).toEqual(['#16', '#12'])
-    expect(parsed.truncated).toBe(false)
-    expect(parsed.total).toBe(30)
-  })
-
-  it('后端还有下一页时标记为截断', () => {
-    expect(parseIssueChangesGraphql(GH_TRUNCATED_CHANGES_OUTPUT).truncated).toBe(true)
-  })
-
-  it('拿不到分页信息时按可能不完整处理，让宿主退回全量重拉', () => {
-    const output = JSON.stringify({ data: { repository: { issues: { nodes: [] } } } })
-
-    expect(parseIssueChangesGraphql(output).truncated).toBe(true)
-  })
-
-  it('仓库总数给不出时不报总数，宿主沿用上次的', () => {
-    const output = JSON.stringify({
-      data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } },
-    })
-
-    expect(parseIssueChangesGraphql(output).total).toBeUndefined()
-  })
-
-  it('输出不是 JSON 时返回抓取失败', () => {
-    expect(() => parseIssueChangesGraphql('not json')).toThrow(TrackerError)
   })
 })

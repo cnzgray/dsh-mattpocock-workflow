@@ -179,6 +179,7 @@ describe('本地 Markdown 工单增量', () => {
       '.scratch/login/issues/02-bug.md',
     ])
     expect(changes?.truncated).toBe(false)
+    expect(changes?.total).toBe(4)
   })
 
   it('没有文件动过时返回空增量', async () => {
@@ -187,6 +188,8 @@ describe('本地 Markdown 工单增量', () => {
     const changes = await tracker.fetchChanges?.('/ws', UPDATED)
 
     expect(changes?.tickets).toEqual([])
+    // 目录扫描本来就看到了全部文件，总数不依赖窗口。
+    expect(changes?.total).toBe(4)
   })
 
   it('变更工单的阻塞数与全量扫描一致', async () => {
@@ -207,6 +210,7 @@ describe('本地 Markdown 工单增量', () => {
     const changes = await tracker.fetchChanges?.('/empty', UPDATED)
 
     expect(changes?.tickets).toEqual([])
+    expect(changes?.total).toBe(0)
   })
 
   it('读取文件失败时返回 markdown-read-failed', async () => {
@@ -327,7 +331,7 @@ describeTrackerContract('本地 Markdown', {
   changes: {
     createTracker: () => trackerFor(MOVED_TREE),
     since: UPDATED,
-    expected: { refs: ['.scratch/login/issues/02-bug.md'] },
+    expected: { refs: ['.scratch/login/issues/02-bug.md'], total: 4 },
   },
   detail: {
     createTracker: () => trackerFor(),

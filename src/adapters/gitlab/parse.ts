@@ -39,6 +39,34 @@ export function parseIssuesPage(output: string): ParsedIssue[] {
   return payload.map((value, index) => parseIssue(value, index))
 }
 
+/** `glab api --include` 的输出：响应头里的 `X-Total` 与正文。 */
+export interface GlabIncludeResponse {
+  /** `X-Total` 响应头；GitLab 对超大集合会省略它。 */
+  readonly total: number | undefined
+  readonly body: string
+}
+
+const TOTAL_HEADER = /^x-total:\s*(\d+)\s*$/im
+
+/**
+ * 拆开 `glab api --include` 的输出：状态行与响应头在正文前的空行之前。
+ * 没有响应头时整段都按正文处理。
+ * @param output - 命令的标准输出。
+ * @returns 响应头里的总数与正文。
+ */
+export function parseGlabInclude(output: string): GlabIncludeResponse {
+  const separator = /\r?\n\r?\n/.exec(output)
+  if (separator === null) return { total: undefined, body: output }
+
+  const headers = output.slice(0, separator.index)
+  const body = output.slice(separator.index + separator[0].length)
+  const match = TOTAL_HEADER.exec(headers)
+  if (match === null) return { total: undefined, body }
+
+  const total = Number.parseInt(match[1] ?? '', 10)
+  return { total: Number.isInteger(total) ? total : undefined, body }
+}
+
 /**
  * 判定一次 `/issues/:iid/links` 响应是否证明实例提供原生阻塞关系。
  *

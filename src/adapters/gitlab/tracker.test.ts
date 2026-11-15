@@ -10,103 +10,17 @@ import {
   mutableGitlabTracker,
 } from './detail-fixtures.ts'
 import {
-  GITLAB_BLOCKED_BY_OUTPUT,
-  GITLAB_CHANGES_OUTPUT,
   GITLAB_ISSUES,
-  GITLAB_ISSUES_OUTPUT,
-  GITLAB_LINKS,
   GITLAB_NOTES,
   GITLAB_REMOTES_OUTPUT,
   gitlabIssue,
   issuesJson,
 } from './fixtures.ts'
+import { NOW, recordedRunner, trackerWith } from './tracker-test-support.ts'
 import { createGitlabTracker } from './tracker.ts'
 
-const NOW = 1_700_000_000_000
 /** 增量窗口起点：2026-11-20T00:00:00Z。 */
 const SINCE = Date.parse('2026-11-20T00:00:00Z')
-
-interface RunnerOptions {
-  readonly git?: () => string
-  readonly issues?: (page: number) => string
-  /** 带 `updated_after` 的增量查询用这一组输出。 */
-  readonly changes?: (page: number) => string
-  readonly links?: (iid: number) => string
-  readonly graphql?: () => string
-}
-
-interface RecordedRunner {
-  readonly runner: CommandRunner
-  readonly calls: readonly (readonly string[])[]
-  readonly linkCalls: readonly number[]
-  readonly graphqlCalls: readonly string[]
-}
-
-function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
-  const calls: string[][] = []
-  const linkCalls: number[] = []
-  const graphqlCalls: string[] = []
-  const runner: CommandRunner = (command, args) => {
-    calls.push([command, ...args])
-    if (command === 'git') {
-      return Promise.resolve({
-        stdout: (options.git ?? (() => GITLAB_REMOTES_OUTPUT))(),
-        stderr: '',
-      })
-    }
-
-    const endpoint = args[1] ?? ''
-    if (endpoint === 'graphql') {
-      graphqlCalls.push(args.join(' '))
-      return Promise.resolve({
-        stdout: (options.graphql ?? (() => GITLAB_BLOCKED_BY_OUTPUT))(),
-        stderr: '',
-      })
-    }
-
-    const link = /\/issues\/(\d+)\/links$/.exec(endpoint)
-    if (link !== null) {
-      const iid = Number.parseInt(link[1] ?? '', 10)
-      linkCalls.push(iid)
-      return Promise.resolve({
-        stdout: (options.links ?? ((id) => GITLAB_LINKS.get(id) ?? '[]'))(iid),
-        stderr: '',
-      })
-    }
-
-    const page = /[?&]page=(\d+)/.exec(endpoint)
-    const source = endpoint.includes('updated_after')
-      ? (options.changes ?? (() => GITLAB_CHANGES_OUTPUT))
-      : (options.issues ?? (() => GITLAB_ISSUES_OUTPUT))
-    return Promise.resolve({
-      stdout: source(page === null ? 1 : Number.parseInt(page[1] ?? '1', 10)),
-      stderr: '',
-    })
-  }
-  return { runner, calls, linkCalls, graphqlCalls }
-}
-
-function trackerWith(
-  options: RunnerOptions = {},
-  blockerCapability?: Map<string, Promise<boolean>>,
-): {
-  readonly tracker: Tracker
-  readonly calls: readonly (readonly string[])[]
-  readonly linkCalls: readonly number[]
-  readonly graphqlCalls: readonly string[]
-} {
-  const recorded = recordedRunner(options)
-  return {
-    tracker: createGitlabTracker({
-      run: recorded.runner,
-      now: () => NOW,
-      ...(blockerCapability === undefined ? {} : { blockerCapability }),
-    }),
-    calls: recorded.calls,
-    linkCalls: recorded.linkCalls,
-    graphqlCalls: recorded.graphqlCalls,
-  }
-}
 
 /** 一张票在正文里写了阻塞关系，用来验证探测目标与描述回退。 */
 function describedIssuesJson(): string {
@@ -393,95 +307,6 @@ describe('GitLab 工单后端', () => {
   })
 })
 
-describe('GitLab 工单增量', () => {
-  it('增量查询带上 updated_after 窗口，其余过滤条件与列表一致', async () => {
-    const { tracker, calls } = trackerWith()
-
-    await tracker.fetchChanges?.('/workspace', SINCE)
-
-    const endpoint = calls.find((call) => call[0] === 'glab')?.[2] ?? ''
-    expect(endpoint).toContain('state=all')
-    expect(endpoint).toContain(`updated_after=${new Date(SINCE).toISOString()}`)
-    expect(endpoint).toContain('order_by=updated_at')
-    expect(endpoint).toContain('sort=asc')
-    expect(endpoint).toContain('projects/cnzgray%2Fplatform%2Fdsh-workflow/issues')
-  })
-
-  it('只取回变更过的票，不做阻塞加工', async () => {
-    const { tracker } = trackerWith()
-
-    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
-
-    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
-    expect(changes?.truncated).toBe(false)
-    // 阻塞判定由宿主在合并后统一处理，增量保持原始票字段。
-    expect(changes?.tickets[0]?.openBlockers).toBe(0)
-    expect(changes?.tickets[0]?.blockedBy).toEqual([])
-  })
-
-  it('增量按页读到短页为止', async () => {
-    const recorded = recordedRunner({
-      changes: (page) =>
-        page === 1
-          ? issuesJson([
-              gitlabIssue({ iid: 15, title: '前置任务' }),
-              gitlabIssue({ iid: 16, title: '被阻塞的任务' }),
-            ])
-          : issuesJson([gitlabIssue({ iid: 12, title: '又一张票' })]),
-    })
-    const tracker = createGitlabTracker({ run: recorded.runner, now: () => NOW, pageSize: 2 })
-
-    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
-
-    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#15', '#16', '#12'])
-    expect(changes?.truncated).toBe(false)
-  })
-
-  it('整页倍数时探一页空结果确认结束，不误报截断', async () => {
-    const recorded = recordedRunner({
-      changes: (page) =>
-        page <= 2
-          ? issuesJson([
-              gitlabIssue({ iid: 10 + page * 2, title: '变更一' }),
-              gitlabIssue({ iid: 11 + page * 2, title: '变更二' }),
-            ])
-          : '[]',
-    })
-    const tracker = createGitlabTracker({
-      run: recorded.runner,
-      now: () => NOW,
-      pageSize: 2,
-      incrementalPageLimit: 2,
-    })
-
-    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
-
-    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#12', '#13', '#14', '#15'])
-    expect(changes?.truncated).toBe(false)
-  })
-
-  it('超过页数上限时标记截断，探到的票不并入结果', async () => {
-    const recorded = recordedRunner({
-      changes: (page) =>
-        issuesJson([
-          gitlabIssue({ iid: page * 2, title: '变更一' }),
-          gitlabIssue({ iid: page * 2 + 1, title: '变更二' }),
-        ]),
-    })
-    const tracker = createGitlabTracker({
-      run: recorded.runner,
-      now: () => NOW,
-      pageSize: 2,
-      incrementalPageLimit: 1,
-    })
-
-    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
-
-    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#2', '#3'])
-    expect(changes?.truncated).toBe(true)
-  })
-})
-
 describe('GitLab 工单详情与变更', () => {
   it('读取 issue 与 notes，跳过 system note 并按时间排序', async () => {
     const { tracker, calls } = mutableGitlabTracker({
@@ -755,7 +580,7 @@ describeTrackerContract('GitLab', {
   changes: {
     createTracker: () => createGitlabTracker({ run: recordedRunner().runner, now: () => NOW }),
     since: SINCE,
-    expected: { refs: ['#16'] },
+    expected: { refs: ['#16'], total: 3 },
   },
   fields: {
     closedAt: { '#9': '2026-11-11T10:00:00Z' },

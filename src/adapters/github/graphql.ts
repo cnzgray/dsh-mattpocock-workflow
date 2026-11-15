@@ -20,18 +20,6 @@ export interface ParsedIssues {
   readonly tickets: readonly Ticket[]
 }
 
-/** 一次增量 GraphQL 解析的结果。 */
-export interface ParsedChanges {
-  readonly tickets: readonly Ticket[]
-  /**
-   * 是否被单页上限截断。为 true 时这份增量不完整，
-   * 宿主要退回全量重拉，不能拿它当完整结果。
-   */
-  readonly truncated: boolean
-  /** 仓库总票数；后端给不出时缺席，宿主沿用上次的总数。 */
-  readonly total?: number
-}
-
 /**
  * 从 GraphQL 响应里取出总数与工单。
  * @param output - `gh api graphql` 的标准输出。
@@ -53,67 +41,6 @@ export function parseIssueGraphql(output: string): ParsedIssues {
   }
 
   return { total, tickets }
-}
-
-/**
- * 解析增量 GraphQL 响应。
- *
- * 与列表解析共用同一份字段定义：增量与全量必须覆盖同一批工单，
- * 只有时间窗口不同，否则合并出来的结果不可能与全量重拉一致。
- * @param output - `gh api graphql` 的标准输出。
- * @returns 变更过的工单、是否被截断与仓库总票数。
- * @throws {TrackerError} 输出不是 JSON、仓库不存在或工单字段不合法。
- */
-export function parseIssueChangesGraphql(output: string): ParsedChanges {
-  const payload = parseJson(output, 'gh 返回的不是有效 JSON')
-  const repository = readRepository(payload)
-  const issues = readIssues(repository)
-
-  const nodes = issues.nodes
-  if (!Array.isArray(nodes)) throw invalid('仓库的 issues.nodes 不是数组')
-
-  const tickets = nodes.map((node, index) => parseIssueNode(node, index))
-  const total = readRepositoryTotal(repository)
-
-  return {
-    tickets,
-    truncated: readHasNextPage(issues),
-    ...(total === undefined ? {} : { total }),
-  }
-}
-
-/**
- * 增量结果是否被单页上限截断。
- *
- * 用 GitHub 自己给的 `hasNextPage` 判断，不用「返回条数 == 上限」那种猜法：
- * 最后一页可能刚好是满页，猜法会误报成截断，让宿主白跑一次全量重拉。
- * 拿不到分页信息时按「可能不完整」处理：宿主退回全量重拉总比漏票好。
- */
-function readHasNextPage(issues: Record<string, unknown>): boolean {
-  const pageInfo = issues.pageInfo
-  if (!isRecord(pageInfo)) return true
-
-  const hasNextPage = pageInfo.hasNextPage
-  if (typeof hasNextPage !== 'boolean') {
-    throw invalid('仓库的 issues.pageInfo.hasNextPage 不是布尔值')
-  }
-  return hasNextPage
-}
-
-/**
- * 仓库总票数。
- *
- * 增量查询里 `issues.totalCount` 会跟着 `filterBy` 一起过滤，
- * 那是「这次窗口内变更了多少张票」，不是仓库的票数；
- * 仓库总数另取一份未过滤的连接，用它更新宿主显示的总数。
- */
-function readRepositoryTotal(repository: Record<string, unknown>): number | undefined {
-  const totals = repository.repositoryTotal
-  if (!isRecord(totals)) return undefined
-
-  const total = totals.totalCount
-  if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) return undefined
-  return total
 }
 
 function parseIssueNode(value: unknown, index: number): Ticket {

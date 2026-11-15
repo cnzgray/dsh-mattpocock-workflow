@@ -224,6 +224,13 @@ async function serveStored(
   workspaceRoot: string,
   stored: SnapshotStoreEntry,
 ): Promise<RpcResult<WorkspaceSnapshot> | undefined> {
+  if (stored.tickets.length > stored.total) {
+    // 旧版本的增量可能把远端已删除的票留在库里，却已经更新了总数。
+    // 这份计数不自洽，留着只会在首屏显示「已加载 3 / 共 2」；作废后按全量重拉。
+    await removeStored(deps, workspaceRoot)
+    return undefined
+  }
+
   let resolved: ResolvedBackend
   try {
     resolved = await deps.resolve(workspaceRoot)
@@ -278,7 +285,13 @@ async function refreshSnapshot(
     stored?.repositoryKey === repositoryKey(resolved.kind, resolved.address) ? stored : undefined
   const tracker = resolved.tracker
 
-  if (base !== undefined && !full && tracker.fetchChanges !== undefined) {
+  if (
+    base !== undefined &&
+    !full &&
+    tracker.fetchChanges !== undefined &&
+    // 对账以「全量覆盖」为前提：窗口截断的后端看不到窗口外的删除。
+    base.windowLimit === undefined
+  ) {
     const merged = await mergeIncremental(deps, cache, workspaceRoot, resolved, base, startedAt)
     if (merged !== undefined) return merged
   }
@@ -324,26 +337,53 @@ async function mergeIncremental(
 
   if (changes.truncated) {
     // 增量被截断：这份结果不完整，退回全量重拉。
-    deps.log('warn', LOG_EVENTS.snapshot, {
-      result: 'error',
-      backend: resolved.kind,
-      stage: SNAPSHOT_STAGES.list,
-      code: ERROR_CODES.fetchFailed,
-      durationMs: Math.max(0, deps.now() - startedAt),
-    })
+    logIncrementalFallback(deps, resolved.kind, 'truncated', startedAt)
+    return undefined
+  }
+
+  // 权威总数缺失或不是非负整数：这份增量无法对账，当次退回全量，不沿用旧总数。
+  const total = changes.total
+  if (!Number.isInteger(total) || total < 0) {
+    logIncrementalFallback(deps, resolved.kind, 'invalid-total', startedAt)
     return undefined
   }
 
   const merged = mergeTickets(base.tickets, changes.tickets, base.windowLimit)
+  // 远端删除不产生变更记录：合并后票数超过权威总数，说明缓存里有已删除的票。
+  // 增量看不出是哪一张，只能当次退回全量重拉，不发布、不写入不一致的结果。
+  if (merged.length > total) {
+    logIncrementalFallback(deps, resolved.kind, 'drift', startedAt)
+    return undefined
+  }
+
   const raw: TrackerSnapshot = {
     repository: base.repository,
     fetchedAt: deps.now(),
     loaded: merged.length,
-    total: changes.total ?? base.total,
+    total,
     tickets: merged,
     ...(base.windowLimit === undefined ? {} : { windowLimit: base.windowLimit }),
   }
   return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'incremental')
+}
+
+/**
+ * 记录一次增量退让：截断、总数不可用或与合并结果漂移都走全量重拉，
+ * 日志里保留原因，便于分清「后端没给全」与「远端删了票」。
+ */
+function logIncrementalFallback(
+  deps: SnapshotServiceDeps,
+  backend: BackendKind,
+  reason: 'truncated' | 'invalid-total' | 'drift',
+  startedAt: number,
+): void {
+  deps.log('warn', LOG_EVENTS.snapshot, {
+    result: 'fallback',
+    backend,
+    stage: SNAPSHOT_STAGES.list,
+    reason,
+    durationMs: Math.max(0, deps.now() - startedAt),
+  })
 }
 
 /**

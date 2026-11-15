@@ -108,6 +108,25 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
 }
 
 /**
+ * 读取同一过滤条件下的权威总数。
+ *
+ * 增量响应自己的 `X-Total-Count` 只数窗口内的票，不能拿来对账；
+ * 这里用同一接口、同一状态与类型过滤，去掉时间窗，只取一条并读总条数。
+ */
+async function readGiteaTotal(
+  deps: GiteaTrackerDeps,
+  workspaceRoot: string,
+  repository: GiteaRepository,
+): Promise<number> {
+  const response = await callGiteaApi(deps.run, workspaceRoot, issuesEndpoint(repository, 1, 1))
+  ensureSuccess(response, '读取 Gitea 工单总数')
+  if (response.total === undefined) {
+    throw new TrackerError('fetch-failed', '读取 Gitea 工单总数失败：响应缺少 X-Total-Count。')
+  }
+  return response.total
+}
+
+/**
  * 读取某个时刻之后变更过的工单。
  *
  * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口。
@@ -124,6 +143,7 @@ async function readGiteaChanges(
   }
 
   const repository = await readRepository(deps.run, workspaceRoot)
+  const total = await readGiteaTotal(deps, workspaceRoot, repository)
   const issues = await readIssues(deps, workspaceRoot, repository, pageSize, since)
 
   const states = new Map<number, TicketState>()
@@ -151,7 +171,7 @@ async function readGiteaChanges(
     }),
   }))
 
-  return { tickets, truncated: issues.truncated }
+  return { tickets, truncated: issues.truncated, total }
 }
 
 /**

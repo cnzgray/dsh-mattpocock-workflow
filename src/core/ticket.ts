@@ -71,8 +71,14 @@ export interface TrackerChanges {
    * 不把一份不完整的增量当成完整结果。
    */
   readonly truncated: boolean
-  /** 变更查询返回的仓库总票数；给出时用它更新总数，没有则沿用上次的。 */
-  readonly total?: number
+  /**
+   * 同一过滤条件下的权威总数：与全量列表口径一致，不受增量时间窗影响。
+   *
+   * 宿主把它与合并结果对账：合并后票数超过它，说明缓存里有远端已删除的票，
+   * 当次退回全量重拉。实现 `fetchChanges` 的后端必须给出这个数，
+   * 不能用「带窗口的查询自己的 X-Total-Count」或上次的总数凑数。
+   */
+  readonly total: number
 }
 
 /**
@@ -155,9 +161,13 @@ export interface Tracker {
    * 不实现该能力的后端由宿主退回全量刷新。实现的后端必须与列表查询使用
    * 同一套过滤条件（状态、类型等），只在时间窗口上不同；窗口起点是
    * 「上次成功拉取的时刻」向前重叠一小段，重叠部分按工单引用去重。
+   *
+   * 增量看不见远端删除，宿主只能拿 {@link TrackerChanges.total} 对账，
+   * 因此实现者必须同时给出一份权威总数；给不出总数的后端不要实现这个能力。
+   * 列表有 `windowLimit` 的后端也不能实现：窗口外的删除无法靠总数发现。
    * @param workspaceRoot - 工作区根目录。
    * @param since - 毫秒时间戳；后端按「更新时间在此刻之后」过滤。
-   * @returns 变更过的工单与是否被上限截断。
+   * @returns 变更过的工单、是否被上限截断与权威总数。
    */
   fetchChanges?: (workspaceRoot: string, since: number) => Promise<TrackerChanges>
   /**

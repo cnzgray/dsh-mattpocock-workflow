@@ -76,7 +76,14 @@ export type TrackerChangesFixture =
       readonly createTracker: () => Tracker
       /** 增量窗口的起点（毫秒时间戳）。 */
       readonly since: number
-      readonly expected: { readonly refs: readonly string[] }
+      readonly expected: {
+        readonly refs: readonly string[]
+        /**
+         * 增量返回的权威总数：与全量列表同一过滤条件、不受窗口影响。
+         * 后端显式声明它，避免拿窗口内的计数凑数。
+         */
+        readonly total: number
+      }
     }
   | { readonly unsupported: true }
 
@@ -252,6 +259,15 @@ function describeChangesContract(fixture: TrackerContractFixture): void {
     // 引用按字典序比较：增量只覆盖变更过的票，顺序由后端决定。
     const refs = (observed?.tickets ?? []).map((ticket) => ticket.ref).sort()
     expect(refs).toEqual([...changes.expected.refs].sort())
+  })
+
+  it('给出与窗口无关的权威总数', async () => {
+    const tracker = changes.createTracker()
+
+    const observed = await tracker.fetchChanges?.(fixture.workspaceRoot, changes.since)
+
+    expect(observed?.total).toBe(changes.expected.total)
+    expect(Number.isInteger(observed?.total)).toBe(true)
   })
 }
 

@@ -62,6 +62,22 @@ export async function callGlabApi(
 }
 
 /**
+ * 请求一个 GitLab REST 接口并保留响应头。
+ * @param run - 命令执行器。
+ * @param workspaceRoot - 工作区根目录，作为 cwd。
+ * @param endpoint - 以 `projects/...` 开头的接口路径。
+ * @returns `--include` 的完整输出：响应头与正文。
+ * @throws {TrackerError} 失败时按缺 CLI / 未登录 / 其他错误映射。
+ */
+export async function callGlabApiInclude(
+  run: CommandRunner,
+  workspaceRoot: string,
+  endpoint: string,
+): Promise<string> {
+  return callGlab(run, workspaceRoot, ['api', '--include', endpoint])
+}
+
+/**
  * 执行一条 `glab` 命令并返回标准输出。
  * @param run - 命令执行器。
  * @param workspaceRoot - 工作区根目录，作为 cwd。

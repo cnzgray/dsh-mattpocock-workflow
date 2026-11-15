@@ -67,7 +67,7 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
         )
       }
 
-      if (files === undefined) return { tickets: [], truncated: false }
+      if (files === undefined) return { tickets: [], truncated: false, total: 0 }
 
       // 补读的兄弟文件只为判定阻塞，结果里只留窗口内动过的票。
       const parsed = parseMarkdownTickets([...files.changed, ...files.context])
@@ -77,6 +77,7 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
         tickets: parsed.filter((ticket) => moved.has(ticket.ref)),
         // 本地目录扫描没有上限，一次就能看全。
         truncated: false,
+        total: files.total,
       }
     },
 

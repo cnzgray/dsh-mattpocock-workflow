@@ -38,11 +38,12 @@ import { readGitlabOptions } from './options.ts'
 import {
   hasNativeBlockingLinks,
   parseBlockedByCounts,
+  parseGlabInclude,
   parseIssuesPage,
   parseNativeBlockers,
   type ParsedIssue,
 } from './parse.ts'
-import { mapGlabError, projectEndpoint, readProjectAddress } from './shared.ts'
+import { callGlabApiInclude, mapGlabError, projectEndpoint, readProjectAddress } from './shared.ts'
 
 /** GitLab 后端依赖。 */
 export interface GitlabTrackerDeps {
@@ -217,6 +218,7 @@ async function readGitlabChanges(
   }
 
   const project = await readProjectAddress(deps.run, workspaceRoot)
+  const total = await readGitlabTotal(deps, workspaceRoot, project.path)
   const { issues, truncated } = await readChangedIssues(
     deps,
     workspaceRoot,
@@ -229,7 +231,29 @@ async function readGitlabChanges(
     // 增量只负责取回变更过的票，阻塞判定由宿主在合并后统一处理。
     tickets: issues.map((issue) => issue.ticket),
     truncated,
+    total,
   }
+}
+
+/**
+ * 读取同一过滤条件下的权威总数。
+ *
+ * 增量请求带 `updated_after`，它自己的计数只覆盖窗口内的票；这里另发一次
+ * 不带时间窗、`per_page=1` 的列表请求，从响应头读 `X-Total`。
+ * GitLab 对超过 10000 条的集合会省略这个头，这时给不出权威总数，
+ * 按契约失败，而不是编一个数糊弄对账。
+ */
+async function readGitlabTotal(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+): Promise<number> {
+  const endpoint = `${projectEndpoint(project)}/issues?state=all&per_page=1&page=1`
+  const response = parseGlabInclude(await callGlabApiInclude(deps.run, workspaceRoot, endpoint))
+  if (response.total === undefined) {
+    throw new TrackerError('fetch-failed', '读取 GitLab 工单总数失败：响应缺少 X-Total。')
+  }
+  return response.total
 }
 
 /**

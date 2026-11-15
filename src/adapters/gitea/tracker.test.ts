@@ -288,10 +288,23 @@ describe('Gitea 工单增量', () => {
 
     await tracker.fetchChanges?.('/workspace', SINCE)
 
-    const endpoint = calls.find((call) => call[0] === 'tea')?.[3] ?? ''
+    const endpoint =
+      calls.find((call) => call[0] === 'tea' && (call[3] ?? '').includes('since='))?.[3] ?? ''
     expect(endpoint).toContain('state=all')
     expect(endpoint).toContain('type=issues')
     expect(endpoint).toContain(`since=${new Date(SINCE).toISOString()}`)
+  })
+
+  it('另发一次无时间窗、limit=1 的列表请求取权威总数', async () => {
+    const { tracker, calls } = trackerWith()
+
+    await tracker.fetchChanges?.('/workspace', SINCE)
+
+    const totalCall = calls.find((call) => call[0] === 'tea' && !(call[3] ?? '').includes('since='))
+    expect(totalCall?.[3]).toContain('state=all')
+    expect(totalCall?.[3]).toContain('type=issues')
+    expect(totalCall?.[3]).toContain('limit=1')
+    expect(totalCall?.[3]).not.toContain('since=')
   })
 
   it('返回窗口内变更过的票，并给出它的阻塞数', async () => {
@@ -304,6 +317,17 @@ describe('Gitea 工单增量', () => {
     // Gitea 没有单独的阻塞补齐能力，增量里要自己补齐，
     // 否则合并后这张票会显示成没有阻塞。
     expect(changes?.tickets[0]?.openBlockers).toBe(1)
+  })
+
+  it('权威总数不取窗口内的计数', async () => {
+    const recorded = recordedRunner({ changes: () => apiCall([], 0) })
+    const tracker = createGiteaTracker({ run: recorded.runner, now: () => NOW })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    // 窗口里一张票都没动，但仓库仍有 3 张票。
+    expect(changes?.tickets).toEqual([])
+    expect(changes?.total).toBe(3)
   })
 
   it('翻到页数上限还没拿完时标记为截断', async () => {
@@ -679,7 +703,7 @@ describeTrackerContract('Gitea', {
   changes: {
     createTracker: () => createGiteaTracker({ run: recordedRunner().runner, now: () => NOW }),
     since: SINCE,
-    expected: { refs: ['#16'] },
+    expected: { refs: ['#16'], total: 3 },
   },
   detail: {
     createTracker: () =>

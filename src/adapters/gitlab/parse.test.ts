@@ -4,6 +4,7 @@ import {
   encodeProjectPath,
   hasNativeBlockingLinks,
   parseBlockedByCounts,
+  parseGlabInclude,
   parseIssuesPage,
   parseNativeBlockers,
 } from './parse.ts'
@@ -193,5 +194,30 @@ describe('GitLab 批量阻塞计数解析', () => {
     })
 
     expect(() => parseBlockedByCounts(output)).toThrow(/blockedByCount/)
+  })
+})
+
+describe('GitLab --include 响应解析', () => {
+  it('拆出 X-Total 与正文', () => {
+    const parsed = parseGlabInclude(
+      'HTTP/2.0 200 OK\nContent-Type: application/json\nX-Total: 42\n\n[{"iid":15}]',
+    )
+
+    expect(parsed.total).toBe(42)
+    expect(parsed.body).toBe('[{"iid":15}]')
+  })
+
+  it('响应头里没有 X-Total 时不给总数', () => {
+    const parsed = parseGlabInclude('HTTP/2.0 200 OK\nContent-Type: application/json\n\n[]')
+
+    expect(parsed.total).toBeUndefined()
+    expect(parsed.body).toBe('[]')
+  })
+
+  it('没有响应头时整段按正文处理', () => {
+    const parsed = parseGlabInclude('[]')
+
+    expect(parsed.total).toBeUndefined()
+    expect(parsed.body).toBe('[]')
   })
 })

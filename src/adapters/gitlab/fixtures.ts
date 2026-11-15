@@ -75,6 +75,21 @@ export const GITLAB_ISSUES = [
 export const GITLAB_ISSUES_OUTPUT = issuesJson(GITLAB_ISSUES)
 
 /**
+ * 构造 `glab api --include` 的输出：状态行与响应头、一个空行、正文。
+ * @param total - `X-Total` 响应头；省略表示实例没给总数。
+ * @param body - 响应正文，默认空数组。
+ * @returns 录制输出。
+ */
+export function includeOutput(total: number | undefined, body = '[]'): string {
+  const lines = ['HTTP/2.0 200 OK', 'Content-Type: application/json']
+  if (total !== undefined) lines.push(`X-Total: ${String(total)}`)
+  return `${lines.join('\n')}\n\n${body}`
+}
+
+/** 权威总数查询的录制输出：不带时间窗、`per_page=1`。 */
+export const GITLAB_TOTAL_OUTPUT = includeOutput(GITLAB_ISSUES.length)
+
+/**
  * 增量查询的录制输出：只回窗口内变更过的票。
  * 这张票的正文里写了 `Blocked by:`，用来验证增量不做阻塞加工。
  */
