@@ -1,14 +1,15 @@
 /**
  * 工单详情视图（GitHub issue 风格）：
  *
- * - 头部：返回、编号（远端链接）、后端徽标；右侧是技能按钮、关闭/重开、复制链接，
- *   以及有删除权限时才出现的“更多”菜单；
+ * - 头部：返回、编号（远端链接）、后端徽标；右侧是技能按钮、刷新、关闭/重开、复制链接，
+ *   以及有删除权限时才出现的“更多”菜单；刷新失败的原因固定在这行下面、不随正文滚走；
  * - 标题区：标题、实心状态徽标、作者与时间、评论数，紧跟属性条（见 ticket-detail-fields）；
  * - 时间线：正文卡片与评论卡片（见 ticket-timeline）。
  *
  * 详情不自动注入提示词：浏览与开工是两个动作，注入由明确的技能按钮触发。
  * 技能动作来自列表快照（判定在 core，只有一处），按钮与列表行徽标共用同一个组件；
  * 写操作后宿主会重建快照，这里用刷新后的快照更新徽标，不重新判定。
+ * 手动刷新并行做两件事：重读这张票，并让面板增量刷新列表快照；两者互不等待。
  * 数据读取与写操作在 ticket-detail-hooks 里。
  */
 import * as React from 'react'
@@ -18,6 +19,7 @@ import type {
   TicketDetail,
   TicketPatch,
   TicketSnapshot,
+  WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { backendLabel } from './backend-label.ts'
 import { errorText } from './error-text.ts'
@@ -48,6 +50,7 @@ import {
   useTicketDeletion,
   useTicketMutation,
   useTicketOptions,
+  type DetailRequest,
   type TicketDeletion,
 } from './ticket-detail-hooks.ts'
 import {
@@ -57,6 +60,7 @@ import {
   DETAIL_HINT_STYLE,
   DETAIL_REF_LINK_STYLE,
   DETAIL_REF_STYLE,
+  DETAIL_REFRESH_ERROR_STYLE,
   DETAIL_ROOT_STYLE,
   DETAIL_SCROLL_STYLE,
   DETAIL_STACK_STYLE,
@@ -80,6 +84,11 @@ export interface TicketDetailViewProps {
   readonly injection: PromptInjection
   /** 返回列表；Esc、返回按钮与删除成功后都走这里。 */
   readonly onBack: () => void
+  /**
+   * 面板的增量刷新入口：手动刷新详情时一并更新列表快照，
+   * 使技能徽标、返回列表后的行与数据时间跟上。
+   */
+  readonly onRefreshSnapshot: () => void
 }
 
 /** 工单详情视图。 */
@@ -96,19 +105,13 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
   )
   const detail = request.detail
   // 技能徽标跟着宿主刷新后的快照走：关单/改标签后动作可能变成“已关闭”或换一个技能。
-  const [currentTicket, setCurrentTicket] = React.useState(ticket)
-  React.useEffect(() => {
-    setCurrentTicket(ticket)
-  }, [ticket])
+  const { current: currentTicket, updateFromSnapshot } = useCurrentTicket(ticket)
   const mutation = useTicketMutation(client, {
     workspaceRoot,
     ref,
     number,
     onUpdated: request.replace,
-    onSnapshot: (snapshot) => {
-      const next = snapshot.tickets.find((item) => item.ref === ref)
-      if (next !== undefined) setCurrentTicket(next)
-    },
+    onSnapshot: updateFromSnapshot,
   })
   const deletion = useTicketDeletion(client, {
     workspaceRoot,
@@ -119,7 +122,11 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
   const options = useTicketOptions(client, workspaceRoot, detail?.capabilities.labels === true)
   const { injected, notice, onSkillAction } = useTicketActions(workspaceRoot, props.injection)
   const link = useCopyLink(detail?.url ?? null, t)
-  const busy = mutation.busy || deletion.deleting
+  const { busy, refreshDisabled, onRefresh } = refreshControls(request, {
+    onRefreshSnapshot: props.onRefreshSnapshot,
+    writeBusy: mutation.busy || deletion.deleting,
+    confirming: deletion.confirming,
+  })
   useEscapeKey(props.onBack)
 
   return (
@@ -138,10 +145,14 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
             onApply={mutation.apply}
             copy={link.copy}
             onCopy={link.onCopy}
+            onRefresh={onRefresh}
+            refreshing={request.refreshing}
+            refreshDisabled={refreshDisabled}
           />
         )}
         {detail?.capabilities.delete === true ? <MoreMenu onDelete={deletion.open} /> : null}
       </DetailHeader>
+      <RefreshFailure error={request.refreshError} />
       {detail !== null ? (
         <DetailContent
           detail={detail}
@@ -161,6 +172,60 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
           {t('detail.loading')}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 详情头部的工单行跟着当前快照走；写操作后的快照也能立即反映到技能徽标。 */
+function useCurrentTicket(ticket: TicketSnapshot): {
+  readonly current: TicketSnapshot
+  readonly updateFromSnapshot: (snapshot: WorkspaceSnapshot) => void
+} {
+  const [current, setCurrent] = React.useState(ticket)
+  React.useEffect(() => {
+    setCurrent(ticket)
+  }, [ticket])
+  return {
+    current,
+    updateFromSnapshot: (snapshot) => {
+      const next = snapshot.tickets.find((item) => item.ref === ticket.ref)
+      if (next !== undefined) setCurrent(next)
+    },
+  }
+}
+
+/** 刷新与写操作的互斥：刷新中禁用写控件；写、删除或删除确认期间禁用刷新。 */
+function refreshControls(
+  request: DetailRequest,
+  options: {
+    readonly onRefreshSnapshot: () => void
+    readonly writeBusy: boolean
+    readonly confirming: boolean
+  },
+): {
+  readonly busy: boolean
+  readonly refreshDisabled: boolean
+  readonly onRefresh: () => void
+} {
+  const busy = options.writeBusy || request.refreshing
+  return {
+    busy,
+    refreshDisabled: busy || options.confirming,
+    onRefresh: () => {
+      // 两件事并行、互不等待：详情重读失败不影响列表快照，列表失败也不改写详情。
+      request.refresh()
+      options.onRefreshSnapshot()
+    },
+  }
+}
+
+/** 刷新失败：固定在头部下方、正文滚动区之外，失败时才占一行。 */
+function RefreshFailure(props: { readonly error: RpcErrorBody | null }): React.ReactElement | null {
+  const { t } = useI18n()
+  if (props.error === null) return null
+  return (
+    <div role="alert" data-testid="detail-refresh-error" style={DETAIL_REFRESH_ERROR_STYLE}>
+      {t('detail.refreshFailed', { detail: errorText(props.error, t) })}
     </div>
   )
 }

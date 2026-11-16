@@ -12,7 +12,15 @@ import * as React from 'react'
 
 import type { TicketDetail, TicketPatch } from '../protocol/tracker.ts'
 import { backendLabel } from './backend-label.ts'
-import { CheckIcon, CloseIcon, LinkIcon, PersonIcon, PlusIcon, TagIcon } from './icons.tsx'
+import {
+  CheckIcon,
+  CloseIcon,
+  LinkIcon,
+  PersonIcon,
+  PlusIcon,
+  RefreshIcon,
+  TagIcon,
+} from './icons.tsx'
 import { useI18n } from './i18n.tsx'
 import type { MessageKey } from './messages.ts'
 import { COLORS } from './task-panel-styles.ts'
@@ -51,19 +59,40 @@ export interface CopyState {
 }
 
 /**
- * 头部右侧的工单操作：关闭/重开、复制链接。都是低频动作，放在导航行里不占正文区域；
- * 关闭用错误色文字，复制是图标按钮，成功后图标短暂变成对勾。
+ * 头部右侧的工单操作：刷新、关闭/重开、复制链接。都是低频动作，放在导航行里不占正文区域；
+ * 刷新是图标按钮，重读期间禁用、变暗并换成「正在刷新工单…」；
+ * 关闭用错误色文字，复制成功后图标短暂变成对勾。
  */
 export function HeaderActions(
-  props: FieldProps & { readonly copy: CopyState; readonly onCopy: () => void },
+  props: FieldProps & {
+    readonly copy: CopyState
+    readonly onCopy: () => void
+    readonly onRefresh: () => void
+    readonly refreshing: boolean
+    /** 刷新不可用：刷新中、写操作进行中或删除确认面板打开。 */
+    readonly refreshDisabled: boolean
+  },
 ): React.ReactElement {
   const { t } = useI18n()
   const { detail, busy } = props
   const next = detail.state === 'open' ? 'closed' : 'open'
   const copied = props.copy.status === 'copied'
+  const refreshLabel = props.refreshing ? t('detail.refreshing') : t('detail.refresh')
 
   return (
     <>
+      <button
+        type="button"
+        data-testid="detail-refresh"
+        data-hover="soft"
+        disabled={props.refreshDisabled}
+        aria-label={refreshLabel}
+        title={refreshLabel}
+        onClick={props.onRefresh}
+        style={{ ...HEADER_ICON_BUTTON_STYLE, opacity: props.refreshDisabled ? 0.6 : 1 }}
+      >
+        <RefreshIcon />
+      </button>
       {detail.capabilities.state ? (
         <button
           type="button"

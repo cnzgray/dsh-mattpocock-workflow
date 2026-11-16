@@ -7,7 +7,9 @@ import type { PanelClient } from './rpc.ts'
 import {
   DETAIL,
   EMPTY_SNAPSHOT,
+  button,
   detail,
+  element,
   fakeBackend,
   renderView,
   snapshotTicket,
@@ -26,16 +28,8 @@ function assigneeNames(): (string | null)[] {
     .map((chip) => chip.querySelector('[data-token-name]')?.textContent ?? null)
 }
 
-function element(testId: string): HTMLElement {
-  return screen.getByTestId(testId)
-}
-
 function input(testId: string): HTMLInputElement {
   return screen.getByTestId<HTMLInputElement>(testId)
-}
-
-function button(testId: string): HTMLButtonElement {
-  return screen.getByTestId<HTMLButtonElement>(testId)
 }
 
 function firstElement(testId: string): HTMLElement {
@@ -252,6 +246,7 @@ describe('工单详情视图', () => {
     await waitFor(() => {
       expect(button('detail-state-toggle').disabled).toBe(true)
     })
+    expect(button('detail-refresh').disabled).toBe(true)
     expect(button('label-edit').disabled).toBe(true)
 
     pending.resolve({ ok: true, result: { applied: true } })
@@ -295,6 +290,8 @@ describe('工单详情视图', () => {
     await screen.findByTestId('detail-load-error')
     expect(element('detail-load-error').textContent).toContain('网络失败')
     expect(screen.queryByTestId('detail-title')).toBeNull()
+    // 首次加载失败只有「重试」，刷新按钮只在详情已加载后出现。
+    expect(screen.queryByTestId('detail-refresh')).toBeNull()
 
     fireEvent.click(element('detail-retry'))
 
@@ -687,6 +684,15 @@ describe('删除工单', () => {
     expect(element('delete-error').textContent).toContain('没有删除这张工单的权限')
     expect(onBack).not.toHaveBeenCalled()
     expect(backend.refreshCalls).toEqual([])
+  })
+
+  it('删除确认面板打开时刷新按钮不可用', async () => {
+    renderView(fakeBackend(deletable()).client)
+    await screen.findByTestId('detail-title')
+
+    expect(button('detail-refresh').disabled).toBe(false)
+    openConfirm()
+    expect(button('detail-refresh').disabled).toBe(true)
   })
 
   it('在确认面板里按 Esc 只取消删除，不返回列表', async () => {

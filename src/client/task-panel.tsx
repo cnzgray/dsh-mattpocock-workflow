@@ -267,13 +267,19 @@ function TicketsPane(props: {
   readonly onCloseDetail: () => void
 }): React.ReactElement {
   if (props.workspaceRoot !== undefined && props.open !== null) {
+    const open = props.open
+    // 详情头部用当前快照里的同一行：手动刷新或 agent 活动刷新落地后，技能徽标自动跟上；
+    // 快照里没有这张票时退回打开详情时保存的那一行。
+    const current =
+      props.request.snapshot?.tickets.find((item) => item.ref === open.ticket.ref) ?? open.ticket
     return (
       <TicketDetailView
         client={props.client}
         workspaceRoot={props.workspaceRoot}
-        ticket={props.open.ticket}
+        ticket={current}
         injection={props.injection}
         onBack={props.onCloseDetail}
+        onRefreshSnapshot={props.request.refresh}
       />
     )
   }

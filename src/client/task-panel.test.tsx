@@ -3,15 +3,17 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
-import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { RpcResult, TicketDetail, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import type { InjectionOutcome, InjectionTarget } from './injection.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import { gestures } from './prompt-test-support.ts'
+import type { PanelClient } from './rpc.ts'
 import {
   badgeFor,
   chooseSort,
   clientWith,
   deferred,
+  DETAIL,
   ENV_REPORT,
   fakeClient,
   firstRow,
@@ -660,5 +662,116 @@ describe('任务面板', () => {
     fireEvent.click(screen.getByTestId('skill-badge'))
 
     expect(injectDraft).toHaveBeenCalledWith('/implement #1', 'current-session')
+  })
+
+  it('详情里刷新后技能徽标、返回列表的行与数据时间都跟上', async () => {
+    const initial: WorkspaceSnapshot = { ...SNAPSHOT, fetchedAt: NOW - 5 * 60_000 }
+    const refreshed: WorkspaceSnapshot = {
+      ...initial,
+      fetchedAt: NOW,
+      tickets: initial.tickets.map((ticket) => {
+        if (ticket.ref === '#1') {
+          return {
+            ...ticket,
+            state: 'closed' as const,
+            status: 'closed' as const,
+            skillAction: 'none' as const,
+            skillActionReason: 'closed' as const,
+          }
+        }
+        if (ticket.ref === '#5') return { ...ticket, title: 'Echo 改过标题' }
+        return ticket
+      }),
+    }
+    const fake = fakeClient({ ok: true, result: initial }, { ok: true, result: refreshed })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('snapshot-age').textContent).toContain('5 分钟前')
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+    fireEvent.click(screen.getByTestId('detail-refresh'))
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    // 快照落地后，详情头部不再显示开工按钮。
+    expect((await screen.findByTestId('action-reason')).textContent).toBe('已关闭')
+
+    fireEvent.click(screen.getByTestId('detail-back'))
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('snapshot-age').textContent).toContain('刚刚')
+    const echo = screen
+      .getAllByTestId('ticket-row')
+      .find((row) => row.getAttribute('data-ref') === '#5')
+    expect(echo?.textContent).toContain('Echo 改过标题')
+  })
+
+  it('详情里刷新时列表快照失败不改写详情，原因回到列表才显示', async () => {
+    const fake = fakeClient(
+      { ok: true, result: SNAPSHOT },
+      { ok: false, error: { code: 'gh-missing', message: '未找到 gh' } },
+    )
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+    const title = screen.getByTestId('detail-title').textContent
+
+    fireEvent.click(screen.getByTestId('detail-refresh'))
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    // 详情照旧：列表快照的失败不切成整页错误，也不冒充详情读取失败。
+    expect(screen.getByTestId('detail-title').textContent).toBe(title)
+    expect(screen.queryByTestId('detail-load-error')).toBeNull()
+    expect(screen.queryByTestId('detail-refresh-error')).toBeNull()
+    expect(screen.queryByTestId('error')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('detail-back'))
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('refresh-error').textContent).toContain('未找到 gh')
+    expect(screen.queryByTestId('error')).toBeNull()
+  })
+
+  it('切换工作区后，旧工作区在路上的详情重读不会写进新工作区', async () => {
+    const stale = deferred<RpcResult<TicketDetail>>()
+    const base = fakeClient((root) => ({
+      ok: true,
+      result: { ...SNAPSHOT, repository: `${root}/repo` },
+    }))
+    let reads = 0
+    const client: PanelClient = {
+      ...base.client,
+      getDetail(_root, ref, number) {
+        reads += 1
+        if (reads === 2) return stale.promise
+        return Promise.resolve({ ok: true, result: { ...DETAIL, ref, number } })
+      },
+    }
+    const { rerender } = render(<TaskPanel {...panelProps({ client, workspaceRoot: '/one' })} />)
+    await screen.findAllByTestId('ticket-row')
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+
+    fireEvent.click(screen.getByTestId('detail-refresh'))
+    expect(reads).toBe(2)
+
+    rerender(<TaskPanel {...panelProps({ client, workspaceRoot: '/two' })} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('repo-name').textContent).toBe('/two/repo')
+    })
+    await screen.findAllByTestId('ticket-row')
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-title')
+    expect(screen.getByTestId('detail-title').textContent).toBe('Bravo')
+    expect(reads).toBe(3)
+
+    // 旧工作区的那次重读晚到：新工作区里正在看的详情不受影响。
+    stale.resolve({ ok: true, result: { ...DETAIL, title: '旧工作区的新标题' } })
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-title').textContent).toBe('Bravo')
+    })
   })
 })

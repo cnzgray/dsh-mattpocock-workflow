@@ -2,7 +2,7 @@
  * 工单详情视图测试的夹具：详情与快照样例、会落地补丁的假后端、渲染入口。
  * 与用例分开，免得夹具把测试文件挤到 max-lines 之外。
  */
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
@@ -109,6 +109,8 @@ export interface FakeBackend {
   readonly attachmentCalls: (readonly [string, string])[]
   failNextUpdate(error: RpcErrorBody): void
   failDetail(error: RpcErrorBody): void
+  /** 让下一次单票读取返回另一份详情：模拟远端在两次读取之间变了。 */
+  changeDetail(next: TicketDetail): void
 }
 
 const EMPTY_CACHE = {
@@ -202,6 +204,9 @@ export function fakeBackend(
     failDetail: (error) => {
       detailFailure = error
     },
+    changeDetail: (next) => {
+      current = next
+    },
   }
 }
 
@@ -229,6 +234,7 @@ export function view(
       ticket={TICKET}
       injection={fakeInjection()}
       onBack={() => undefined}
+      onRefreshSnapshot={() => undefined}
       {...overrides}
     />
   )
@@ -239,4 +245,14 @@ export function renderView(
   overrides: Partial<TicketDetailViewProps> = {},
 ): void {
   render(view(client, overrides))
+}
+
+/** 按 testid 取唯一元素；缺失时测试直接失败。 */
+export function element(testId: string): HTMLElement {
+  return screen.getByTestId(testId)
+}
+
+/** 按 testid 取唯一的按钮元素。 */
+export function button(testId: string): HTMLButtonElement {
+  return screen.getByTestId<HTMLButtonElement>(testId)
 }

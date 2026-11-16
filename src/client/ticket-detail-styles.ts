@@ -2,7 +2,7 @@
  * 工单详情视图的样式常量。颜色与间距沿用列表视图的 DSH 主题变量；
  * 正文与评论的 Markdown 排版在面板样式表里（`[data-markdown]`）。
  *
- * 层级：头部是导航、身份（编号、后端）、技能按钮，以及关闭/重开、复制链接、更多菜单；
+ * 层级：头部是导航、身份（编号、后端）、技能按钮、刷新，以及关闭/重开、复制链接、更多菜单；
  * 标题区带状态徽标与作者，再下是一行属性条（标签、分配人）；正文与评论的时间线样式
  * 在 ticket-timeline-styles 里。
  */
@@ -224,6 +224,12 @@ export const DETAIL_ERROR_STYLE: CSSProperties = {
   borderRadius: 8,
   color: COLORS.error,
   fontSize: 12,
+}
+
+/** 刷新失败的说明：固定在头部下方、正文滚动区之外，失败时才占一行。 */
+export const DETAIL_REFRESH_ERROR_STYLE: CSSProperties = {
+  ...DETAIL_ERROR_STYLE,
+  margin: '8px 12px 0',
 }
 
 /** 头部右侧的文字按钮（重新打开）：无描边，和返回按钮同一种轻量样式。 */

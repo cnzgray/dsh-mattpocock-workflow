@@ -25,8 +25,15 @@ export interface DetailRequest {
   readonly detail: TicketDetail | null
   readonly error: RpcErrorBody | null
   readonly phase: 'loading' | 'ready' | 'error'
+  /** 手动重试首次读取；只在下一次读取成功前保留旧的错误页。 */
   readonly reload: () => void
   readonly replace: (detail: TicketDetail) => void
+  /** 重读当前这张票：不进入加载阶段、不清空已显示的内容。 */
+  readonly refresh: () => void
+  /** 重读进行中：刷新按钮与写控件据此禁用。 */
+  readonly refreshing: boolean
+  /** 最近一次重读失败的原因；内容仍保留，下次成功时清除。 */
+  readonly refreshError: RpcErrorBody | null
 }
 
 export function useDetailRequest(
@@ -39,13 +46,23 @@ export function useDetailRequest(
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
   const [phase, setPhase] = React.useState<'loading' | 'ready' | 'error'>('loading')
   const [attempt, setAttempt] = React.useState(0)
+  const [refreshing, setRefreshing] = React.useState(false)
+  const [refreshError, setRefreshError] = React.useState<RpcErrorBody | null>(null)
+  // 重读与首次读取是两条路：只有最新一次仍然有效时结果才落地，
+  // 换票、重试或卸载都让在路上的那次作废。
+  const readId = React.useRef(0)
+  const readRunning = React.useRef(false)
 
   React.useEffect(() => {
     let active = true
-    // 换一张票时先清空，避免显示上一张票的残留内容。
+    // 换一张票时先清空，避免显示上一张票的残留内容；在路上的重读也一并作废。
+    readId.current += 1
+    readRunning.current = false
     setDetail(null)
     setError(null)
     setPhase('loading')
+    setRefreshing(false)
+    setRefreshError(null)
 
     void client.getDetail(workspaceRoot, ref, number).then((result) => {
       if (!active) return
@@ -60,8 +77,30 @@ export function useDetailRequest(
 
     return () => {
       active = false
+      readId.current += 1
     }
   }, [client, workspaceRoot, ref, number, attempt])
+
+  const refresh = (): void => {
+    if (readRunning.current) return
+    readRunning.current = true
+    const current = readId.current + 1
+    readId.current = current
+    setRefreshing(true)
+
+    void client.getDetail(workspaceRoot, ref, number).then((result) => {
+      if (readId.current !== current) return
+      readRunning.current = false
+      setRefreshing(false)
+      if (result.ok) {
+        setDetail(result.result)
+        // 失败提示留到下一次真正读成功：重试在途时旧原因仍在，失败会刷新成新原因。
+        setRefreshError(null)
+        return
+      }
+      setRefreshError(result.error)
+    })
+  }
 
   return {
     detail,
@@ -71,6 +110,9 @@ export function useDetailRequest(
       setAttempt((value) => value + 1)
     },
     replace: setDetail,
+    refresh,
+    refreshing,
+    refreshError,
   }
 }
 
