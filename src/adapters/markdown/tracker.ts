@@ -50,6 +50,8 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
         fetchedAt: deps.now(),
         loaded: parsed.length,
         total: parsed.length,
+        // 本地工单用 `Parent:` 行表达父子关系。
+        hierarchy: 'convention',
         tickets: parsed,
         viewer: null,
       }
@@ -68,7 +70,15 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
         )
       }
 
-      if (files === undefined) return { tickets: [], truncated: false, total: 0, viewer: null }
+      if (files === undefined) {
+        return {
+          tickets: [],
+          hierarchy: 'convention',
+          truncated: false,
+          total: 0,
+          viewer: null,
+        }
+      }
 
       // 补读的兄弟文件只为判定阻塞，结果里只留窗口内动过的票。
       const parsed = parseMarkdownTickets([...files.changed, ...files.context])
@@ -76,6 +86,7 @@ export function createMarkdownTracker(deps: MarkdownTrackerDeps): Tracker {
 
       return {
         tickets: parsed.filter((ticket) => moved.has(ticket.ref)),
+        hierarchy: 'convention',
         // 本地目录扫描没有上限，一次就能看全。
         truncated: false,
         total: files.total,

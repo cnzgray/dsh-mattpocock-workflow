@@ -19,6 +19,7 @@ const RECORDED_ISSUES = {
     /** GraphQL 根字段：当前登录用户。 */
     viewer: AUTHOR,
     repository: {
+      nameWithOwner: 'cnzgray/dsh-mattpocock-workflow',
       issues: {
         totalCount: 30,
         pageInfo: { hasNextPage: false, endCursor: null },
@@ -44,6 +45,10 @@ const RECORDED_ISSUES = {
             author: AUTHOR,
             assignees: { nodes: [{ login: 'cnzgray' }] },
             issueDependenciesSummary: { blockedBy: 1 },
+            parent: {
+              number: 15,
+              repository: { nameWithOwner: 'cnzgray/dsh-mattpocock-workflow' },
+            },
           },
           {
             number: 12,
@@ -55,6 +60,8 @@ const RECORDED_ISSUES = {
             author: AUTHOR,
             assignees: { nodes: [] },
             issueDependenciesSummary: { blockedBy: 0 },
+            // 跨仓库父票：保留完整引用，绝不用裸编号匹配本仓库的同号票。
+            parent: { number: 99, repository: { nameWithOwner: 'other/repo' } },
           },
           {
             number: 9,
@@ -65,6 +72,8 @@ const RECORDED_ISSUES = {
             labels: { nodes: [{ name: 'needs-triage' }] },
             author: AUTHOR,
             issueDependenciesSummary: { blockedBy: 0 },
+            // 拿不到父票（无权限）时按无父级处理。
+            parent: null,
           },
           {
             number: 7,

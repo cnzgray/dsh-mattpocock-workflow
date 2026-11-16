@@ -19,6 +19,57 @@ export const CARD_META_STYLE: CSSProperties = {
   minWidth: 0,
 }
 
+/** 父子布局每层的缩进：固定且小，窄侧栏里不把标题挤没。 */
+export const TREE_INDENT = 12
+
+/** 折叠控件：真正的按钮，排在编号前；不抢技能按钮与标题的视觉。 */
+export const TREE_TOGGLE_STYLE: CSSProperties = {
+  // 浮在铺满内容区的打开按钮上面，否则点箭头会命中详情入口。
+  position: 'relative',
+  zIndex: 1,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flex: 'none',
+  width: 16,
+  height: 20,
+  marginRight: 2,
+  padding: 0,
+  border: 'none',
+  borderRadius: 4,
+  color: COLORS.secondary,
+  background: 'transparent',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 11,
+  lineHeight: '20px',
+  verticalAlign: 'middle',
+}
+
+/** 收起的父行仍要显示里面有多少张可见子票。 */
+export const TREE_CHILD_COUNT_STYLE: CSSProperties = {
+  color: COLORS.tertiary,
+  fontSize: 11,
+  lineHeight: '18px',
+  whiteSpace: 'nowrap',
+}
+
+/** 父级不在列表的引用徽标：省略过长引用，完整值放在 title 里。 */
+export const PARENT_BADGE_STYLE: CSSProperties = {
+  display: 'inline-block',
+  maxWidth: '18ch',
+  verticalAlign: 'middle',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 999,
+  padding: '0 7px',
+  color: COLORS.secondary,
+  fontSize: 11,
+  lineHeight: '18px',
+}
+
 /** 分类之外的标签：中性小徽标，不和状态徽标抢注意力。 */
 export const LABEL_BADGE_STYLE: CSSProperties = {
   display: 'inline-flex',

@@ -6,14 +6,16 @@
  */
 import type { BackendKind } from '../protocol/backend.ts'
 import { isRecord } from './json.ts'
-import type { Ticket, TicketAuthor, TicketState } from './ticket.ts'
+import type { HierarchyKind, Ticket, TicketAuthor, TicketState } from './ticket.ts'
 
 /**
  * 本地快照库的格式版本。版本不符的条目一律按没有缓存处理。
  * 2：工单带上网页地址；旧缓存没有地址，作废后重拉一次补齐。
  * 3：条目带当前登录用户，工单带分配人；旧缓存作废后重拉一次补齐人员筛选所需的数据。
+ * 4：快照带上父子能力、工单带上父级引用；旧缓存没有父子字段，
+ *    留着会画出一棵缺边却看似完整的树，作废后重拉一次补齐。
  */
-export const SNAPSHOT_STORE_VERSION = 3
+export const SNAPSHOT_STORE_VERSION = 4
 
 /** 缓存文件里存的后端类型。 */
 const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown']
@@ -45,6 +47,8 @@ export interface SnapshotStoreEntry {
   readonly total: number
   /** 列表覆盖的上限；缺省表示覆盖全部。 */
   readonly windowLimit?: number
+  /** 拉取时的父子关系来源；与工单上的父级引用一起决定列表能不能画树。 */
+  readonly hierarchy: HierarchyKind
   /** 当时拿到的工单原始数据，不含判定结果。 */
   readonly tickets: readonly Ticket[]
 }
@@ -67,6 +71,7 @@ export function serializeSnapshotStoreEntry(entry: SnapshotStoreEntry): string {
     loaded: entry.loaded,
     total: entry.total,
     ...(entry.windowLimit === undefined ? {} : { windowLimit: entry.windowLimit }),
+    hierarchy: entry.hierarchy,
     tickets: entry.tickets,
   })
 }
@@ -129,6 +134,9 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
     return undefined
   }
 
+  const hierarchy = readHierarchy(value.hierarchy)
+  if (hierarchy === undefined) return undefined
+
   const tickets = readTickets(value.tickets)
   if (tickets === undefined) return undefined
 
@@ -144,6 +152,7 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
     loaded,
     total,
     ...(windowLimit === undefined ? {} : { windowLimit }),
+    hierarchy,
     tickets,
   }
 }
@@ -199,25 +208,15 @@ function readTicket(value: unknown): Ticket | undefined {
   const url = value.url
   if (url !== undefined && typeof url !== 'string') return undefined
 
-  const blockedBy = value.blockedBy
-  if (blockedBy !== undefined) {
-    const refs = readStringArray(blockedBy)
-    if (refs === undefined) return undefined
-    return {
-      ref,
-      number: number ?? null,
-      title,
-      state,
-      labels,
-      author,
-      assignees,
-      createdAt,
-      updatedAt,
-      openBlockers,
-      ...(closedAt === undefined ? {} : { closedAt }),
-      ...(url === undefined ? {} : { url }),
-      blockedBy: refs,
-    }
+  let blockedBy: readonly string[] | undefined
+  if (value.blockedBy !== undefined) {
+    blockedBy = readStringArray(value.blockedBy)
+    if (blockedBy === undefined) return undefined
+  }
+
+  const parent = value.parent
+  if (parent !== undefined && (typeof parent !== 'string' || parent.length === 0)) {
+    return undefined
   }
 
   return {
@@ -233,7 +232,15 @@ function readTicket(value: unknown): Ticket | undefined {
     openBlockers,
     ...(closedAt === undefined ? {} : { closedAt }),
     ...(url === undefined ? {} : { url }),
+    ...(blockedBy === undefined ? {} : { blockedBy }),
+    ...(typeof parent === 'string' ? { parent } : {}),
   }
+}
+
+/** 校验父子能力枚举；缺字段或取值不认识时整份作废。 */
+function readHierarchy(value: unknown): HierarchyKind | undefined {
+  if (value === 'native' || value === 'convention' || value === 'none') return value
+  return undefined
 }
 
 /** 校验创建人；本地 Markdown 没有创建人，整体为 null。 */

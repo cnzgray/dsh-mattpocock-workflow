@@ -79,6 +79,53 @@ describe('GitLab 工单后端', () => {
     expect(snapshot.viewer).toBeNull()
   })
 
+  it('用一次批量层级查询补齐父级，并声明原生父子能力', async () => {
+    const { tracker, hierarchyCalls, linkCalls } = trackerWith()
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.hierarchy).toBe('native')
+    expect(snapshot.tickets.find((ticket) => ticket.ref === '#16')?.parent).toBe('#15')
+    // epic 是列表外父级：只保留引用，不把 epic 画成列表里的票。
+    expect(snapshot.tickets.find((ticket) => ticket.ref === '#9')?.parent).toBe('&3')
+    expect(snapshot.tickets.find((ticket) => ticket.ref === '#15')?.parent).toBeUndefined()
+    expect(hierarchyCalls).toHaveLength(1)
+    expect(hierarchyCalls[0]).toContain('workItems')
+    expect(hierarchyCalls[0]).toContain('"15"')
+    expect(hierarchyCalls[0]).toContain('"16"')
+    expect(hierarchyCalls[0]).toContain('"9"')
+    // 层级查询不是逐票请求。
+    expect(linkCalls).toEqual([])
+  })
+
+  it('超过 100 张票时层级查询按批合并，不逐票请求', async () => {
+    const tickets = Array.from({ length: 101 }, (_, index) =>
+      gitlabIssue({ iid: index + 1, title: `票 ${String(index + 1)}` }),
+    )
+    const recorded = recordedRunner({
+      issues: (page) => issuesJson(page === 1 ? tickets.slice(0, 100) : tickets.slice(100)),
+      hierarchy: () => JSON.stringify({ data: { project: { workItems: { nodes: [] } } } }),
+    })
+    const tracker = createGitlabTracker({ run: recorded.runner, now: () => NOW })
+
+    await tracker.fetchSnapshot('/workspace')
+
+    expect(recorded.hierarchyCalls).toHaveLength(2)
+    expect(recorded.linkCalls).toEqual([])
+  })
+
+  it('层级查询失败时列表仍返回，父子能力降级为无', async () => {
+    const { tracker } = trackerWith({
+      hierarchy: () => JSON.stringify({ errors: [{ message: 'workItems 不可用' }] }),
+    })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.hierarchy).toBe('none')
+    expect(snapshot.tickets).toHaveLength(3)
+    expect(snapshot.tickets.every((ticket) => ticket.parent === undefined)).toBe(true)
+  })
+
   it('超过一页时按页循环到短页为止', async () => {
     const recorded = recordedRunner({
       issues: (page) =>
@@ -640,6 +687,10 @@ describeTrackerContract('GitLab', {
       // 只有真有未关闭阻塞的票才读一次 links，#15 没有阻塞票，没有原生引用。
       blockedBy: new Map([['#16', ['#15', '#7']]]),
     },
+  },
+  hierarchy: {
+    kind: 'native',
+    parents: { '#16': '#15', '#9': '&3' },
   },
   changes: {
     createTracker: () => createGitlabTracker({ run: recordedRunner().runner, now: () => NOW }),

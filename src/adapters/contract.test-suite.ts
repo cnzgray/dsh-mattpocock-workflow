@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   BlockerResolution,
+  HierarchyKind,
   TicketDetail,
   TicketOptions,
   TicketPatch,
@@ -89,6 +90,17 @@ export type TrackerChangesFixture =
     }
   | { readonly unsupported: true }
 
+/**
+ * 后端的父子关系能力，必须由各后端显式声明：
+ * 声明「无」的后端不得出现任何父级引用；声明原生或约定的后端给出期望的父级映射，
+ * 未列出的票必须没有父级。
+ */
+export interface HierarchyFixture {
+  readonly kind: HierarchyKind
+  /** ref → 期望的父级引用。 */
+  readonly parents: Readonly<Record<string, string>>
+}
+
 /** 一个后端跑契约所需的工厂与期望值。 */
 export interface TrackerContractFixture {
   /** 各后端在自己的测试里绑定依赖；套件只拿一个无参工厂。 */
@@ -115,6 +127,11 @@ export interface TrackerContractFixture {
    * 避免新增后端时悄悄漏掉阻塞能力。
    */
   readonly nativeBlockers: NativeBlockersFixture
+  /**
+   * 父子关系能力的显式声明。每个后端都必须填写，
+   * 避免新增后端时悄悄漏掉父子关系或假装有层级。
+   */
+  readonly hierarchy: HierarchyFixture
   /**
    * 增量能力的显式声明。每个后端都必须填写：
    * 实现增量的给出工厂、窗口起点与期望的工单引用，
@@ -193,6 +210,17 @@ function describeListContract(fixture: TrackerContractFixture): void {
       expect(Array.isArray(ticket.labels)).toBe(true)
       expect(ticket.openBlockers).toBeGreaterThanOrEqual(0)
       expect(ticket.assignees).toEqual(fixture.expected.assignees[ticket.ref])
+    }
+  })
+
+  it('按声明给出父子能力与父级引用', async () => {
+    const snapshot = await fixture.createTracker().fetchSnapshot(fixture.workspaceRoot)
+
+    expect(snapshot.hierarchy).toBe(fixture.hierarchy.kind)
+    for (const ticket of snapshot.tickets) {
+      expect(ticket.parent).toBe(fixture.hierarchy.parents[ticket.ref])
+      // 声明「无」的后端绝不能出现父级引用。
+      if (fixture.hierarchy.kind === 'none') expect(ticket.parent).toBeUndefined()
     }
   })
 
@@ -284,6 +312,14 @@ function describeChangesContract(fixture: TrackerContractFixture): void {
     const observed = await tracker.fetchChanges?.(fixture.workspaceRoot, changes.since)
 
     expect(observed?.viewer).toBe(changes.expected.viewer)
+  })
+
+  it('增量结果也带同一份父子能力声明', async () => {
+    const tracker = changes.createTracker()
+
+    const observed = await tracker.fetchChanges?.(fixture.workspaceRoot, changes.since)
+
+    expect(observed?.hierarchy).toBe(fixture.hierarchy.kind)
   })
 }
 

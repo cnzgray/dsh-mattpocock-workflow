@@ -160,6 +160,7 @@ export function snapshot(overrides: Partial<TrackerSnapshot> = {}): TrackerSnaps
     fetchedAt: 1_000,
     loaded: TICKETS.length,
     total: 30,
+    hierarchy: 'native',
     tickets: TICKETS,
     viewer: 'cnzgray',
     ...overrides,
@@ -303,6 +304,7 @@ export function storedEntry(overrides: Partial<SnapshotStoreEntry> = {}): Snapsh
     fetchedAt: 1_000,
     loaded: TICKETS.length,
     total: 30,
+    hierarchy: 'native',
     tickets: TICKETS,
     ...overrides,
   }

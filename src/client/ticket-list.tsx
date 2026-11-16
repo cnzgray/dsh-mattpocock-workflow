@@ -32,12 +32,24 @@ import {
   CARD_META_STYLE,
   CARD_OPEN_STYLE,
   LABEL_BADGE_STYLE,
+  PARENT_BADGE_STYLE,
   ROW_AGE_STYLE,
+  TREE_CHILD_COUNT_STYLE,
+  TREE_INDENT,
+  TREE_TOGGLE_STYLE,
 } from './ticket-row-styles.ts'
+import type { TreeRow } from './ticket-tree.ts'
 
 /** 工单列表依赖。 */
 export interface TicketListProps {
   readonly tickets: readonly TicketSnapshot[]
+  /**
+   * 父子布局的渲染行；省略时按平铺渲染。
+   * 提供时 `tickets` 仍用于空状态判断，行序、层级与折叠都以 `rows` 为准。
+   */
+  readonly rows?: readonly TreeRow[] | undefined
+  /** 收起 / 展开一个父票；只在父子布局里传入。 */
+  readonly onToggleTree?: ((ref: string) => void) | undefined
   /** 列表为空时的提示：区分仓库本来没有工单和被筛选条件过滤掉。 */
   readonly emptyText: string
   /** 最近一次把提示词填入输入框的工单 `ref`。 */
@@ -88,18 +100,33 @@ export function TicketList(props: TicketListProps): React.ReactElement {
   return (
     <div data-testid="ticket-scroll" style={LIST_STYLE}>
       <div role="list" data-testid="ticket-list" style={ROWS_STYLE}>
-        {props.tickets.map((ticket) => (
-          <TicketRow
-            key={ticket.ref}
-            ticket={ticket}
-            injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
-            injection={props.injection}
-            focused={ticket.ref === props.focused}
-            now={props.now}
-            onPick={props.onPick}
-            onSkillAction={props.onSkillAction}
-          />
-        ))}
+        {props.rows === undefined
+          ? props.tickets.map((ticket) => (
+              <TicketRow
+                key={ticket.ref}
+                ticket={ticket}
+                injected={ticket.ref === props.injected && ticket.skillAction !== 'none'}
+                injection={props.injection}
+                focused={ticket.ref === props.focused}
+                now={props.now}
+                onPick={props.onPick}
+                onSkillAction={props.onSkillAction}
+              />
+            ))
+          : props.rows.map((row) => (
+              <TicketRow
+                key={row.ticket.ref}
+                ticket={row.ticket}
+                row={row}
+                injected={row.ticket.ref === props.injected && row.ticket.skillAction !== 'none'}
+                injection={props.injection}
+                focused={row.ticket.ref === props.focused}
+                now={props.now}
+                onPick={props.onPick}
+                onSkillAction={props.onSkillAction}
+                {...(props.onToggleTree === undefined ? {} : { onToggleTree: props.onToggleTree })}
+              />
+            ))}
       </div>
       {props.footer}
     </div>
@@ -108,12 +135,14 @@ export function TicketList(props: TicketListProps): React.ReactElement {
 
 function TicketRow(props: {
   readonly ticket: TicketSnapshot
+  readonly row?: TreeRow | undefined
   readonly injected: boolean
   readonly injection: PromptInjection
   readonly focused: boolean
   readonly now: number
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
+  readonly onToggleTree?: ((ref: string) => void) | undefined
 }): React.ReactElement {
   const { t } = useI18n()
   const { ticket } = props
@@ -127,11 +156,16 @@ function TicketRow(props: {
       onClick={() => {
         props.onPick(ticket)
       }}
-      style={{ ...CARD_ROW_STYLE, ...(props.focused ? CARD_FOCUSED_STYLE : undefined) }}
+      style={{
+        ...CARD_ROW_STYLE,
+        ...(props.focused ? CARD_FOCUSED_STYLE : undefined),
+        ...(props.row === undefined ? {} : { marginLeft: props.row.depth * TREE_INDENT }),
+      }}
     >
       <div
         data-testid="ticket-row"
         data-ref={ticket.ref}
+        data-depth={props.row === undefined ? undefined : String(props.row.depth)}
         data-focused={props.focused ? 'true' : undefined}
         style={CARD_CONTENT_STYLE}
       >
@@ -142,10 +176,29 @@ function TicketRow(props: {
           style={CARD_OPEN_STYLE}
         />
         <span style={CARD_TITLE_STYLE}>
+          {props.row?.hasChildren === true ? (
+            <button
+              type="button"
+              data-testid="tree-toggle"
+              aria-expanded={props.row.expanded}
+              aria-label={t(props.row.expanded ? 'tree.collapse' : 'tree.expand', {
+                ref: ticket.ref,
+                title: ticket.title,
+              })}
+              onClick={(event) => {
+                // 折叠是行内的独立动作：不要顺带打开详情。
+                event.stopPropagation()
+                props.onToggleTree?.(ticket.ref)
+              }}
+              style={TREE_TOGGLE_STYLE}
+            >
+              <span aria-hidden="true">{props.row.expanded ? '▾' : '▸'}</span>
+            </button>
+          ) : null}
           <TicketNumber ticket={ticket} />
           {ticket.title}
         </span>
-        <MetaRow ticket={ticket} now={props.now} />
+        <MetaRow ticket={ticket} row={props.row} now={props.now} />
       </div>
       <SkillActionBadge
         ticket={ticket}
@@ -160,10 +213,11 @@ function TicketRow(props: {
 
 function MetaRow(props: {
   readonly ticket: TicketSnapshot
+  readonly row?: TreeRow | undefined
   readonly now: number
 }): React.ReactElement {
   const { t } = useI18n()
-  const { ticket } = props
+  const { ticket, row } = props
   const extra = ticket.labels.filter((label) => label !== ticket.category)
   const { shown, hidden } = pickRowLabels(extra, MAX_EXTRA_LABELS)
 
@@ -176,6 +230,20 @@ function MetaRow(props: {
       {ticket.category === null ? null : (
         <span style={CATEGORY_BADGES[ticket.category]}>{ticket.category}</span>
       )}
+      {row?.hasChildren === true ? (
+        <span data-testid="tree-child-count" style={TREE_CHILD_COUNT_STYLE}>
+          {t('tree.childCount', { count: row.childCount })}
+        </span>
+      ) : null}
+      {row?.parentOutside === true && ticket.parent !== undefined ? (
+        <span
+          data-testid="parent-badge"
+          title={t('tree.parentOutsideTitle', { parent: ticket.parent })}
+          style={PARENT_BADGE_STYLE}
+        >
+          {t('tree.parentBadge', { parent: ticket.parent })}
+        </span>
+      ) : null}
       {shown.map((label) => (
         <span key={label} data-testid="ticket-label" style={LABEL_BADGE_STYLE}>
           {label}

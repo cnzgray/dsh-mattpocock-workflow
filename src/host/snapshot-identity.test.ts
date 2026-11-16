@@ -64,13 +64,18 @@ describe('快照身份', () => {
 
   it('增量带了新身份时更新快照与缓存', async () => {
     const store = memoryStore([
-      storedEntry({ backend: 'gitea', repositoryKey: 'gitea@github.com/cnzgray/repo' }),
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        hierarchy: 'none',
+      }),
     ])
     const { service } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
       changes: () =>
         Promise.resolve({
           tickets: [],
+          hierarchy: 'none',
           truncated: false,
           total: 30,
           viewer: 'new-user',
@@ -85,11 +90,16 @@ describe('快照身份', () => {
 
   it('增量没查身份时沿用基准数据里的身份', async () => {
     const store = memoryStore([
-      storedEntry({ backend: 'gitea', repositoryKey: 'gitea@github.com/cnzgray/repo' }),
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        hierarchy: 'none',
+      }),
     ])
     const { service } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30 }),
+      changes: () =>
+        Promise.resolve({ tickets: [], hierarchy: 'none', truncated: false, total: 30 }),
     })
 
     const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
@@ -99,12 +109,23 @@ describe('快照身份', () => {
 
   it('增量明确返回无身份时把身份更新为 null', async () => {
     const store = memoryStore([
-      storedEntry({ backend: 'gitea', repositoryKey: 'gitea@github.com/cnzgray/repo' }),
+      storedEntry({
+        backend: 'gitea',
+        repositoryKey: 'gitea@github.com/cnzgray/repo',
+        hierarchy: 'none',
+      }),
     ])
     // 一次响应给 snapshot.get 校验仓库身份，一次给 refresh 解析后端。
     const { service } = serviceWith([snapshot(), snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30, viewer: null }),
+      changes: () =>
+        Promise.resolve({
+          tickets: [],
+          hierarchy: 'none',
+          truncated: false,
+          total: 30,
+          viewer: null,
+        }),
     })
 
     // 先把缓存身份显示出来，确认增量显式返回 null 时不会被旧身份覆盖。

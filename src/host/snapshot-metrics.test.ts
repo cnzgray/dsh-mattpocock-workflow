@@ -52,6 +52,7 @@ describe('快照指标', () => {
       fetchedAt: METRICS_NOW,
       loaded: METRIC_TICKETS.length,
       total: 10,
+      hierarchy: 'native',
       tickets: METRIC_TICKETS,
       viewer: 'cnzgray',
       ...overrides,

@@ -73,7 +73,7 @@ const TREE: TreeSpec = {
       content: '# 令牌刷新\n\nStatus: resolved\n',
     },
     '/ws/.scratch/login/issues/02-bug.md': {
-      content: '# 会话 bug\n\nStatus: ready-for-agent\nBlocked by: 01, 03\n',
+      content: '# 会话 bug\n\nStatus: ready-for-agent\nParent: 01\nBlocked by: 01, 03\n',
     },
     '/ws/.scratch/login/issues/03-session.md': {
       content:
@@ -96,7 +96,7 @@ const MOVED_TREE: TreeSpec = {
   files: {
     ...TREE.files,
     '/ws/.scratch/login/issues/02-bug.md': {
-      content: '# 会话 bug\n\nStatus: ready-for-agent\nBlocked by: 01, 03\n',
+      content: '# 会话 bug\n\nStatus: ready-for-agent\nParent: 01\nBlocked by: 01, 03\n',
       updatedAt: UPDATED + 60_000,
     },
   },
@@ -112,12 +112,16 @@ describe('本地 Markdown 工单后端', () => {
     expect(snapshot.tickets.every((ticket) => ticket.assignees.length === 0)).toBe(true)
     expect(snapshot.loaded).toBe(4)
     expect(snapshot.total).toBe(4)
+    expect(snapshot.hierarchy).toBe('convention')
     expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual([
       '.scratch/billing/issues/05-refund.md',
       '.scratch/login/issues/01-token.md',
       '.scratch/login/issues/02-bug.md',
       '.scratch/login/issues/03-session.md',
     ])
+    expect(snapshot.tickets.find((ticket) => ticket.ref.endsWith('02-bug.md'))?.parent).toBe(
+      '.scratch/login/issues/01-token.md',
+    )
   })
 
   it('映射标题、状态、标签、时间戳与阻塞数', async () => {
@@ -147,6 +151,7 @@ describe('本地 Markdown 工单后端', () => {
       fetchedAt: NOW,
       loaded: 0,
       total: 0,
+      hierarchy: 'convention',
       tickets: [],
       viewer: null,
     })
@@ -206,6 +211,19 @@ describe('本地 Markdown 工单增量', () => {
     const full = snapshot.tickets.find((ticket) => ticket.ref === '.scratch/login/issues/02-bug.md')
     expect(changed?.openBlockers).toBe(full?.openBlockers)
     expect(changed?.blockedBy).toEqual(full?.blockedBy)
+  })
+
+  it('只改子文件时父票文件作为上下文读入，父级引用不丢', async () => {
+    const tracker = trackerFor(MOVED_TREE)
+
+    const changes = await tracker.fetchChanges?.('/ws', UPDATED)
+    const snapshot = await tracker.fetchSnapshot('/ws')
+
+    const changed = changes?.tickets[0]
+    const full = snapshot.tickets.find((ticket) => ticket.ref === '.scratch/login/issues/02-bug.md')
+    expect(changed?.parent).toBe('.scratch/login/issues/01-token.md')
+    expect(changed?.parent).toBe(full?.parent)
+    expect(changes?.hierarchy).toBe('convention')
   })
 
   it('工作区还没有 .scratch 时返回空增量', async () => {
@@ -340,6 +358,10 @@ describeTrackerContract('本地 Markdown', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'none', expected: [0, 0, 1, 0] },
+  hierarchy: {
+    kind: 'convention',
+    parents: { '.scratch/login/issues/02-bug.md': '.scratch/login/issues/01-token.md' },
+  },
   changes: {
     createTracker: () => trackerFor(MOVED_TREE),
     since: UPDATED,

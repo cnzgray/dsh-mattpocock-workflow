@@ -31,6 +31,7 @@ import {
 } from './task-panel-styles.ts'
 import { useTicketActions, type TicketActionsState } from './ticket-actions.ts'
 import { TicketDetailView } from './ticket-detail-view.tsx'
+import { TicketTreeSessionProvider } from './ticket-tree-session.tsx'
 import { TicketsView } from './tickets-view.tsx'
 
 /** 面板依赖。 */
@@ -113,38 +114,40 @@ export function TaskPanel(props: TaskPanelProps): React.ReactElement {
           ) : null
         }
       />
-      <PanelContent
-        panel={props}
-        actions={actions}
-        request={request}
-        view={view}
-        open={open}
-        focusBackend={focusBackend}
-        focusTicket={focusTicket}
-        clientCapabilities={clientCapabilities}
-        onOpenEnvCheck={(code) => {
-          setFocusBackend(ERROR_BACKENDS[code] ?? null)
-          setView('env')
-        }}
-        onOpenTicket={(ticket: TicketSnapshot) => {
-          if (props.workspaceRoot === undefined) return
-          setOpenTicket({ workspaceRoot: props.workspaceRoot, ticket })
-        }}
-        onFocusHandled={() => {
-          setFocusTicket(null)
-        }}
-        onCloseDetail={() => {
-          setOpenTicket(null)
-        }}
-        onLocateTicket={(ref: string) => {
-          setFocusTicket(ref)
-          setOpenTicket(null)
-          setView('tickets')
-        }}
-        onBack={() => {
-          setView(previousView.current)
-        }}
-      />
+      <TicketTreeSessionProvider workspaceRoot={props.workspaceRoot}>
+        <PanelContent
+          panel={props}
+          actions={actions}
+          request={request}
+          view={view}
+          open={open}
+          focusBackend={focusBackend}
+          focusTicket={focusTicket}
+          clientCapabilities={clientCapabilities}
+          onOpenEnvCheck={(code) => {
+            setFocusBackend(ERROR_BACKENDS[code] ?? null)
+            setView('env')
+          }}
+          onOpenTicket={(ticket: TicketSnapshot) => {
+            if (props.workspaceRoot === undefined) return
+            setOpenTicket({ workspaceRoot: props.workspaceRoot, ticket })
+          }}
+          onFocusHandled={() => {
+            setFocusTicket(null)
+          }}
+          onCloseDetail={() => {
+            setOpenTicket(null)
+          }}
+          onLocateTicket={(ref: string) => {
+            setFocusTicket(ref)
+            setOpenTicket(null)
+            setView('tickets')
+          }}
+          onBack={() => {
+            setView(previousView.current)
+          }}
+        />
+      </TicketTreeSessionProvider>
     </div>
   )
 }

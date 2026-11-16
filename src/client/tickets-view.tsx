@@ -7,39 +7,31 @@
  */
 import * as React from 'react'
 
-import {
-  type ErrorCode,
-  type RpcErrorBody,
-  type TicketSnapshot,
-  type WorkspaceSnapshot,
-} from '../protocol/tracker.ts'
+import { type ErrorCode, type TicketSnapshot, type WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { ActionBar } from './action-bar.tsx'
 import { ErrorBanner } from './error-banner.tsx'
 import { useI18n } from './i18n.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
-import type { MessageKey } from './messages.ts'
-import { MyTicketsBar } from './my-tickets-bar.tsx'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import { useTicketActions, type TicketActionsState } from './ticket-actions.ts'
+import { MyTicketsBar } from './my-tickets-bar.tsx'
 import type { NoticeTone } from './use-draft-injection.ts'
-import { SortControl } from './sort-control.tsx'
 import { TicketList } from './ticket-list.tsx'
-import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tickets-more.tsx'
+import { Footer } from './tickets-view-footer.tsx'
 import { TicketsHeader } from './tickets-header.tsx'
+import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tickets-more.tsx'
 import {
   ACTION_BAR_STYLE,
-  CHIP_ACTIVE_STYLE,
-  CHIP_COUNT_STYLE,
-  CHIP_DOT_STYLE,
-  CHIP_STYLE,
-  COLORS,
   EMPTY_STYLE,
   LOADED_STYLE,
-  SEGMENTED_STYLE,
-  TICKET_FILTERS,
-  TOOLBAR_STYLE,
+  TREE_DEGRADED_STYLE,
+  TREE_NOTE_STYLE,
 } from './task-panel-styles.ts'
+import { buildTicketTree, type TreeRow } from './ticket-tree.ts'
+import { hierarchyHintKey } from './tickets-tree-controls.tsx'
+import { Toolbar } from './tickets-toolbar.tsx'
+import { useCollapsedTickets } from './use-collapsed-tickets.ts'
 import {
   countMyTickets,
   countTickets,
@@ -52,17 +44,8 @@ import {
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
+import type { TicketLayout, ViewPreference } from './view-preference.ts'
 import { useViewPreference } from './use-view-preference.ts'
-import type { ViewPreference } from './view-preference.ts'
-
-/** 过滤条件到词典键。 */
-const FILTER_KEYS: Readonly<Record<TicketFilter, MessageKey>> = {
-  all: 'filter.all',
-  open: 'filter.open',
-  closed: 'filter.closed',
-  blocked: 'filter.blocked',
-  ready: 'filter.ready',
-}
 
 /** 工单列表视图依赖。 */
 export interface TicketsViewProps {
@@ -86,160 +69,203 @@ export interface TicketsViewProps {
   readonly actions?: TicketActionsState | undefined
 }
 
-/** 工单列表视图。 */
-export function TicketsView(props: TicketsViewProps): React.ReactElement {
+/** 列表视图从快照与偏好派生出的一份渲染状态。 */
+interface TicketsViewState {
+  readonly snapshot: WorkspaceSnapshot | null
+  readonly error: SnapshotRequestState['error']
+  readonly phase: SnapshotRequestState['phase']
+  readonly busy: boolean
+  readonly refresh: SnapshotRequestState['refresh']
+  readonly refreshFull: SnapshotRequestState['refreshFull']
+  readonly loadMore: SnapshotRequestState['loadMore']
+  readonly moreError: SnapshotRequestState['moreError']
+  readonly moreLoading: SnapshotRequestState['moreLoading']
+  readonly preference: ViewPreference
+  readonly setFilter: (filter: TicketFilter) => void
+  readonly toggleSort: (key: TicketSortKey) => void
+  readonly setLayout: (layout: TicketLayout) => void
+  readonly toggleAssignedToMe: () => void
+  readonly toggleCreatedByMe: () => void
+  readonly clearMyTickets: () => void
+  readonly tickets: readonly TicketSnapshot[]
+  readonly counts: TicketCounts
+  readonly myCounts: MyTicketCounts
+  readonly visible: readonly TicketSnapshot[]
+  readonly focused: string | null
+  readonly hierarchyAvailable: boolean
+  readonly layout: TicketLayout
+  readonly rows: readonly TreeRow[] | undefined
+  readonly toggleTree: (ref: string) => void
+  readonly now: number
+  readonly injected: string | null
+  readonly notice: string | null
+  readonly noticeTone: NoticeTone | null
+  readonly inject: TicketActionsState['inject']
+  readonly onSkillAction: TicketActionsState['onSkillAction']
+  readonly refreshNotice: string | null
+}
+
+/** 列表视图的状态：快照、视图偏好、过滤排序、布局与折叠都从这里派生。 */
+function useTicketsViewState(props: TicketsViewProps): TicketsViewState {
   const { t } = useI18n()
-  const clock = props.now ?? Date.now
   const { snapshot, error, refreshError, phase, refresh, refreshFull } = props.request
   const { loadMore, moreError, moreLoading } = props.request
   const {
     preference,
     setFilter,
     toggleSort,
+    setLayout,
     toggleAssignedToMe,
     toggleCreatedByMe,
     clearMyTickets,
   } = useViewPreference(props.workspaceRoot)
-  const nowValue = useNow(clock)
+  const now = useNow(props.now ?? Date.now)
   const ownActions = useTicketActions(props.workspaceRoot, props.injection)
   const { injected, notice, noticeTone, inject, onSkillAction } = props.actions ?? ownActions
 
   const tickets = snapshot?.tickets ?? []
-  const { counts, myCounts, visible } = ticketViewData(
-    tickets,
-    preference,
-    snapshot?.viewer ?? null,
+  const statusFiltered = filterTickets(tickets, preference.filter)
+  const viewer = snapshot?.viewer ?? null
+  const counts = countTickets(tickets)
+  const myCounts = countMyTickets(statusFiltered, viewer)
+  const visible = sortTickets(
+    filterMyTickets(statusFiltered, preference, viewer),
+    preference.sortKey,
+    preference.direction,
   )
   const focused = useFocusedTicket(props.focusRef, props.onFocusHandled, props.workspaceRoot)
+  const hierarchyAvailable = snapshot !== null && snapshot.hierarchy !== 'none'
+  const layout: TicketLayout = preference.layout === 'tree' && hierarchyAvailable ? 'tree' : 'flat'
+  const { collapsed, toggle: toggleTree } = useCollapsedTickets(
+    props.workspaceRoot,
+    focused,
+    visible,
+  )
+
+  return {
+    snapshot,
+    error,
+    phase,
+    busy: phase === 'loading' || phase === 'refreshing',
+    refresh,
+    refreshFull,
+    loadMore,
+    moreError,
+    moreLoading,
+    preference,
+    setFilter,
+    toggleSort,
+    setLayout,
+    toggleAssignedToMe,
+    toggleCreatedByMe,
+    clearMyTickets,
+    tickets,
+    counts,
+    myCounts,
+    visible,
+    focused,
+    hierarchyAvailable,
+    layout,
+    rows: layout === 'tree' ? buildTicketTree(visible, collapsed) : undefined,
+    toggleTree,
+    now,
+    injected,
+    notice,
+    noticeTone,
+    inject,
+    onSkillAction,
+    refreshNotice: snapshotRefreshNotice(snapshot, refreshError, t),
+  }
+}
+
+/** 工单列表视图。 */
+export function TicketsView(props: TicketsViewProps): React.ReactElement {
+  const { t } = useI18n()
+  const state = useTicketsViewState(props)
 
   return (
     <div
       data-testid="tickets-view"
       style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
     >
-      <TicketsTop
-        snapshot={snapshot}
-        now={nowValue}
-        phase={phase}
-        refreshError={refreshError}
-        error={error}
-        injection={props.injection}
-        actions={props.actions}
-        injectedAction={inject}
-        onRefresh={refresh}
-        onRefreshFull={refreshFull}
-        onOpenEnvCheck={props.onOpenEnvCheck}
+      <TicketsHeader
+        snapshot={state.snapshot}
+        now={state.now}
+        loading={state.phase === 'loading'}
+        busy={state.busy}
+        notice={state.refreshNotice}
+        onRefresh={state.refresh}
+        onRefreshFull={state.refreshFull}
       />
-      {snapshot !== null ? (
-        <TicketsContent
-          snapshot={snapshot}
-          preference={preference}
-          counts={counts}
-          myCounts={myCounts}
-          visible={visible}
-          ticketCount={tickets.length}
-          injected={injected}
+      {props.actions === undefined ? (
+        <div style={ACTION_BAR_STYLE}>
+          <ActionBar injection={props.injection} onInject={state.inject} />
+        </div>
+      ) : null}
+      {state.error !== null ? (
+        <ErrorBanner error={state.error} onOpenEnvCheck={props.onOpenEnvCheck} />
+      ) : null}
+      {state.snapshot !== null ? (
+        <SnapshotContent
+          snapshot={state.snapshot}
+          visible={state.visible}
+          rows={state.rows}
+          layout={state.layout}
+          preferenceLayout={state.preference.layout}
+          hierarchyAvailable={state.hierarchyAvailable}
+          filter={state.preference.filter}
+          sortKey={state.preference.sortKey}
+          direction={state.preference.direction}
+          counts={state.counts}
+          myCounts={state.myCounts}
+          assignedToMe={state.preference.assignedToMe}
+          createdByMe={state.preference.createdByMe}
+          ticketCount={state.tickets.length}
+          injected={state.injected}
           injection={props.injection}
-          focused={focused}
-          now={nowValue}
+          focused={state.focused}
+          now={state.now}
           more={{
-            ...moreStateOf(snapshot),
-            loading: moreLoading,
-            error: moreError,
-            onLoadMore: loadMore,
+            ...moreStateOf(state.snapshot),
+            loading: state.moreLoading,
+            error: state.moreError,
+            onLoadMore: state.loadMore,
           }}
-          onFilter={setFilter}
-          onSort={toggleSort}
-          onToggleAssigned={toggleAssignedToMe}
-          onToggleCreated={toggleCreatedByMe}
-          onClearMyTickets={clearMyTickets}
+          onFilter={state.setFilter}
+          onSort={state.toggleSort}
+          onLayout={state.setLayout}
+          onToggleAssigned={state.toggleAssignedToMe}
+          onToggleCreated={state.toggleCreatedByMe}
+          onClearMyTickets={state.clearMyTickets}
+          onToggleTree={state.toggleTree}
           onPick={props.onOpenTicket}
-          onSkillAction={onSkillAction}
+          onSkillAction={state.onSkillAction}
         />
-      ) : phase === 'loading' ? (
+      ) : state.phase === 'loading' ? (
         <div data-testid="loading" style={EMPTY_STYLE}>
           {t('snapshot.loading')}
         </div>
       ) : null}
-      <Footer injection={props.injection} notice={notice} tone={noticeTone} />
+      <Footer injection={props.injection} notice={state.notice} tone={state.noticeTone} />
     </div>
   )
 }
 
-/**
- * 列表数据组合：状态 → 人员 → 排序；状态过滤只算一次，计数与列表共用这份中间结果。
- * @param tickets - 整份已加载列表。
- * @param preference - 当前视图偏好。
- * @param viewer - 当前登录用户登录名。
- * @returns 状态统计、人员计数与最终可见列表。
- */
-function ticketViewData(
-  tickets: readonly TicketSnapshot[],
-  preference: ViewPreference,
-  viewer: string | null,
-): {
-  readonly counts: TicketCounts
-  readonly myCounts: MyTicketCounts
-  readonly visible: readonly TicketSnapshot[]
-} {
-  const statusFiltered = filterTickets(tickets, preference.filter)
-  return {
-    counts: countTickets(tickets),
-    myCounts: countMyTickets(statusFiltered, viewer),
-    visible: sortTickets(
-      filterMyTickets(statusFiltered, preference, viewer),
-      preference.sortKey,
-      preference.direction,
-    ),
-  }
-}
-
-/** 仓库行、动作栏与错误横幅：首屏与刷新状态都在这里呈现。 */
-function TicketsTop(props: {
-  readonly snapshot: WorkspaceSnapshot | null
-  readonly now: number
-  readonly phase: SnapshotRequestState['phase']
-  readonly refreshError: RpcErrorBody | null
-  readonly error: RpcErrorBody | null
-  readonly injection: PromptInjection
-  readonly actions: TicketActionsState | undefined
-  readonly injectedAction: (text: string, target: InjectionTarget) => void
-  readonly onRefresh: () => void
-  readonly onRefreshFull: () => void
-  readonly onOpenEnvCheck: (code: ErrorCode) => void
-}): React.ReactElement {
-  const { t } = useI18n()
-
-  return (
-    <>
-      <TicketsHeader
-        snapshot={props.snapshot}
-        now={props.now}
-        loading={props.phase === 'loading'}
-        busy={props.phase === 'loading' || props.phase === 'refreshing'}
-        notice={snapshotRefreshNotice(props.snapshot, props.refreshError, t)}
-        onRefresh={props.onRefresh}
-        onRefreshFull={props.onRefreshFull}
-      />
-      {props.actions === undefined ? (
-        <div style={ACTION_BAR_STYLE}>
-          <ActionBar injection={props.injection} onInject={props.injectedAction} />
-        </div>
-      ) : null}
-      {props.error !== null ? (
-        <ErrorBanner error={props.error} onOpenEnvCheck={props.onOpenEnvCheck} />
-      ) : null}
-    </>
-  )
-}
-
-/** 工具栏、人员筛选行与工单列表；只在快照存在时渲染。 */
-function TicketsContent(props: {
+/** 有快照时的列表主体：工具栏、父子说明与工单行。 */
+function SnapshotContent(props: {
   readonly snapshot: WorkspaceSnapshot
-  readonly preference: ViewPreference
+  readonly visible: readonly TicketSnapshot[]
+  readonly rows: readonly TreeRow[] | undefined
+  readonly layout: TicketLayout
+  readonly preferenceLayout: TicketLayout
+  readonly hierarchyAvailable: boolean
+  readonly filter: TicketFilter
+  readonly sortKey: TicketSortKey
+  readonly direction: SortDirection
   readonly counts: TicketCounts
   readonly myCounts: MyTicketCounts
-  readonly visible: readonly TicketSnapshot[]
+  readonly assignedToMe: boolean
+  readonly createdByMe: boolean
   readonly ticketCount: number
   readonly injected: string | null
   readonly injection: PromptInjection
@@ -248,38 +274,51 @@ function TicketsContent(props: {
   readonly more: MoreState
   readonly onFilter: (filter: TicketFilter) => void
   readonly onSort: (key: TicketSortKey) => void
+  readonly onLayout: (layout: TicketLayout) => void
   readonly onToggleAssigned: () => void
   readonly onToggleCreated: () => void
   readonly onClearMyTickets: () => void
+  readonly onToggleTree: (ref: string) => void
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
 }): React.ReactElement {
-  const { snapshot, preference } = props
-
+  const { t } = useI18n()
   return (
     <>
       <Toolbar
-        filter={preference.filter}
-        sortKey={preference.sortKey}
-        direction={preference.direction}
+        filter={props.filter}
+        sortKey={props.sortKey}
+        direction={props.direction}
         counts={props.counts}
+        layout={props.preferenceLayout}
+        hierarchyAvailable={props.hierarchyAvailable}
+        hierarchyHint={t(hierarchyHintKey(props.snapshot))}
         onFilter={props.onFilter}
         onSort={props.onSort}
+        onLayout={props.onLayout}
       />
-      {snapshot.viewer === null ? null : (
+      {props.snapshot.viewer === null ? null : (
         <MyTicketsBar
-          viewer={snapshot.viewer}
+          viewer={props.snapshot.viewer}
           counts={props.myCounts}
-          assignedToMe={preference.assignedToMe}
-          createdByMe={preference.createdByMe}
+          assignedToMe={props.assignedToMe}
+          createdByMe={props.createdByMe}
           onToggleAssigned={props.onToggleAssigned}
           onToggleCreated={props.onToggleCreated}
           onClear={props.onClearMyTickets}
         />
       )}
+      <TreeNotes
+        snapshot={props.snapshot}
+        layout={props.layout}
+        preferenceLayout={props.preferenceLayout}
+        hierarchyAvailable={props.hierarchyAvailable}
+      />
       <TicketRows
-        snapshot={snapshot}
+        snapshot={props.snapshot}
         visible={props.visible}
+        rows={props.rows}
+        onToggleTree={props.onToggleTree}
         ticketCount={props.ticketCount}
         injected={props.injected}
         injection={props.injection}
@@ -289,6 +328,35 @@ function TicketsContent(props: {
         onPick={props.onPick}
         onSkillAction={props.onSkillAction}
       />
+    </>
+  )
+}
+
+/** 父子模式的覆盖范围与降级说明。 */
+function TreeNotes(props: {
+  readonly snapshot: WorkspaceSnapshot
+  readonly layout: TicketLayout
+  readonly preferenceLayout: TicketLayout
+  readonly hierarchyAvailable: boolean
+}): React.ReactElement {
+  const { t } = useI18n()
+  return (
+    <>
+      {props.layout === 'tree' && props.snapshot.total > props.snapshot.loaded ? (
+        <div data-testid="tree-coverage" style={TREE_NOTE_STYLE}>
+          {t('tree.coverage', { loaded: props.snapshot.loaded })}
+        </div>
+      ) : null}
+      {props.preferenceLayout === 'tree' && !props.hierarchyAvailable ? (
+        <div data-testid="tree-degraded" style={TREE_DEGRADED_STYLE}>
+          {t('tree.degraded')}
+        </div>
+      ) : null}
+      {props.preferenceLayout !== 'tree' && !props.hierarchyAvailable ? (
+        <div data-testid="tree-unavailable" style={TREE_NOTE_STYLE}>
+          {t(hierarchyHintKey(props.snapshot))}
+        </div>
+      ) : null}
     </>
   )
 }
@@ -327,6 +395,8 @@ function useFocusedTicket(
 function TicketRows(props: {
   readonly snapshot: WorkspaceSnapshot
   readonly visible: readonly TicketSnapshot[]
+  readonly rows: readonly TreeRow[] | undefined
+  readonly onToggleTree: (ref: string) => void
   readonly ticketCount: number
   readonly injected: string | null
   readonly injection: PromptInjection
@@ -352,6 +422,8 @@ function TicketRows(props: {
       </div>
       <TicketList
         tickets={props.visible}
+        rows={props.rows}
+        onToggleTree={props.onToggleTree}
         emptyText={t(props.ticketCount === 0 ? 'tickets.emptyRepo' : 'tickets.emptyFilter')}
         injected={props.injected}
         injection={props.injection}
@@ -362,123 +434,5 @@ function TicketRows(props: {
         footer={more.available ? <MoreFooter state={more} sentinel={sentinel} /> : null}
       />
     </>
-  )
-}
-
-function Toolbar(props: {
-  readonly filter: TicketFilter
-  readonly sortKey: TicketSortKey
-  readonly direction: SortDirection
-  readonly counts: TicketCounts
-  readonly onFilter: (filter: TicketFilter) => void
-  readonly onSort: (key: TicketSortKey) => void
-}): React.ReactElement {
-  const { t } = useI18n()
-  return (
-    <div style={TOOLBAR_STYLE}>
-      <div role="group" aria-label={t('filter.group')} style={SEGMENTED_STYLE}>
-        {TICKET_FILTERS.map((value) => (
-          <Chip
-            key={value}
-            testId={`filter-${value}`}
-            label={t(FILTER_KEYS[value])}
-            stat={CHIP_STATS[value]}
-            count={props.counts}
-            active={props.filter === value}
-            onClick={() => {
-              props.onFilter(value)
-            }}
-          />
-        ))}
-      </div>
-      <SortControl
-        sortKey={props.sortKey}
-        direction={props.direction}
-        onSortKey={props.onSort}
-        onToggleDirection={() => {
-          props.onSort(props.sortKey)
-        }}
-      />
-    </div>
-  )
-}
-
-/** 带计数的筛选段：数字基于整份快照，不随当前筛选变化。 */
-const CHIP_STATS: Partial<
-  Record<TicketFilter, { readonly key: keyof TicketCounts; readonly color: string }>
-> = {
-  closed: { key: 'closed', color: COLORS.tertiary },
-  blocked: { key: 'blocked', color: COLORS.warn },
-  ready: { key: 'ready', color: COLORS.success },
-}
-
-function Chip(props: {
-  readonly testId: string
-  readonly label: string
-  readonly stat: { readonly key: keyof TicketCounts; readonly color: string } | undefined
-  readonly count: TicketCounts
-  readonly active: boolean
-  readonly onClick: () => void
-}): React.ReactElement {
-  const stat = props.stat
-  return (
-    <button
-      type="button"
-      data-testid={props.testId}
-      aria-pressed={props.active}
-      data-hover="soft"
-      onClick={props.onClick}
-      style={{ ...CHIP_STYLE, ...(props.active ? CHIP_ACTIVE_STYLE : undefined) }}
-    >
-      {stat === undefined ? null : (
-        <span aria-hidden="true" style={{ ...CHIP_DOT_STYLE, background: stat.color }} />
-      )}
-      {props.label}
-      {stat === undefined ? null : (
-        <span data-testid={`stat-${stat.key}`} style={CHIP_COUNT_STYLE}>
-          {props.count[stat.key]}
-        </span>
-      )}
-    </button>
-  )
-}
-
-function Footer(props: {
-  readonly injection: PromptInjection
-  readonly notice: string | null
-  readonly tone: NoticeTone | null
-}): React.ReactElement | null {
-  const { t } = useI18n()
-  if (props.injection.canInjectCurrent && props.notice === null) return null
-
-  return (
-    <footer
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-        padding: '8px 12px',
-        borderTop: `1px solid ${COLORS.border}`,
-      }}
-    >
-      {props.injection.canInjectCurrent ? null : (
-        <div data-testid="no-session-hint" style={{ color: COLORS.secondary, fontSize: 12 }}>
-          {t(
-            props.injection.canStartNewSession
-              ? 'injection.footerNewSession'
-              : 'injection.footerUnavailable',
-          )}
-        </div>
-      )}
-      {props.notice === null ? null : (
-        <div
-          role="status"
-          data-testid="inject-notice"
-          style={{ color: props.tone === 'error' ? COLORS.warn : COLORS.secondary, fontSize: 12 }}
-        >
-          {props.notice}
-        </div>
-      )}
-    </footer>
   )
 }

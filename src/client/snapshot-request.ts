@@ -99,6 +99,7 @@ function visibleKey(snapshot: WorkspaceSnapshot): string {
     viewer: snapshot.viewer,
     loaded: snapshot.loaded,
     total: snapshot.total,
+    hierarchy: snapshot.hierarchy,
     source: snapshot.source,
     stale: snapshot.stale,
     refreshError: snapshot.refreshError,

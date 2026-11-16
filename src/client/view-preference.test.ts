@@ -17,6 +17,7 @@ const SAVED: ViewPreference = {
   direction: 'desc',
   assignedToMe: true,
   createdByMe: false,
+  layout: 'tree',
 }
 
 class MemoryStorage implements PreferenceStorage {
@@ -130,6 +131,32 @@ describe('视图偏好', () => {
     expect(readViewPreference(storage, '/repo')).toEqual({
       ...SAVED,
       sortKey: DEFAULT_VIEW.sortKey,
+    })
+  })
+
+  it('旧存档没有布局字段时回退平铺', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      delete record.layout
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      layout: DEFAULT_VIEW.layout,
+    })
+  })
+
+  it('非法布局只回退布局', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      record.layout = 'masonry'
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      layout: DEFAULT_VIEW.layout,
     })
   })
 

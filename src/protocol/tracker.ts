@@ -56,6 +56,12 @@ export const RPC_METHODS = {
 /** 工单的开闭状态。 */
 export type TicketState = 'open' | 'closed'
 
+/**
+ * 快照的父子关系来源：GitHub 子工单、GitLab 工作项层级（`native`），
+ * 本地工单约定（`convention`），或后端不提供（`none`）。
+ */
+export type HierarchyKind = 'native' | 'convention' | 'none'
+
 /** 分类标签，没有分类时为 null。 */
 export type TicketCategory = 'bug' | 'enhancement' | null
 
@@ -226,6 +232,12 @@ export interface TicketSnapshot {
    * （GitHub 列表查询只给未关闭阻塞数）；宿主用它算最长阻塞链。
    */
   readonly blockedBy?: readonly string[]
+  /**
+   * 父级引用；没有父级或后端不提供父子关系时省略。引用可能指向列表外的父级
+   * （GitHub 跨仓库父票、GitLab epic、尚未加载的票），界面只对能在当前列表里
+   * 找到的引用画父子树。
+   */
+  readonly parent?: string
 }
 
 /** 一个工作区的工单快照。 */
@@ -255,6 +267,8 @@ export interface WorkspaceSnapshot {
    * 达到 {@link SNAPSHOT_MAX_WINDOW} 后界面不再请求下一页。
    */
   readonly windowLimit: number
+  /** 父子关系来源；为 `none` 时界面禁用父子布局并说明原因。 */
+  readonly hierarchy: HierarchyKind
   readonly tickets: readonly TicketSnapshot[]
   /**
    * 项目指标与压力判档。宿主在列表返回时算一次，阻塞补齐完成后重算；

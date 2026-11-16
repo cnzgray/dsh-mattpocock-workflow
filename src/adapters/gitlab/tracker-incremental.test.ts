@@ -69,6 +69,30 @@ describe('GitLab 工单增量', () => {
     expect(changes?.tickets[0]?.blockedBy).toEqual([])
   })
 
+  it('增量同样补齐父级并声明原生父子能力', async () => {
+    const { tracker, hierarchyCalls } = trackerWith()
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.hierarchy).toBe('native')
+    expect(changes?.tickets[0]?.parent).toBe('#15')
+    expect(hierarchyCalls).toHaveLength(1)
+    expect(hierarchyCalls[0]).toContain('"16"')
+  })
+
+  it('增量层级查询失败时标为无父子能力，其余字段照常返回', async () => {
+    const { tracker } = trackerWith({
+      hierarchy: () => JSON.stringify({ errors: [{ message: 'workItems 不可用' }] }),
+    })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.hierarchy).toBe('none')
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
+    expect(changes?.tickets[0]?.parent).toBeUndefined()
+    expect(changes?.total).toBe(3)
+  })
+
   it('权威总数不取窗口内的计数', async () => {
     const { tracker } = trackerWith({
       changes: () => '[]',

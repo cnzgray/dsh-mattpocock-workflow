@@ -25,6 +25,12 @@ describe('后台刷新的可见变化', () => {
     expect(snapshotVisibleChange(SNAPSHOT, refetched)).toBe(false)
   })
 
+  it('父子能力变化算界面变化，后台刷新会落地', () => {
+    expect(
+      snapshotVisibleChange(SNAPSHOT, { ...SNAPSHOT, hierarchy: 'none', fetchedAt: NOW + 60_000 }),
+    ).toBe(true)
+  })
+
   it('阻塞是否定稿不算界面变化：它随后会被补齐结果覆盖', () => {
     const provisional: WorkspaceSnapshot = {
       ...SNAPSHOT,

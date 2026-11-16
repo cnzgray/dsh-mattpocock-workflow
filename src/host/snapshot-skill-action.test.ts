@@ -31,6 +31,7 @@ const RAW: TrackerSnapshot = {
   fetchedAt: 1_000,
   loaded: 1,
   total: 1,
+  hierarchy: 'native',
   tickets: [READY_TICKET],
   viewer: null,
 }

@@ -126,6 +126,7 @@ export async function writeStored(
     loaded: raw.tickets.length,
     total: raw.total,
     ...(raw.windowLimit === undefined ? {} : { windowLimit: raw.windowLimit }),
+    hierarchy: raw.hierarchy,
     tickets: raw.tickets,
   }
   try {
@@ -175,6 +176,7 @@ export function buildSnapshot(
     loaded: tickets.length,
     total: raw.total,
     windowLimit: raw.windowLimit ?? tickets.length,
+    hierarchy: raw.hierarchy,
     blockersFinalized,
     metrics,
     source,
@@ -198,6 +200,7 @@ export function buildSnapshot(
       ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
       ...(ticket.url === undefined ? {} : { url: ticket.url }),
       ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
+      ...(ticket.parent === undefined ? {} : { parent: ticket.parent }),
     })),
   }
 }
@@ -229,6 +232,7 @@ export function buildStoredSnapshot(
     loaded: tickets.length,
     total: raw.total,
     windowLimit: raw.windowLimit ?? SNAPSHOT_PAGE_SIZE,
+    hierarchy: stored.hierarchy,
     blockersFinalized: false,
     metrics,
     source: 'cache',
@@ -252,6 +256,7 @@ export function buildStoredSnapshot(
       ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
       ...(ticket.url === undefined ? {} : { url: ticket.url }),
       ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
+      ...(ticket.parent === undefined ? {} : { parent: ticket.parent }),
     })),
   }
 }
@@ -364,6 +369,7 @@ function rawOf(stored: SnapshotStoreEntry): TrackerSnapshot {
     fetchedAt: stored.fetchedAt,
     loaded: stored.tickets.length,
     total: stored.total,
+    hierarchy: stored.hierarchy,
     tickets: stored.tickets,
     viewer: stored.viewer,
     // 没有窗口字段的旧条目按首屏一页处理。

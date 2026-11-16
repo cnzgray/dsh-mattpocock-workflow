@@ -165,6 +165,7 @@ export const SNAPSHOT: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: 30,
   windowLimit: 100,
+  hierarchy: 'native',
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,

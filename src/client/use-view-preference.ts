@@ -9,10 +9,11 @@ import {
   readViewPreference,
   writeViewPreference,
   type PreferenceStorage,
+  type TicketLayout,
   type ViewPreference,
 } from './view-preference.ts'
 
-/** 视图偏好的当前值与两个修改入口。 */
+/** 视图偏好的当前值与三个修改入口。 */
 export interface ViewPreferenceControls {
   readonly preference: ViewPreference
   readonly setFilter: (filter: TicketFilter) => void
@@ -20,6 +21,7 @@ export interface ViewPreferenceControls {
   readonly toggleAssignedToMe: () => void
   readonly toggleCreatedByMe: () => void
   readonly clearMyTickets: () => void
+  readonly setLayout: (layout: TicketLayout) => void
 }
 
 interface ViewState {
@@ -77,6 +79,9 @@ export function useViewPreference(workspaceRoot: string | undefined): ViewPrefer
     },
     clearMyTickets: () => {
       apply({ ...preference, assignedToMe: false, createdByMe: false })
+    },
+    setLayout: (layout) => {
+      apply({ ...preference, layout })
     },
   }
 }

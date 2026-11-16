@@ -508,6 +508,7 @@ describe('本地快照库与增量刷新', () => {
       changes: () =>
         Promise.resolve({
           tickets: [ticket({ number: 2, title: '改过的票', updatedAt: '2026-02-01T00:00:00Z' })],
+          hierarchy: 'native',
           truncated: false,
           total: 30,
         }),
@@ -532,7 +533,8 @@ describe('本地快照库与增量刷新', () => {
     ])
     const { service, changeCalls } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30 }),
+      changes: () =>
+        Promise.resolve({ tickets: [], hierarchy: 'native', truncated: false, total: 30 }),
     })
 
     await service.handle('snapshot.refresh', { workspaceRoot: ROOT })
@@ -564,6 +566,7 @@ describe('本地快照库与增量刷新', () => {
       changes: () =>
         Promise.resolve({
           tickets: [ticket({ number: 2, title: '新的票', updatedAt: '2026-02-01T00:00:00Z' })],
+          hierarchy: 'native',
           truncated: false,
           total: 2,
         }),
@@ -599,7 +602,8 @@ describe('本地快照库与增量刷新', () => {
       {
         store,
         // 删除不产生变更记录：增量里没有这张票，只能靠权威总数发现它已经不存在。
-        changes: () => Promise.resolve({ tickets: [], truncated: false, total: 2 }),
+        changes: () =>
+          Promise.resolve({ tickets: [], hierarchy: 'native', truncated: false, total: 2 }),
       },
     )
 
@@ -626,7 +630,8 @@ describe('本地快照库与增量刷新', () => {
     ])
     const { service, snapshotCalls } = serviceWith([snapshot()], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: true, total: 30 }),
+      changes: () =>
+        Promise.resolve({ tickets: [], hierarchy: 'native', truncated: true, total: 30 }),
     })
 
     const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
@@ -651,7 +656,8 @@ describe('本地快照库与增量刷新', () => {
     })
     const { service, snapshotCalls } = serviceWith([full], 'gitea', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false, total: Number.NaN }),
+      changes: () =>
+        Promise.resolve({ tickets: [], hierarchy: 'native', truncated: false, total: Number.NaN }),
     })
 
     const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
@@ -679,7 +685,8 @@ describe('本地快照库与增量刷新', () => {
       undefined,
       {
         store,
-        changes: () => Promise.resolve({ tickets: [], truncated: false, total: 4 }),
+        changes: () =>
+          Promise.resolve({ tickets: [], hierarchy: 'native', truncated: false, total: 4 }),
       },
     )
 
@@ -708,7 +715,8 @@ describe('本地快照库与增量刷新', () => {
     const store = memoryStore([storedEntry()])
     const { service, snapshotCalls, changeCalls } = serviceWith([snapshot()], 'github', undefined, {
       store,
-      changes: () => Promise.resolve({ tickets: [], truncated: false, total: 30 }),
+      changes: () =>
+        Promise.resolve({ tickets: [], hierarchy: 'native', truncated: false, total: 30 }),
     })
 
     await service.handle('snapshot.refresh', { workspaceRoot: ROOT, full: true })

@@ -35,6 +35,7 @@ import { TrackerError } from '../../core/tracker-error.ts'
 import { readGitlabAttachment } from './attachment.ts'
 import { deleteGitlabTicket, readGitlabDeletePermission } from './delete.ts'
 import { applyGitlabChanges, readGitlabDetail } from './detail.ts'
+import { readWorkItemParents } from './hierarchy.ts'
 import { readGitlabOptions } from './options.ts'
 import {
   hasNativeBlockingLinks,
@@ -197,12 +198,16 @@ async function readSnapshot(
   }
   hints.set(workspaceRoot, blockerHint(project, issues))
 
-  const tickets = issues.map((issue) => withOpenBlockers(issue, states))
+  const hierarchy = await readHierarchy(deps, workspaceRoot, project.path, issues)
+  const tickets = issues.map((issue) =>
+    withParent(withOpenBlockers(issue, states), issue.ticket.number, hierarchy.parents),
+  )
   return {
     repository: project.path,
     fetchedAt: deps.now(),
     loaded: tickets.length,
     total: listing.total ?? tickets.length,
+    hierarchy: hierarchy.kind,
     tickets,
     viewer,
     ...(window === undefined ? {} : { windowLimit: window }),
@@ -218,6 +223,53 @@ async function readSnapshot(
  */
 async function readViewer(deps: GitlabTrackerDeps, workspaceRoot: string): Promise<string | null> {
   return parseViewer(await callGlabApi(deps.run, workspaceRoot, 'user'))
+}
+
+/** 一次层级补齐的结果：成功是原生能力，失败整体降级为无父子能力。 */
+interface GitlabHierarchy {
+  readonly kind: 'native' | 'none'
+  readonly parents: ReadonlyMap<number, string>
+}
+
+/**
+ * 补齐一批票的工作项层级。查询失败时不让列表失败：本次快照标为无父子能力，
+ * 平铺照常，下一次刷新重试。
+ */
+async function readHierarchy(
+  deps: GitlabTrackerDeps,
+  workspaceRoot: string,
+  project: string,
+  issues: readonly ParsedIssue[],
+): Promise<GitlabHierarchy> {
+  const seen = new Set<number>()
+  const iids: number[] = []
+  for (const issue of issues) {
+    const iid = issue.ticket.number
+    if (iid === null || seen.has(iid)) continue
+    seen.add(iid)
+    iids.push(iid)
+  }
+  if (iids.length === 0) return { kind: 'native', parents: new Map() }
+
+  try {
+    return {
+      kind: 'native',
+      parents: await readWorkItemParents(deps.run, workspaceRoot, project, iids),
+    }
+  } catch {
+    return { kind: 'none', parents: new Map() }
+  }
+}
+
+/** 给一张票挂上父级引用；没有父级时原样返回。 */
+function withParent(
+  ticket: Ticket,
+  iid: number | null,
+  parents: ReadonlyMap<number, string>,
+): Ticket {
+  if (iid === null) return ticket
+  const parent = parents.get(iid)
+  return parent === undefined ? ticket : { ...ticket, parent }
 }
 
 /** 列表阶段为补齐阶段留下的线索：项目地址、列表是否已表明支持、优先探测哪张票。 */
@@ -280,9 +332,13 @@ async function readGitlabChanges(
   )
   const viewer = await viewerTask
 
+  const hierarchy = await readHierarchy(deps, workspaceRoot, project.path, issues)
   return {
     // 增量只负责取回变更过的票，阻塞判定由宿主在合并后统一处理。
-    tickets: issues.map((issue) => issue.ticket),
+    tickets: issues.map((issue) =>
+      withParent(issue.ticket, issue.ticket.number, hierarchy.parents),
+    ),
+    hierarchy: hierarchy.kind,
     truncated,
     total,
     ...(viewer === undefined ? {} : { viewer }),

@@ -47,7 +47,12 @@ describe('GitHub 工单后端', () => {
     expect(snapshot.loaded).toBe(5)
     expect(snapshot.total).toBe(30)
     expect(snapshot.fetchedAt).toBe(NOW)
+    expect(snapshot.hierarchy).toBe('native')
     expect(calls.map((call) => call[0])).toEqual(['git', 'gh'])
+    // 父子字段随原列表查询一并取回，不新增请求。
+    const query = calls[1]?.join(' ') ?? ''
+    expect(query).toContain('nameWithOwner')
+    expect(query).toContain('parent { number repository { nameWithOwner } }')
   })
 
   it('把 owner、name 与上限传给 gh', async () => {
@@ -629,6 +634,10 @@ describeTrackerContract('GitHub', {
     fetchedAt: NOW,
   },
   nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0, 0, 2] },
+  hierarchy: {
+    kind: 'native',
+    parents: { '#16': '#15', '#12': 'other/repo#99' },
+  },
   changes: { unsupported: true },
   detail: {
     createTracker: () =>

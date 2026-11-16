@@ -17,6 +17,11 @@
 - 补全候选的归一化也在这里：`normalizeLabelColor` 把颜色统一成小写 `#rrggbb`，
   `dedupeBy` 按名字去重并保留首次出现的顺序；
 - `markdown.ts` 里的 `parseMarkdownDetail` 把本地工单文件切成标题、正文与评论段落。
+- 父子关系也是纯数据：`ticket.ts` 的 `HierarchyKind` 声明后端能力（`native` / `convention` / `none`），
+  `Ticket.parent` 只存父级引用字符串；`markdown.ts` 从 `## Comments` 之前的 `Parent: NN` 解析同一 feature 下的父票路径，
+  缺失、自引用与跨 feature 引用都按无父级处理。父子关系不参与 `classify.ts` 的判定。
+- `snapshot-store.ts` 的格式版本 3 把 `hierarchy` 与工单的 `parent` 一起缓存；版本不符或缺字段的旧条目整份作废，
+  由宿主重拉，避免把没有父子边的旧数据当成完整的树。
 
 ## 指标与压力判档（`metrics.ts`）
 

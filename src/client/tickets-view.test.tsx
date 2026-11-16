@@ -94,6 +94,7 @@ const FINAL: WorkspaceSnapshot = {
   loaded: TICKETS.length,
   total: 3,
   windowLimit: 3,
+  hierarchy: 'native',
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,

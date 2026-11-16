@@ -30,18 +30,20 @@ export interface ParsedIssues {
 /**
  * 从 GraphQL 响应里取出总数与工单。
  * @param output - `gh api graphql` 的标准输出。
+ * @param repository - 当前仓库的 `owner/name`；响应里带 `nameWithOwner` 时以响应为准。
  * @returns 仓库总数与实际解析到的工单。
  * @throws {TrackerError} 输出不是 JSON、仓库不存在或工单字段不合法。
  */
-export function parseIssueGraphql(output: string): ParsedIssues {
+export function parseIssueGraphql(output: string, repository?: string): ParsedIssues {
   const payload = parseJson(output, 'gh 返回的不是有效 JSON')
-  const repository = readRepository(payload)
-  const issues = readIssues(repository)
+  const repositoryNode = readRepository(payload)
+  const current = readRepositoryLabel(repositoryNode) ?? repository
+  const issues = readIssues(repositoryNode)
 
   const nodes = issues.nodes
   if (!Array.isArray(nodes)) throw invalid('仓库的 issues.nodes 不是数组')
 
-  const tickets = nodes.map((node, index) => parseIssueNode(node, index))
+  const tickets = nodes.map((node, index) => parseIssueNode(node, index, current))
   const total = issues.totalCount
   if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
     throw invalid('仓库的 issues.totalCount 不是非负整数')
@@ -94,7 +96,7 @@ function readPageCursor(issues: Record<string, unknown>): {
   }
 }
 
-function parseIssueNode(value: unknown, index: number): Ticket {
+function parseIssueNode(value: unknown, index: number, repository: string | undefined): Ticket {
   if (!isRecord(value)) throw invalid(`第 ${String(index + 1)} 张票不是对象`)
 
   const number = value.number
@@ -106,6 +108,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
   const state = readState(value.state, number)
   const closedAt = readClosedAt(value.closedAt, number)
   const url = readWebUrl(value.url)
+  const parent = readParent(value.parent, number, repository)
 
   return {
     ref: `#${String(number)}`,
@@ -120,7 +123,48 @@ function parseIssueNode(value: unknown, index: number): Ticket {
     openBlockers: readOpenBlockers(value.issueDependenciesSummary),
     ...(closedAt === undefined ? {} : { closedAt }),
     ...(url === undefined ? {} : { url }),
+    ...(parent === undefined ? {} : { parent }),
   }
+}
+
+/**
+ * 解析父票引用：同仓库存 `#编号`，跨仓库存完整的 `仓库#编号`。
+ * 父票为空、仓库不可见（拿不到 `nameWithOwner`）或数据形状不对时按无父级处理，
+ * 绝不用裸编号去匹配别的仓库。
+ * @param value - GraphQL 的 `parent` 字段。
+ * @param number - 当前票编号，用于错误信息。
+ * @param repository - 当前仓库的 `owner/name`。
+ * @returns 父级引用；没有可用父级时 undefined。
+ */
+function readParent(
+  value: unknown,
+  number: number,
+  repository: string | undefined,
+): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (!isRecord(value)) throw invalid(`第 ${String(number)} 张票的父票不是对象`)
+
+  const parentNumber = value.number
+  if (typeof parentNumber !== 'number' || !Number.isInteger(parentNumber) || parentNumber <= 0) {
+    throw invalid(`第 ${String(number)} 张票的父票编号不合法`)
+  }
+
+  // 没有访问权限时父票可能在，但仓库对象为空；这时只按无父级处理。
+  const parentRepository = value.repository
+  if (!isRecord(parentRepository)) return undefined
+  const label = parentRepository.nameWithOwner
+  if (typeof label !== 'string' || label.length === 0) return undefined
+
+  if (label.toLowerCase() === repository?.toLowerCase()) {
+    return `#${String(parentNumber)}`
+  }
+  return `${label}#${String(parentNumber)}`
+}
+
+/** 读取响应里的当前仓库名；查询没带 `nameWithOwner` 时返回 undefined。 */
+function readRepositoryLabel(repository: Record<string, unknown>): string | undefined {
+  const label = repository.nameWithOwner
+  return typeof label === 'string' && label.length > 0 ? label : undefined
 }
 
 function readRepository(payload: unknown): Record<string, unknown> {

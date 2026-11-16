@@ -2,11 +2,11 @@
 
 对接外部系统，每个后端一个子目录：
 
-- `github/`：通过 `git` 与 `gh` 读取 `github.com` 仓库的 issue；
-- `gitlab/`：通过 `git` 与 `glab` 读取 GitLab issue；列表带 `blocking_issues_count` 时直接判定支持原生阻塞，原生阻塞数在 `resolveBlockers` 补齐阶段读取：否则按实例主机只探测一次，支持时用一次批量 GraphQL 取回阻塞数，失败或空数组时退回 `Blocked by:` 行；要求 `glab` >= 1.126，更早版本未验证；
+- `github/`：通过 `git` 与 `gh` 读取 `github.com` 仓库的 issue；列表 GraphQL 一并取父票编号与所在仓库，同仓库存 `#编号`、跨仓库存 `仓库#编号`，父子能力为原生；
+- `gitlab/`：通过 `git` 与 `glab` 读取 GitLab issue；列表带 `blocking_issues_count` 时直接判定支持原生阻塞，原生阻塞数在 `resolveBlockers` 补齐阶段读取：否则按实例主机只探测一次，支持时用一次批量 GraphQL 取回阻塞数，失败或空数组时退回 `Blocked by:` 行；列表与增量返回后按每批最多 100 个 iid 用一次 `workItems` GraphQL 补齐父级（Issue / Task 存 `#iid`，Epic 存 `&iid`），查询失败只把本次快照标为无父子能力；要求 `glab` >= 1.126，更早版本未验证；
 - `gitea/`：通过 `git` 与 `tea` 读取 Gitea issue 与原生 issue 依赖（只读 `tea api --include`）；
-  依赖功能关闭时退回 `Blocked by:` 行。宿主选择后端时探测 `tea logins list --output json`；
-- `markdown/`：读取工作区里 `.scratch/<feature>/issues/*.md` 的本地工单；`env.ts` 供环境检查确认工单目录与文件可解析；
+  依赖功能关闭时退回 `Blocked by:` 行。宿主选择后端时探测 `tea logins list --output json`；Gitea 没有原生子工单，父子能力显式为无；
+- `markdown/`：读取工作区里 `.scratch/<feature>/issues/*.md` 的本地工单；`Parent: NN` 解析成同一 feature 下的父票路径，父子能力为约定；`env.ts` 供环境检查确认工单目录与文件可解析；
 - `fs/`：环境检查用的文件系统能力（解析用户主目录、判断文件是否存在）；
 - `github/`、`gitlab/`、`gitea/` 里的 `env.ts`：环境检查的命令行探测（CLI 是否安装、是否登录、仓库是否可达）；
   Gitea 的登录列表与仓库访问复用工单后端的调用方式与解析函数。
@@ -42,9 +42,14 @@ GitLab 首屏带 `--include` 从 `X-Total` 读仓库总数，Gitea 用 `X-Total-
   按当前工作区的项目调用 `glab api projects/<项目>/uploads/...`；输出走执行器的 `base64` 模式
   （DSH 子进程服务只交付文本），再按文件头识别 PNG / JPEG / GIF / WebP，超过 5 MB 或不是图片都算失败；
 - 本地 Markdown 的引用必须是 `.scratch/<feature>/issues/<name>.md`，越界路径直接拒绝读取。
-- 可选字段：能给出关闭时间时填 `closedAt`；能给出阻塞依赖边时填 `blockedBy`（引用集合，不论开闭）。
+- 可选字段：能给出关闭时间时填 `closedAt`；能给出阻塞依赖边时填 `blockedBy`（引用集合，不论开闭）；
+  能给出父级时填 `parent`（父级引用，可指向列表外）。
   GitHub 列表查询只给未关闭阻塞数，整张票省略 `blockedBy`；本地 Markdown 没有关闭时间。
+- 列表与增量结果都必须显式带 `hierarchy`（`native` / `convention` / `none`）；声明 `none` 的后端不得出现 `parent`。
+  父级引用只存引用字符串，不存父票的标题、状态或对象：父票信息仍从当前列表里查。
 
 - 只能依赖 `core`；各个后端之间互不依赖（由 `adapters-only-core` 规则检查）；
 - 工单后端共用一套契约测试：同一组用例，每个后端都必须跑通；测试里不连真实服务，用录制好的响应或内存假实现。
   详情、补全候选与删除能力也在这套契约里：实现该能力的后端给出请求与期望输出，省略即表示不实现。
+  父子能力同样必须显式声明：每个后端给出 `hierarchy` 与期望父级映射；声明为无的后端不得出现父级引用，
+  新增后端漏填会直接类型检查失败。

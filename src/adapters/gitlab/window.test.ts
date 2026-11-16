@@ -44,8 +44,9 @@ describe('GitLab 列表窗口', () => {
     expect(snapshot.loaded).toBe(2)
     expect(snapshot.total).toBe(250)
     expect(snapshot.windowLimit).toBe(2)
+    // 身份查询与层级补齐都不占列表翻页的请求数。
     const calls = recorded.calls.filter(
-      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user',
+      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user' && !call.includes('graphql'),
     )
     expect(calls).toHaveLength(1)
     const call = calls[0]?.join(' ') ?? ''
@@ -69,7 +70,7 @@ describe('GitLab 列表窗口', () => {
     expect(snapshot.total).toBe(250)
     // 只有第一页需要响应头，后续页不再带 `--include`。
     const calls = recorded.calls.filter(
-      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user',
+      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user' && !call.includes('graphql'),
     )
     expect(calls).toHaveLength(2)
     expect(calls[1]).not.toContain('--include')

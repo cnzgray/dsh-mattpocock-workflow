@@ -201,6 +201,77 @@ describe('GraphQL 工单解析', () => {
     expect(() => parseIssueGraphql(output)).toThrow(/blockedBy/)
   })
 
+  it('同仓库父票存 #编号，跨仓库父票存完整引用', () => {
+    const parsed = parseIssueGraphql(GH_ISSUES_OUTPUT)
+
+    expect(parsed.tickets.find((ticket) => ticket.number === 16)?.parent).toBe('#15')
+    expect(parsed.tickets.find((ticket) => ticket.number === 12)?.parent).toBe('other/repo#99')
+  })
+
+  it('父票为空或仓库不可见时按无父级处理', () => {
+    const parsed = parseIssueGraphql(GH_ISSUES_OUTPUT)
+
+    expect(
+      Object.hasOwn(parsed.tickets.find((ticket) => ticket.number === 9) ?? {}, 'parent'),
+    ).toBe(false)
+    expect(
+      Object.hasOwn(parsed.tickets.find((ticket) => ticket.number === 7) ?? {}, 'parent'),
+    ).toBe(false)
+  })
+
+  it('响应没带当前仓库名时用调用方仓库判断同仓', () => {
+    const output = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            totalCount: 1,
+            nodes: [
+              {
+                number: 2,
+                title: '子票',
+                state: 'OPEN',
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                parent: {
+                  number: 1,
+                  repository: { nameWithOwner: 'CNZGRAY/dsh-mattpocock-workflow' },
+                },
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(parseIssueGraphql(output, 'cnzgray/dsh-mattpocock-workflow').tickets[0]?.parent).toBe(
+      '#1',
+    )
+  })
+
+  it('父票编号不合法时返回数据格式错误', () => {
+    const output = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            totalCount: 1,
+            nodes: [
+              {
+                number: 1,
+                title: '父票坏了',
+                state: 'OPEN',
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                parent: { number: 0, repository: { nameWithOwner: 'cnzgray/repo' } },
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(() => parseIssueGraphql(output)).toThrow(/父票编号/)
+  })
+
   it('带上 http(s) 网页地址，缺失或不是 http(s) 时省略', () => {
     const node = (number: number, url: unknown): Record<string, unknown> => ({
       number,

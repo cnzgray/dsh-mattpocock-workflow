@@ -376,6 +376,13 @@ async function mergeIncremental(
     return undefined
   }
 
+  // 父子能力与库里不一致时（例如上次是原生、这次层级查询失败），
+  // 这份增量画不出与库一致的树，当次退回全量重拉。
+  if (changes.hierarchy !== base.hierarchy) {
+    logIncrementalFallback(deps, resolved.kind, 'hierarchy', startedAt)
+    return undefined
+  }
+
   const windowLimit = base.windowLimit ?? SNAPSHOT_PAGE_SIZE
   const merged = mergeTickets(base.tickets, changes.tickets, windowLimit)
   // 远端删除不产生变更记录：合并后票数超过权威总数，说明缓存里有已删除的票。
@@ -390,6 +397,7 @@ async function mergeIncremental(
     fetchedAt: deps.now(),
     loaded: merged.length,
     total,
+    hierarchy: base.hierarchy,
     tickets: merged,
     // 后端这次查了身份就用新值；没查（省略）时沿用基准数据里的身份。
     viewer: changes.viewer === undefined ? base.viewer : changes.viewer,
@@ -405,7 +413,7 @@ async function mergeIncremental(
 function logIncrementalFallback(
   deps: SnapshotServiceDeps,
   backend: BackendKind,
-  reason: 'truncated' | 'invalid-total' | 'drift',
+  reason: 'truncated' | 'invalid-total' | 'drift' | 'hierarchy',
   startedAt: number,
 ): void {
   deps.log('warn', LOG_EVENTS.snapshot, {

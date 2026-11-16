@@ -124,6 +124,32 @@ export const GITLAB_LINKS = new Map<number, string>([
   ],
 ])
 
+/**
+ * 工作项层级查询的录制响应：任务挂在工单下得到 `#iid`，
+ * 工单挂在 epic 下得到 `&iid`，没有父级的节点 parent 为 null。
+ */
+export const GITLAB_HIERARCHY_OUTPUT = JSON.stringify({
+  data: {
+    project: {
+      workItems: {
+        nodes: [
+          { iid: '15', widgets: [{ type: 'HIERARCHY', parent: null }] },
+          {
+            iid: '16',
+            widgets: [
+              { type: 'HIERARCHY', parent: { iid: '15', workItemType: { name: 'Issue' } } },
+            ],
+          },
+          {
+            iid: '9',
+            widgets: [{ type: 'HIERARCHY', parent: { iid: '3', workItemType: { name: 'Epic' } } }],
+          },
+        ],
+      },
+    },
+  },
+})
+
 /** 批量 GraphQL 查询的录制响应：`blockedByCount` 只统计未关闭的阻塞票。 */
 export const GITLAB_BLOCKED_BY_OUTPUT = JSON.stringify({
   data: {

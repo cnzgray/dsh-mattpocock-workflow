@@ -26,6 +26,7 @@ const HEADING = /^#\s+(.+?)\s*$/
 const COMMENTS_HEADING = /^##\s+Comments\b/i
 const STATUS = /^\s*Status:\s*(.+?)\s*$/i
 const BLOCKED_BY = /^\s*Blocked by:\s*(.*?)\s*$/i
+const PARENT = /^\s*Parent:\s*(.*?)\s*$/i
 const FILE_NUMBER = /^(\d+)(?:-|\.md$)/
 const REFERENCE = /\d+/g
 
@@ -45,7 +46,9 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
   }
 
   return files.map((file) => {
-    const blockers = blockersOf(file, byFeature.get(file.feature))
+    const siblings = byFeature.get(file.feature)
+    const blockers = blockersOf(file, siblings)
+    const parent = parentOf(file, siblings)
     return {
       ref: file.path,
       number: null,
@@ -58,6 +61,7 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
       updatedAt: file.updatedAt,
       openBlockers: blockers.openBlockers,
       blockedBy: blockers.blockedBy,
+      ...(parent === undefined ? {} : { parent }),
     }
   })
 }
@@ -163,6 +167,39 @@ function blockersOf(
 function blockedByLine(content: string): string | undefined {
   for (const line of preambleOf(content).split('\n')) {
     const match = BLOCKED_BY.exec(line)
+    if (match !== null) return match[1] ?? ''
+  }
+  return undefined
+}
+
+/**
+ * 解析 `Parent: NN`：只看 `## Comments` 之前，取第一个编号，且父票必须是
+ * 同一 feature 下确实存在的另一张工单。指向缺失文件、指向自己或跨 feature
+ * 都按无父级处理，坏引用不让列表出错。
+ * @param file - 当前工单文件。
+ * @param siblings - 同一 feature 下编号到文件的映射。
+ * @returns 父票的相对路径；没有可用父级时 undefined。
+ */
+function parentOf(
+  file: MarkdownTicketFile,
+  siblings: ReadonlyMap<number, MarkdownTicketFile> | undefined,
+): string | undefined {
+  if (siblings === undefined) return undefined
+
+  const line = parentLine(file.content)
+  if (line === undefined) return undefined
+
+  const number = referencedNumbers(line)[0]
+  if (number === undefined) return undefined
+
+  const parent = siblings.get(number)
+  if (parent === undefined || parent.path === file.path) return undefined
+  return parent.path
+}
+
+function parentLine(content: string): string | undefined {
+  for (const line of preambleOf(content).split('\n')) {
+    const match = PARENT.exec(line)
     if (match !== null) return match[1] ?? ''
   }
   return undefined

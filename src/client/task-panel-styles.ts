@@ -295,6 +295,19 @@ export const LOADED_STYLE: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 }
 
+/** 父子模式下的覆盖范围提示：贴在“已加载”下面，不遮挡列表。 */
+export const TREE_NOTE_STYLE: CSSProperties = {
+  padding: '0 12px 6px',
+  color: COLORS.tertiary,
+  fontSize: 11,
+}
+
+/** 偏好是父子、但当前后端不提供层级时的降级说明。 */
+export const TREE_DEGRADED_STYLE: CSSProperties = {
+  ...TREE_NOTE_STYLE,
+  color: COLORS.warn,
+}
+
 /** 加载与空状态的提示：左边与列表、工具栏同在 12px 页边距上。 */
 export const EMPTY_STYLE: CSSProperties = {
   padding: '16px 12px',

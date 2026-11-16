@@ -6,6 +6,9 @@
  */
 import type { SortDirection, TicketFilter, TicketSortKey } from './ticket-view.ts'
 
+/** 列表布局：平铺或父子。 */
+export type TicketLayout = 'flat' | 'tree'
+
 /** 面板的一份视图偏好。 */
 export interface ViewPreference {
   readonly filter: TicketFilter
@@ -15,15 +18,18 @@ export interface ViewPreference {
   readonly assignedToMe: boolean
   /** 只看我创建的工单；默认关闭。 */
   readonly createdByMe: boolean
+  /** 列表布局；旧存档没有这个字段时回退平铺。 */
+  readonly layout: TicketLayout
 }
 
-/** 没有存档时使用的视图：只看未关闭工单，可接的排在前面，不按人员筛选。 */
+/** 没有存档时使用的视图：只看未关闭工单，可接的排在前面，平铺显示且不按人员筛选。 */
 export const DEFAULT_VIEW: ViewPreference = {
   filter: 'open',
   sortKey: 'status',
   direction: 'asc',
   assignedToMe: false,
   createdByMe: false,
+  layout: 'flat',
 }
 
 /** Web Storage 里用到的部分；测试可以注入内存实现。 */
@@ -58,6 +64,8 @@ const SORT_KEYS: Record<TicketSortKey, true> = {
 
 const DIRECTIONS: Record<SortDirection, true> = { asc: true, desc: true }
 
+const LAYOUTS: Record<TicketLayout, true> = { flat: true, tree: true }
+
 /**
  * 读取某个工作区的视图偏好。
  * @param storage - 浏览器存储；不可用时传 undefined。
@@ -87,6 +95,7 @@ export function readViewPreference(
     direction: isDirection(stored.direction) ? stored.direction : DEFAULT_VIEW.direction,
     assignedToMe: isBoolean(stored.assignedToMe) ? stored.assignedToMe : DEFAULT_VIEW.assignedToMe,
     createdByMe: isBoolean(stored.createdByMe) ? stored.createdByMe : DEFAULT_VIEW.createdByMe,
+    layout: isLayout(stored.layout) ? stored.layout : DEFAULT_VIEW.layout,
   }
 }
 
@@ -114,6 +123,7 @@ export function writeViewPreference(
         direction: preference.direction,
         assignedToMe: preference.assignedToMe,
         createdByMe: preference.createdByMe,
+        layout: preference.layout,
         savedAt: now(),
         version: STORAGE_VERSION,
       }),
@@ -180,4 +190,8 @@ function isDirection(value: unknown): value is SortDirection {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean'
+}
+
+function isLayout(value: unknown): value is TicketLayout {
+  return typeof value === 'string' && Object.hasOwn(LAYOUTS, value)
 }

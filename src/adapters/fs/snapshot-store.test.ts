@@ -36,6 +36,7 @@ function entry(overrides: Partial<SnapshotStoreEntry> = {}): SnapshotStoreEntry 
     fetchedAt: 1_000,
     loaded: 1,
     total: 1,
+    hierarchy: 'native',
     tickets: [
       {
         ref: '#1',

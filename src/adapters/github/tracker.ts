@@ -36,11 +36,13 @@ const ISSUE_NODES = `nodes {
         author { login avatarUrl ... on User { name } }
         assignees(first: 10) { nodes { login } }
         issueDependenciesSummary { blockedBy }
+        parent { number repository { nameWithOwner } }
       }`
 
 const ISSUE_QUERY = `query ($owner: String!, $name: String!, $limit: Int!, $after: String) {
   viewer { login }
   repository(owner: $owner, name: $name) {
+    nameWithOwner
     issues(first: $limit, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       pageInfo { hasNextPage endCursor }
@@ -68,6 +70,8 @@ export function createGithubTracker(deps: GithubTrackerDeps): Tracker {
         fetchedAt: deps.now(),
         loaded: tickets.tickets.length,
         total: tickets.total,
+        // GitHub 原生子工单随列表查询一并取回，不新增请求。
+        hierarchy: 'native',
         tickets: tickets.tickets,
         viewer: tickets.viewer,
         // 列表按更新时间倒序覆盖最近更新的 N 张票，扩窗就是把这个 N 调大。
@@ -165,7 +169,7 @@ async function readTicketsPage(
     ...(after === null ? [] : ['-f', `after=${after}`]),
   ]
 
-  return parseIssueGraphql(await callGh(deps.run, workspaceRoot, args))
+  return parseIssueGraphql(await callGh(deps.run, workspaceRoot, args), repositoryLabel(repository))
 }
 
 function normalizeLimit(limit: number): number {

@@ -7,6 +7,7 @@ import type { CommandRunner, Tracker } from '../../core/ticket.ts'
 import {
   GITLAB_BLOCKED_BY_OUTPUT,
   GITLAB_CHANGES_OUTPUT,
+  GITLAB_HIERARCHY_OUTPUT,
   GITLAB_ISSUES_OUTPUT,
   GITLAB_LINKS,
   GITLAB_REMOTES_OUTPUT,
@@ -25,9 +26,12 @@ export interface RunnerOptions {
   /** 权威总数查询的 `--include` 输出。 */
   readonly total?: () => string
   readonly links?: (iid: number) => string
+  /** 阻塞计数 GraphQL 的响应。 */
   readonly graphql?: () => string
   /** `glab api user` 的输出；抛错模拟身份查询失败。 */
   readonly user?: () => string
+  /** 工作项层级 GraphQL 的响应。 */
+  readonly hierarchy?: () => string
 }
 
 export interface RecordedRunner {
@@ -35,12 +39,15 @@ export interface RecordedRunner {
   readonly calls: readonly (readonly string[])[]
   readonly linkCalls: readonly number[]
   readonly graphqlCalls: readonly string[]
+  /** 工作项层级查询的记录；与阻塞计数分开，便于两类断言互不影响。 */
+  readonly hierarchyCalls: readonly string[]
 }
 
 export function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
   const calls: string[][] = []
   const linkCalls: number[] = []
   const graphqlCalls: string[] = []
+  const hierarchyCalls: string[] = []
   const runner: CommandRunner = (command, args) => {
     calls.push([command, ...args])
     if (command === 'git') {
@@ -52,11 +59,13 @@ export function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
 
     const endpoint = args[1] === '--include' ? (args[2] ?? '') : (args[1] ?? '')
     if (endpoint === 'graphql') {
-      graphqlCalls.push(args.join(' '))
-      return Promise.resolve({
-        stdout: (options.graphql ?? (() => GITLAB_BLOCKED_BY_OUTPUT))(),
-        stderr: '',
-      })
+      const isHierarchy = args.some((arg) => arg.includes('workItems'))
+      const callsForQuery = isHierarchy ? hierarchyCalls : graphqlCalls
+      callsForQuery.push(args.join(' '))
+      const output = isHierarchy
+        ? (options.hierarchy ?? (() => GITLAB_HIERARCHY_OUTPUT))()
+        : (options.graphql ?? (() => GITLAB_BLOCKED_BY_OUTPUT))()
+      return Promise.resolve({ stdout: output, stderr: '' })
     }
 
     if (endpoint === 'user') {
@@ -93,7 +102,7 @@ export function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
       stderr: '',
     })
   }
-  return { runner, calls, linkCalls, graphqlCalls }
+  return { runner, calls, linkCalls, graphqlCalls, hierarchyCalls }
 }
 
 export function trackerWith(
@@ -104,6 +113,7 @@ export function trackerWith(
   readonly calls: readonly (readonly string[])[]
   readonly linkCalls: readonly number[]
   readonly graphqlCalls: readonly string[]
+  readonly hierarchyCalls: readonly string[]
 } {
   const recorded = recordedRunner(options)
   return {
@@ -115,5 +125,6 @@ export function trackerWith(
     calls: recorded.calls,
     linkCalls: recorded.linkCalls,
     graphqlCalls: recorded.graphqlCalls,
+    hierarchyCalls: recorded.hierarchyCalls,
   }
 }

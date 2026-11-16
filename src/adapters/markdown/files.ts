@@ -130,10 +130,10 @@ export interface LocalTicketChanges {
   /** 窗口内变更过的工单文件：修改时间晚于窗口起点。 */
   readonly changed: readonly MarkdownTicketFile[]
   /**
-   * 为判定阻塞而一并读入的兄弟工单文件。
+   * 为判定阻塞与父子关系而一并读入的兄弟工单文件。
    *
-   * 它们本身没有变化，不进入结果；只是变更工单的 `Blocked by:` 行引用到它们，
-   * 少了它们，变更工单的阻塞数就会与全量扫描对不上。
+   * 它们本身没有变化，不进入结果；只是变更工单的 `Blocked by:` / `Parent:` 行
+   * 引用到它们，少了它们，变更工单的阻塞数或父级引用就会与全量扫描对不上。
    */
   readonly context: readonly MarkdownTicketFile[]
   /** `issues/` 下的工单文件总数；目录扫描本来就能看到全部文件，不用额外读取。 */
@@ -208,8 +208,8 @@ export async function readChangedTicketFiles(
  * 找出变更工单引用到的兄弟文件。
  *
  * 先用占位内容解析一次：core 的阻塞判定只会把「同一 feature 下确实存在的兄弟工单」
- * 放进 `blockedBy`，所以这份占位解析能给出要补读的文件，
- * 适配器不必把 `Blocked by:` 的解析规则再写一遍。
+ * 放进 `blockedBy`，父子解析也只会把确实存在的父票路径放进 `parent`，
+ * 所以这份占位解析能给出要补读的文件，适配器不必把这两套解析规则再写一遍。
  * @param moved - 变更过的工单文件。
  * @param untouched - 同一 feature 下没动过的工单文件与它们的时间戳。
  * @param feature - feature 目录名。
@@ -235,6 +235,8 @@ function referencedSiblings(
   for (const ticket of probe) {
     if (!movedPaths.has(ticket.ref)) continue
     for (const ref of ticket.blockedBy ?? []) referenced.add(ref)
+    // 父票文件也要补读：只改子文件时，父级引用不能因为父文件没动就丢掉。
+    if (ticket.parent !== undefined) referenced.add(ticket.parent)
   }
 
   return untouched.filter(({ entry }) => referenced.has(`.scratch/${feature}/issues/${entry.name}`))

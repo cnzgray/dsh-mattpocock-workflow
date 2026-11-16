@@ -28,6 +28,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   loaded: 0,
   total: 0,
   windowLimit: 100,
+  hierarchy: 'native',
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,

@@ -7,6 +7,14 @@
 export type TicketState = 'open' | 'closed'
 
 /**
+ * 后端的父子关系能力：
+ * - `native`：远端后端原生给出父子关系（GitHub 子工单、GitLab 工作项层级）；
+ * - `convention`：按本地工单约定从文件内容解析（`Parent:` 行）；
+ * - `none`：后端不提供父子关系，父子布局不可用。
+ */
+export type HierarchyKind = 'native' | 'convention' | 'none'
+
+/**
  * 工单创建人。core 与 protocol 各自声明同形状的类型：core 保持纯逻辑，
  * protocol 保持叶子，两者都不跨目录引用。
  */
@@ -49,6 +57,14 @@ export interface Ticket {
    * 引用不在已加载列表里时，链深度只按已知的未关闭票计算。
    */
   readonly blockedBy?: readonly string[]
+  /**
+   * 父级引用；没有父级或后端给不出父子关系时省略。
+   *
+   * 引用不保证指向当前列表里的票：可能是 GitHub 跨仓库父票（`owner/repo#15`）、
+   * GitLab epic（`&3`），或本地 Markdown 里当前没读到的文件。界面只把能在
+   * 当前列表里找到的引用画成父子树，其余只显示父级提示。
+   */
+  readonly parent?: string
 }
 
 /** 后端返回的一次拉取结果。 */
@@ -61,6 +77,8 @@ export interface TrackerSnapshot {
   readonly tickets: readonly Ticket[]
   /** 当前登录用户的远端登录名；识别不出时为 null。 */
   readonly viewer: string | null
+  /** 这次列表的父子关系来源；每个后端都必须显式给出。 */
+  readonly hierarchy: HierarchyKind
   /**
    * 列表覆盖的上限：只覆盖最近更新的 N 张票（GitHub 的单页上限）。
    * 缺省表示覆盖全部。宿主合并增量时按它裁剪，使结果与全量重拉一致。
@@ -72,6 +90,11 @@ export interface TrackerSnapshot {
 export interface TrackerChanges {
   /** 变更过的工单：更新时间落在增量窗口内。 */
   readonly tickets: readonly Ticket[]
+  /**
+   * 这次增量的父子关系来源。与本地快照库不一致时宿主退回全量重拉：
+   * 例如上次拿到 GitLab 原生层级，这次层级查询失败降级为 `none`。
+   */
+  readonly hierarchy: HierarchyKind
   /**
    * 是否被后端上限截断。为 true 时宿主改用全量重拉，
    * 不把一份不完整的增量当成完整结果。

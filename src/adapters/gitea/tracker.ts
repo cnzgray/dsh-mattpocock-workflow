@@ -89,6 +89,8 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         fetchedAt: deps.now(),
         loaded: tickets.length,
         total: Math.max(issues.total ?? tickets.length, tickets.length),
+        // Gitea 没有原生子工单能力，不新造正文约定去模拟。
+        hierarchy: 'none',
         tickets,
         viewer,
         ...(window === undefined ? {} : { windowLimit: window }),
@@ -186,6 +188,7 @@ async function readGiteaChanges(
 
   return {
     tickets,
+    hierarchy: 'none',
     truncated: issues.truncated,
     total,
     ...(viewer === undefined ? {} : { viewer }),

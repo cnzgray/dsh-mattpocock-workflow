@@ -245,6 +245,16 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('windowLimit' in value) || typeof value.windowLimit !== 'number') return false
+  if (
+    !('hierarchy' in value) ||
+    !(
+      value.hierarchy === 'native' ||
+      value.hierarchy === 'convention' ||
+      value.hierarchy === 'none'
+    )
+  ) {
+    return false
+  }
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
   if (!value.tickets.every(hasTicketFilterFields)) return false
   if (!('metrics' in value) || typeof value.metrics !== 'object' || value.metrics === null) {

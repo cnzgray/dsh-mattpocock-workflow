@@ -49,6 +49,25 @@ export const zh = {
   'tickets.more.scroll': '继续向下滚动加载更多',
   'tickets.more.failed': '加载更多失败：{message}',
 
+  'layout.group': '布局',
+  'layout.flat': '平铺',
+  'layout.tree': '父子',
+  'layout.flatTitle': '按当前筛选与排序平铺全部工单',
+  'layout.github': '父子关系来自 GitHub 原生子工单',
+  'layout.gitlab': '父子关系来自 GitLab 工作项层级；epic 分组不进入列表',
+  'layout.markdown': '父子关系来自本地工单约定（Parent: 行）',
+  'layout.none': '当前后端不提供父子关系',
+  'layout.giteaUnavailable': 'Gitea 暂不支持原生子工单，父子布局不可用',
+  'layout.gitlabUnavailable': '本次没有取到 GitLab 工作项层级，父子布局暂不可用；刷新会重试',
+  'tree.childCount': '{count} 张子票',
+  'tree.expand': '展开子票：{ref} {title}',
+  'tree.collapse': '收起子票：{ref} {title}',
+  'tree.parentBadge': '父级 {parent}',
+  'tree.parentOutsideTitle':
+    '父级 {parent} 不在当前列表：可能被筛选掉、尚未加载、在别的仓库，或是 GitLab epic。',
+  'tree.coverage': '父子关系只覆盖已加载的 {loaded} 张票；继续向下滚动会补齐。',
+  'tree.degraded': '当前没有可用的父子关系，已按平铺显示。',
+
   'filter.group': '状态过滤',
   'filter.all': '全部',
   'filter.open': 'Open',
@@ -537,6 +556,29 @@ export const en: Record<MessageKey, string> = {
   'tickets.more.loading': 'Loading more…',
   'tickets.more.scroll': 'Scroll down to load more',
   'tickets.more.failed': 'Failed to load more: {message}',
+
+  'layout.group': 'Layout',
+  'layout.flat': 'Flat',
+  'layout.tree': 'Parent/child',
+  'layout.flatTitle': 'Show all tickets flat, using the current filter and sort',
+  'layout.github': 'Hierarchy comes from GitHub native sub-issues',
+  'layout.gitlab':
+    'Hierarchy comes from GitLab work item hierarchy; epic groups stay out of the list',
+  'layout.markdown': 'Hierarchy comes from the local ticket convention (Parent: line)',
+  'layout.none': 'This backend does not provide hierarchy',
+  'layout.giteaUnavailable':
+    'Gitea has no native sub-issues yet, so parent/child layout is unavailable',
+  'layout.gitlabUnavailable':
+    'GitLab work item hierarchy was not available this time; parent/child layout is disabled and will retry on refresh',
+  'tree.childCount': '{count} child tickets',
+  'tree.expand': 'Expand children of {ref}: {title}',
+  'tree.collapse': 'Collapse children of {ref}: {title}',
+  'tree.parentBadge': 'Parent {parent}',
+  'tree.parentOutsideTitle':
+    'Parent {parent} is outside this list: it may be filtered out, not loaded yet, in another repository, or a GitLab epic.',
+  'tree.coverage':
+    'Hierarchy only covers the {loaded} loaded tickets; keep scrolling to load more.',
+  'tree.degraded': 'No hierarchy is available right now, so the list is shown flat.',
 
   'filter.group': 'Status filter',
   'filter.all': 'All',

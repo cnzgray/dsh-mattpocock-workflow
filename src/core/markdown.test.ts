@@ -140,6 +140,67 @@ describe('本地 Markdown 工单解析', () => {
   })
 })
 
+describe('本地 Markdown 父子关系', () => {
+  it('Parent 指向同一 feature 下存在的票时存父票路径', () => {
+    const tickets = parseMarkdownTickets([
+      file('login', '01-token.md', '# 令牌\nStatus: ready-for-agent\n'),
+      file('login', '02-bug.md', '# 会话 bug\nStatus: ready-for-agent\nParent: 01\n'),
+    ])
+
+    expect(tickets[1]?.parent).toBe('.scratch/login/issues/01-token.md')
+    expect(Object.hasOwn(tickets[0] ?? {}, 'parent')).toBe(false)
+  })
+
+  it('Parent 只取第一个编号', () => {
+    const tickets = parseMarkdownTickets([
+      file('login', '01-token.md', '# 令牌\n'),
+      file('login', '02-bug.md', '# 会话 bug\nParent: 01, 03\n'),
+    ])
+
+    expect(tickets[1]?.parent).toBe('.scratch/login/issues/01-token.md')
+  })
+
+  it('Parent 指向不存在的票或自己时按无父级处理', () => {
+    const tickets = parseMarkdownTickets([
+      file('login', '01-token.md', '# 令牌\nParent: 99\n'),
+      file('login', '02-bug.md', '# 会话 bug\nParent: 02\n'),
+    ])
+
+    expect(tickets.map((ticket) => ticket.parent)).toEqual([undefined, undefined])
+  })
+
+  it('Parent 不能跨 feature 解析', () => {
+    const tickets = parseMarkdownTickets([
+      file('billing', '01-refund.md', '# 退款\n'),
+      file('login', '02-bug.md', '# 会话 bug\nParent: 01\n'),
+    ])
+
+    expect(tickets[1]?.parent).toBeUndefined()
+  })
+
+  it('Comments 之后的 Parent 不生效', () => {
+    const tickets = parseMarkdownTickets([
+      file('login', '01-token.md', '# 令牌\n'),
+      file(
+        'login',
+        '02-bug.md',
+        '# 会话 bug\nStatus: ready-for-agent\n\n## Comments\n\nParent: 01\n',
+      ),
+    ])
+
+    expect(tickets[1]?.parent).toBeUndefined()
+  })
+
+  it('没有数字的 Parent 行按无父级处理', () => {
+    const tickets = parseMarkdownTickets([
+      file('login', '01-token.md', '# 令牌\n'),
+      file('login', '02-bug.md', '# 会话 bug\nParent: 无\n'),
+    ])
+
+    expect(tickets[1]?.parent).toBeUndefined()
+  })
+})
+
 describe('工作区显示名', () => {
   it.each([
     ['/Users/zgray/projects/repo', 'repo'],
