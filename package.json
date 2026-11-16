@@ -1,6 +1,6 @@
 {
   "name": "@cnzgray/dsh-mattpocock-workflow",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "在 DSH 里运行 mattpocock/skills 工作流的 MattWorkflow 任务面板插件。",
   "license": "MIT",
   "type": "module",
