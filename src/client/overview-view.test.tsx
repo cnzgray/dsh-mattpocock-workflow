@@ -233,6 +233,7 @@ function fakeClient(
     updateTicket: () => Promise.reject(new Error('未使用')),
     getOptions: () => Promise.reject(new Error('未使用')),
     deleteTicket: () => Promise.reject(new Error('未使用')),
+    getAttachment: () => Promise.reject(new Error('未使用')),
   }
   return { client, getCalls, refreshCalls, resolveCalls }
 }

@@ -244,6 +244,7 @@ describe('本地 Markdown 工单详情', () => {
       state: 'open',
       author: null,
       body: 'Status: ready-for-agent\n\n正文第一段。',
+      uploadsBaseUrl: null,
       labels: ['ready-for-agent'],
       assignees: [],
       comments: [
@@ -354,6 +355,7 @@ describeTrackerContract('本地 Markdown', {
       state: 'open',
       author: null,
       body: 'Status: ready-for-agent\n\n正文第一段。',
+      uploadsBaseUrl: null,
       labels: ['ready-for-agent'],
       assignees: [],
       comments: [

@@ -57,6 +57,7 @@ function fakeClient(
     getOptions: () =>
       Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
     deleteTicket: () => Promise.reject(new Error('未使用')),
+    getAttachment: () => Promise.reject(new Error('未使用')),
     cache(root, options) {
       const clear = options?.clear === true
       cacheCalls.push([root, clear])

@@ -8,7 +8,8 @@ import * as React from 'react'
 
 import type { TicketComment, TicketDetail } from '../protocol/tracker.ts'
 import { useI18n } from './i18n.tsx'
-import { MarkdownBody } from './markdown-body.tsx'
+import type { AttachmentLoader } from './attachment-loader.ts'
+import { MarkdownBody, type MarkdownAttachments } from './markdown-body.tsx'
 import {
   TIMELINE_AUTHOR_BADGE_STYLE,
   TIMELINE_CARD_AUTHOR_HEADER_STYLE,
@@ -24,9 +25,20 @@ import {
 import { Avatar } from './ticket-visuals.tsx'
 
 /** 正文卡片加全部评论。 */
-export function Timeline(props: { readonly detail: TicketDetail }): React.ReactElement {
+export function Timeline(props: {
+  readonly detail: TicketDetail
+  /** 正文与评论里后端上传图片的取图函数；详情没有补全前缀时不使用。 */
+  readonly loadAttachment?: AttachmentLoader | undefined
+}): React.ReactElement {
   const { t } = useI18n()
-  const { detail } = props
+  const { detail, loadAttachment } = props
+  const attachments = React.useMemo<MarkdownAttachments | null>(
+    () =>
+      detail.uploadsBaseUrl === null || loadAttachment === undefined
+        ? null
+        : { baseUrl: detail.uploadsBaseUrl, load: loadAttachment },
+    [detail.uploadsBaseUrl, loadAttachment],
+  )
   const count = detail.comments.length
 
   return (
@@ -45,7 +57,7 @@ export function Timeline(props: { readonly detail: TicketDetail }): React.ReactE
             {t('detail.noBody')}
           </div>
         ) : (
-          <MarkdownBody testId="detail-body" source={detail.body} />
+          <MarkdownBody testId="detail-body" source={detail.body} attachments={attachments} />
         )}
       </TimelineCard>
       <section data-testid="detail-comments" aria-label={t('detail.commentsAria', { count })}>
@@ -62,6 +74,7 @@ export function Timeline(props: { readonly detail: TicketDetail }): React.ReactE
               key={`${comment.author ?? ''}:${comment.createdAt ?? ''}:${String(index)}`}
               comment={comment}
               ticketAuthor={detail.author}
+              attachments={attachments}
             />
           ))
         )}
@@ -73,6 +86,7 @@ export function Timeline(props: { readonly detail: TicketDetail }): React.ReactE
 function CommentCard(props: {
   readonly comment: TicketComment
   readonly ticketAuthor: string | null
+  readonly attachments: MarkdownAttachments | null
 }): React.ReactElement {
   const { t } = useI18n()
   const { comment } = props
@@ -88,7 +102,7 @@ function CommentCard(props: {
         isTicketAuthor={comment.author !== null && comment.author === props.ticketAuthor}
         ariaLabel={t('detail.commentBy', { author: comment.author ?? t('detail.unsigned') })}
       >
-        <MarkdownBody source={comment.body} />
+        <MarkdownBody source={comment.body} attachments={props.attachments} />
       </TimelineCard>
     </>
   )

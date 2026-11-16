@@ -143,7 +143,8 @@ function createRpcHandler(
         method === RPC_METHODS.ticketGet ||
         method === RPC_METHODS.ticketUpdate ||
         method === RPC_METHODS.ticketOptions ||
-        method === RPC_METHODS.ticketDelete
+        method === RPC_METHODS.ticketDelete ||
+        method === RPC_METHODS.ticketAttachment
       ) {
         return ticket.handle(method, params)
       }

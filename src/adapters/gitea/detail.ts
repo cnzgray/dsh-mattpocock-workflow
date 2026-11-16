@@ -81,6 +81,7 @@ export async function readGiteaDetail(
     state: issue.state,
     author: issue.author,
     body: issue.body,
+    uploadsBaseUrl: null,
     labels: issue.labels,
     assignees: issue.assignees,
     comments,

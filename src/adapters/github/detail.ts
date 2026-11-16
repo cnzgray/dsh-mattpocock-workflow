@@ -175,6 +175,7 @@ function parseDetail(output: string, reference: TicketReference): TicketDetail {
     state: readState(payload.state),
     author: isRecord(payload.author) ? readOptionalString(payload.author.login) : null,
     body: typeof payload.body === 'string' ? payload.body : '',
+    uploadsBaseUrl: null,
     labels: readNameList(payload.labels),
     assignees: readUserNames(payload.assignees, 'login'),
     comments: readComments(payload.comments),

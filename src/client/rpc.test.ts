@@ -60,6 +60,7 @@ const DETAIL: TicketDetail = {
   state: 'open',
   author: 'carol',
   body: '正文',
+  uploadsBaseUrl: null,
   labels: ['enhancement'],
   assignees: ['alice'],
   comments: [{ author: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }],

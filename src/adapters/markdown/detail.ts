@@ -69,6 +69,7 @@ export async function readMarkdownDetail(
     state: markdownState(content),
     author: null,
     body: parsed.body,
+    uploadsBaseUrl: null,
     labels: markdownLabels(content),
     assignees: [],
     comments: parsed.comments.map((body) => ({

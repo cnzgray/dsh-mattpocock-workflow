@@ -20,12 +20,14 @@ import { TrackerError } from '../core/tracker-error.ts'
 import { BACKEND_LABELS, type BackendKind } from '../protocol/backend.ts'
 import { LOG_EVENTS, TICKET_ACTIONS } from '../protocol/log-events.ts'
 import {
+  ATTACHMENT_PATH_PREFIX,
   ERROR_CODES,
   RPC_METHODS,
   TICKET_DELETE_CONFIRMATION,
   type DetailCapabilities,
   type ErrorCode,
   type RpcResult,
+  type TicketAttachment,
   type TicketDeleteResult,
   type TicketDetail as ProtocolTicketDetail,
   type TicketUpdateResult,
@@ -51,9 +53,9 @@ export interface TicketServiceDeps {
 export interface TicketService {
   /**
    * 处理一个工单方法。
-   * @param method - `ticket.get`、`ticket.update`、`ticket.options` 或 `ticket.delete`。
-   * @param params - 工作区与工单定位参数；变更还带补丁，删除还带确认词。
-   * @returns 详情、补全候选、变更 / 删除回执或带错误码的失败。
+   * @param method - `ticket.get`、`ticket.update`、`ticket.options`、`ticket.delete` 或 `ticket.attachment`。
+   * @param params - 工作区与工单定位参数；变更还带补丁，删除还带确认词，取附件带附件地址。
+   * @returns 详情、补全候选、变更 / 删除回执、附件字节或带错误码的失败。
    */
   handle(method: string, params: unknown): Promise<RpcResult<unknown>>
 }
@@ -77,6 +79,7 @@ export function createTicketService(deps: TicketServiceDeps): TicketService {
       if (method === RPC_METHODS.ticketUpdate) return update(deps, params)
       if (method === RPC_METHODS.ticketOptions) return readOptions(deps, params)
       if (method === RPC_METHODS.ticketDelete) return remove(deps, params)
+      if (method === RPC_METHODS.ticketAttachment) return readAttachment(deps, params)
       return Promise.resolve(failure(ERROR_CODES.unknownMethod, `未知方法：${method}`))
     },
   }
@@ -215,6 +218,44 @@ async function remove(
   } catch (error) {
     const mapped = mapError(error)
     logResult(deps, 'warn', kind, 'delete', startedAt, mapped.code)
+    return failure(mapped.code, mapped.message)
+  }
+}
+
+async function readAttachment(
+  deps: TicketServiceDeps,
+  params: unknown,
+): Promise<RpcResult<TicketAttachment>> {
+  const workspaceRoot = readWorkspaceRoot(params)
+  const path = readField(params, 'path')
+  if (
+    workspaceRoot === undefined ||
+    typeof path !== 'string' ||
+    !path.startsWith(ATTACHMENT_PATH_PREFIX)
+  ) {
+    return failure(
+      ERROR_CODES.invalidParams,
+      `缺少 workspaceRoot 或 ${ATTACHMENT_PATH_PREFIX} 附件地址。`,
+    )
+  }
+
+  const startedAt = deps.now()
+  let kind: BackendKind | undefined
+  try {
+    const resolved = await deps.resolve(workspaceRoot)
+    kind = resolved.kind
+    const fetchAttachment = resolved.tracker.fetchAttachment
+    if (fetchAttachment === undefined) {
+      return unsupported(kind, '读取内联附件')
+    }
+
+    const result = await fetchAttachment(workspaceRoot, path)
+    // 日志只记结果与耗时，不记附件地址（含 secret）与字节。
+    logResult(deps, 'info', kind, 'attachment', startedAt)
+    return { ok: true, result }
+  } catch (error) {
+    const mapped = mapError(error)
+    logResult(deps, 'warn', kind, 'attachment', startedAt, mapped.code)
     return failure(mapped.code, mapped.message)
   }
 }

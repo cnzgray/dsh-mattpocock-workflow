@@ -22,6 +22,7 @@ import {
   type SnapshotCacheParams,
   type SnapshotRefreshParams,
   TICKET_DELETE_CONFIRMATION,
+  type TicketAttachment,
   type TicketDeleteResult,
   type TicketDetail,
   type TicketOptions,
@@ -94,6 +95,8 @@ export interface PanelClient {
     ref: string,
     number: number | null,
   ): Promise<RpcResult<TicketDeleteResult>>
+  /** 取回正文里内联的后端上传图片；`path` 是根相对的 `/uploads/...` 地址。 */
+  getAttachment(workspaceRoot: string, path: string): Promise<RpcResult<TicketAttachment>>
 }
 
 /**
@@ -150,6 +153,14 @@ export function createPanelClient(t: Translate, fetchImpl: FetchLike = defaultFe
         RPC_METHODS.ticketDelete,
         { workspaceRoot, ref, number, confirm: TICKET_DELETE_CONFIRMATION },
         isTicketDeleteResult,
+      ),
+    getAttachment: (workspaceRoot, path) =>
+      call(
+        fetchImpl,
+        t,
+        RPC_METHODS.ticketAttachment,
+        { workspaceRoot, path },
+        isTicketAttachmentResult,
       ),
   }
 }
@@ -326,6 +337,12 @@ function isTicketDetail(value: unknown): value is TicketDetail {
     return false
   }
   if (!('body' in value) || typeof value.body !== 'string') return false
+  if (
+    !('uploadsBaseUrl' in value) ||
+    !(value.uploadsBaseUrl === null || typeof value.uploadsBaseUrl === 'string')
+  ) {
+    return false
+  }
   if (!('labels' in value) || !Array.isArray(value.labels)) return false
   if (!('assignees' in value) || !Array.isArray(value.assignees)) return false
   if (!('comments' in value) || !Array.isArray(value.comments)) return false
@@ -361,6 +378,25 @@ function isTicketDeleteResult(value: unknown): value is RpcResult<TicketDeleteRe
       payload !== null &&
       'deleted' in payload &&
       payload.deleted === true,
+  )
+}
+
+/** 只接受宿主识别过的位图类型，界面拼 data URL 时不会拼出别的协议内容。 */
+const ATTACHMENT_MEDIA_TYPE = /^image\/(png|jpeg|gif|webp)$/
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+
+function isTicketAttachmentResult(value: unknown): value is RpcResult<TicketAttachment> {
+  return isRpcResult(
+    value,
+    (payload): payload is TicketAttachment =>
+      typeof payload === 'object' &&
+      payload !== null &&
+      'mediaType' in payload &&
+      typeof payload.mediaType === 'string' &&
+      ATTACHMENT_MEDIA_TYPE.test(payload.mediaType) &&
+      'base64' in payload &&
+      typeof payload.base64 === 'string' &&
+      BASE64.test(payload.base64),
   )
 }
 

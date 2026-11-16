@@ -32,6 +32,7 @@ import type {
   TrackerSnapshot,
 } from '../../core/ticket.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
+import { readGitlabAttachment } from './attachment.ts'
 import { deleteGitlabTicket, readGitlabDeletePermission } from './delete.ts'
 import { applyGitlabChanges, readGitlabDetail } from './detail.ts'
 import { readGitlabOptions } from './options.ts'
@@ -155,6 +156,8 @@ export function createGitlabTracker(deps: GitlabTrackerDeps): Tracker {
     canDeleteTickets: (workspaceRoot) => readGitlabDeletePermission(deps, workspaceRoot),
 
     deleteTicket: (workspaceRoot, reference) => deleteGitlabTicket(deps, workspaceRoot, reference),
+
+    fetchAttachment: (workspaceRoot, path) => readGitlabAttachment(deps, workspaceRoot, path),
   }
 }
 

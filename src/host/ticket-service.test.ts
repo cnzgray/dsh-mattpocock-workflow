@@ -28,6 +28,7 @@ const DETAIL: TicketDetail = {
   state: 'open',
   author: 'dave',
   body: '正文',
+  uploadsBaseUrl: null,
   labels: ['enhancement'],
   assignees: ['alice'],
   comments: [{ author: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }],
@@ -607,5 +608,83 @@ describe('写操作与本地快照库', () => {
     await service.handle('ticket.delete', { workspaceRoot: ROOT, ...REF, confirm: 'delete' })
 
     expect(store.entries.get(ROOT)?.tickets).toEqual([])
+  })
+})
+
+describe('工单服务：内联附件', () => {
+  const PATH = '/uploads/f0fbf025e4c7f2a49dbc24c93a22f055/gzt-1.png'
+  const TOKEN = 'glpat-SECRET-TOKEN'
+
+  function attachmentService(fetchAttachment: Tracker['fetchAttachment']): {
+    readonly service: TicketService
+    readonly calls: (readonly [string, string])[]
+    readonly logs: string[]
+  } {
+    const calls: (readonly [string, string])[] = []
+    const logs: string[] = []
+    const tracker: Tracker = {
+      fetchSnapshot: () => Promise.reject(new Error('未使用')),
+      ...(fetchAttachment === undefined
+        ? {}
+        : {
+            fetchAttachment: (root: string, path: string) => {
+              calls.push([root, path])
+              return fetchAttachment(root, path)
+            },
+          }),
+    }
+    const service = createTicketService({
+      resolve: () =>
+        Promise.resolve({
+          kind: 'gitlab',
+          tracker,
+          choice: { kind: 'gitlab', source: 'remote' },
+          address: undefined,
+        }),
+      now: () => 0,
+      log: (level, event, fields) => {
+        logs.push(JSON.stringify({ level, event, fields }))
+      },
+    })
+    return { service, calls, logs }
+  }
+
+  it('把 /uploads/ 地址交给后端，返回图片类型与 base64，载荷与日志不含 token 与附件地址', async () => {
+    const { service, calls, logs } = attachmentService(() =>
+      Promise.resolve({ mediaType: 'image/png', base64: 'iVBORw0KGgo=' }),
+    )
+
+    const result = await service.handle('ticket.attachment', { workspaceRoot: ROOT, path: PATH })
+
+    expect(result).toEqual({ ok: true, result: { mediaType: 'image/png', base64: 'iVBORw0KGgo=' } })
+    expect(calls).toEqual([[ROOT, PATH]])
+    expect(JSON.stringify(result)).not.toContain(TOKEN)
+    expect(logs.join('\n')).not.toContain('f0fbf025')
+  })
+
+  it('不是 /uploads/ 地址时不调用后端', async () => {
+    const { service, calls } = attachmentService(() =>
+      Promise.resolve({ mediaType: 'image/png', base64: '' }),
+    )
+
+    for (const path of ['https://example.com/a.png', '/assets/a.png', 42]) {
+      const result = await service.handle('ticket.attachment', { workspaceRoot: ROOT, path })
+      expect(result).toMatchObject({ ok: false, error: { code: 'invalid-params' } })
+    }
+    expect(calls).toEqual([])
+  })
+
+  it('后端失败映射为错误码；不支持的后端返回 capability-unsupported', async () => {
+    const failing = attachmentService(() =>
+      Promise.reject(new TrackerError('fetch-failed', '附件不是可内联显示的图片。')),
+    )
+    expect(
+      await failing.service.handle('ticket.attachment', { workspaceRoot: ROOT, path: PATH }),
+    ).toMatchObject({ ok: false, error: { code: 'fetch-failed' } })
+
+    const unsupported = attachmentService(undefined)
+    expect(
+      await unsupported.service.handle('ticket.attachment', { workspaceRoot: ROOT, path: PATH }),
+    ).toMatchObject({ ok: false, error: { code: 'capability-unsupported' } })
   })
 })

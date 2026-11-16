@@ -63,6 +63,7 @@ import {
   DETAIL_TITLE_STYLE,
 } from './ticket-detail-styles.ts'
 import { Timeline, formatTime } from './ticket-timeline.tsx'
+import { createAttachmentLoader, type AttachmentLoader } from './attachment-loader.ts'
 import {
   STATE_PILL_STYLES,
   TITLE_META_NAME_STYLE,
@@ -88,6 +89,11 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
   const ref = ticket.ref
   const number = ticket.number
   const request = useDetailRequest(client, workspaceRoot, ref, number)
+  // 换工作区才换缓存；同一份详情的重渲染、刷新都复用已取回的图片。
+  const loadAttachment = React.useMemo(
+    () => createAttachmentLoader(client, workspaceRoot),
+    [client, workspaceRoot],
+  )
   const detail = request.detail
   // 技能徽标跟着宿主刷新后的快照走：关单/改标签后动作可能变成“已关闭”或换一个技能。
   const [currentTicket, setCurrentTicket] = React.useState(ticket)
@@ -139,6 +145,7 @@ export function TicketDetailView(props: TicketDetailViewProps): React.ReactEleme
       {detail !== null ? (
         <DetailContent
           detail={detail}
+          loadAttachment={loadAttachment}
           busy={busy}
           mutationError={mutation.error}
           copy={link.copy}
@@ -213,6 +220,7 @@ function DetailHeader(props: {
 
 function DetailContent(props: {
   readonly detail: TicketDetail
+  readonly loadAttachment: AttachmentLoader
   readonly busy: boolean
   readonly mutationError: RpcErrorBody | null
   readonly copy: CopyState
@@ -252,7 +260,7 @@ function DetailContent(props: {
           {errorText(props.mutationError, t)}
         </div>
       )}
-      <Timeline detail={detail} />
+      <Timeline detail={detail} loadAttachment={props.loadAttachment} />
     </div>
   )
 }

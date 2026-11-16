@@ -38,6 +38,9 @@ GitLab 首屏带 `--include` 从 `X-Total` 读仓库总数，Gitea 用 `X-Total-
 - 权限查询失败在宿主按“没有权限”处理，详情仍然正常返回，只把删除能力置为 false；
 - 变更补丁表达目标集合，适配器用 `core` 的 `planSetChange` 与当前值算成各自 CLI 的增删参数；
   「分配给我」由适配器解析当前登录用户（GitHub 用 `@me`，GitLab / Gitea 先查 `/user`）；
+- 正文内联图片（只有 GitLab 实现 `fetchAttachment`）：只接受 `/uploads/<32 位十六进制 secret>/<单段文件名>`，
+  按当前工作区的项目调用 `glab api projects/<项目>/uploads/...`；输出走执行器的 `base64` 模式
+  （DSH 子进程服务只交付文本），再按文件头识别 PNG / JPEG / GIF / WebP，超过 5 MB 或不是图片都算失败；
 - 本地 Markdown 的引用必须是 `.scratch/<feature>/issues/<name>.md`，越界路径直接拒绝读取。
 - 可选字段：能给出关闭时间时填 `closedAt`；能给出阻塞依赖边时填 `blockedBy`（引用集合，不论开闭）。
   GitHub 列表查询只给未关闭阻塞数，整张票省略 `blockedBy`；本地 Markdown 没有关闭时间。

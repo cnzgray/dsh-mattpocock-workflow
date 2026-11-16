@@ -8,6 +8,8 @@ import * as React from 'react'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   RpcErrorBody,
+  RpcResult,
+  TicketAttachment,
   TicketDetail,
   TicketOptions,
   TicketPatch,
@@ -25,6 +27,7 @@ export const DETAIL: TicketDetail = {
   state: 'open',
   author: 'carol',
   body: '## 规格\n\n正文保留了原始 Markdown。',
+  uploadsBaseUrl: null,
   labels: ['enhancement', 'ready-for-agent'],
   assignees: ['alice'],
   comments: [
@@ -101,19 +104,30 @@ export interface FakeBackend {
   readonly refreshCalls: string[]
   readonly optionsCalls: string[]
   readonly deleteCalls: (readonly [string, string, number | null])[]
+  /** 取内联附件的调用：工作区与附件地址。 */
+  readonly attachmentCalls: (readonly [string, string])[]
   failNextUpdate(error: RpcErrorBody): void
   failDetail(error: RpcErrorBody): void
 }
+
+const EMPTY_CACHE = {
+  location: '~/.dsh/cache/dsh-mattpocock-workflow/',
+  entries: 0,
+  lastWrittenAt: null,
+  cleared: 0,
+} as const
 
 /**
  * 一个会真正落地补丁的假后端：写完再读，界面看到的是新值。
  * @param initial - 初始详情。
  * @param refreshed - 列表刷新返回的快照；写操作后的技能徽标按它更新。
+ * @param attachments - 按附件地址给出的取图结果；没有的地址返回取图失败。
  * @returns 假后端与调用记录。
  */
 export function fakeBackend(
   initial: TicketDetail = DETAIL,
   refreshed: WorkspaceSnapshot = EMPTY_SNAPSHOT,
+  attachments: Readonly<Record<string, RpcResult<TicketAttachment>>> = {},
 ): FakeBackend {
   let current = initial
   let updateFailure: RpcErrorBody | null = null
@@ -123,6 +137,7 @@ export function fakeBackend(
   const refreshCalls: string[] = []
   const optionsCalls: string[] = []
   const deleteCalls: (readonly [string, string, number | null])[] = []
+  const attachmentCalls: (readonly [string, string])[] = []
 
   const client: PanelClient = {
     get: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
@@ -132,16 +147,7 @@ export function fakeBackend(
       return Promise.resolve({ ok: true, result: refreshed })
     },
     resolveBlockers: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
-    cache: () =>
-      Promise.resolve({
-        ok: true,
-        result: {
-          location: '~/.dsh/cache/dsh-mattpocock-workflow/',
-          entries: 0,
-          lastWrittenAt: null,
-          cleared: 0,
-        },
-      }),
+    cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     getDetail(root, ref, number) {
       detailCalls.push([root, ref, number])
       if (detailFailure !== null) {
@@ -170,6 +176,15 @@ export function fakeBackend(
       deleteCalls.push([root, ref, number])
       return Promise.resolve({ ok: true, result: { deleted: true } })
     },
+    getAttachment(root, path) {
+      attachmentCalls.push([root, path])
+      return Promise.resolve(
+        attachments[path] ?? {
+          ok: false,
+          error: { code: 'fetch-failed', message: '没有这个附件' },
+        },
+      )
+    },
   }
 
   return {
@@ -179,6 +194,7 @@ export function fakeBackend(
     refreshCalls,
     optionsCalls,
     deleteCalls,
+    attachmentCalls,
     failNextUpdate: (error) => {
       updateFailure = error
     },

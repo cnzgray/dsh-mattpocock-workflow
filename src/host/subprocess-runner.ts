@@ -22,7 +22,15 @@ const EXECUTABLE_FALLBACKS: Readonly<Record<string, readonly string[]>> = {
   gh: ['/opt/homebrew/bin/gh', '/usr/local/bin/gh'],
   glab: ['/opt/homebrew/bin/glab', '/usr/local/bin/glab'],
   tea: ['/opt/homebrew/bin/tea', '/usr/local/bin/tea'],
+  sh: ['/bin/sh'],
 }
+
+/**
+ * `base64` 输出模式的包装脚本：`"$@"` 原样执行目标命令（参数不经 shell 拼接），
+ * 输出经 `base64` 转成文本。支持 pipefail 的 shell 让目标命令的失败透出到退出码；
+ * 不支持时只能拿到空输出，由调用方按“不是有效响应”处理。
+ */
+const BASE64_PIPE_SCRIPT = '(set -o pipefail) 2>/dev/null && set -o pipefail; "$@" | base64'
 
 /**
  * 面板在后台调用 CLI，不需要遥测上报与更新检查。`glab` 默认每次调用都同步
@@ -42,6 +50,17 @@ const QUIET_CLI_ENV: Readonly<Record<string, string>> = {
 export function createCommandRunner(subprocess: SubprocessLike, timer: TimerLike): CommandRunner {
   return async (command, args, options) => {
     const executable = await resolveExecutable(subprocess, command)
+    const base64 = options?.stdout === 'base64'
+    const argv = base64
+      ? [
+          await resolveExecutable(subprocess, 'sh'),
+          '-c',
+          BASE64_PIPE_SCRIPT,
+          'sh',
+          executable,
+          ...args,
+        ]
+      : [executable, ...args]
 
     const abort = new AbortController()
     const disposeTimeout = timer.timeout(() => {
@@ -50,7 +69,7 @@ export function createCommandRunner(subprocess: SubprocessLike, timer: TimerLike
 
     try {
       const handle = subprocess.spawn({
-        argv: [executable, ...args],
+        argv,
         cwd: options?.cwd ?? process.cwd(),
         stdio: {
           stdin: 'ignore',
@@ -63,7 +82,9 @@ export function createCommandRunner(subprocess: SubprocessLike, timer: TimerLike
       })
 
       const outcome = await handle.done
-      const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
+      const text = handle.collected.stdout?.readFrom(0).text ?? ''
+      // GNU base64 每 76 列换行，macOS 不换；统一去掉空白。
+      const stdout = base64 ? text.replace(/\s+/g, '') : text
       const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
       const exitCode = outcome.exitCode
       if (exitCode !== 0) {

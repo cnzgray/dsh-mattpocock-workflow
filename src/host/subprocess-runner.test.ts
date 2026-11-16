@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+
 import { describe, expect, it } from 'vitest'
 
 import { CommandError } from '../core/tracker-error.ts'
@@ -115,6 +117,44 @@ describe('命令执行器', () => {
     })
     expect(lookups).toEqual(['tea', '/opt/homebrew/bin/tea'])
     expect(specs[0]?.argv).toEqual(['/opt/homebrew/bin/tea', 'logins', 'list', '--output', 'json'])
+  })
+
+  it('base64 输出模式经 sh 管道转码，参数不经 shell 拼接，并去掉换行', async () => {
+    const { subprocess, specs } = fakeSubprocess({
+      resolve: (command) =>
+        command === 'glab' ? '/opt/homebrew/bin/glab' : command === 'sh' ? '/bin/sh' : undefined,
+      stdout: 'iVBORw0K\nGgo=\n',
+    })
+    const { timer } = fakeTimer()
+    const run = createCommandRunner(subprocess, timer)
+
+    const output = await run('glab', ['api', 'projects/a%2Fb/uploads/x/$(rm -rf).png'], {
+      cwd: '/repo',
+      stdout: 'base64',
+    })
+
+    expect(output.stdout).toBe('iVBORw0KGgo=')
+    const argv = specs[0]?.argv ?? []
+    expect(argv.slice(0, 2)).toEqual(['/bin/sh', '-c'])
+    expect(argv.slice(3)).toEqual([
+      'sh',
+      '/opt/homebrew/bin/glab',
+      'api',
+      'projects/a%2Fb/uploads/x/$(rm -rf).png',
+    ])
+  })
+
+  it('base64 包装脚本在真实 shell 里原样传参并透出目标命令的失败', async () => {
+    const { subprocess, specs } = fakeSubprocess({ resolve: (command) => command })
+    await createCommandRunner(subprocess, fakeTimer().timer)('printf', [], { stdout: 'base64' })
+    const script = specs[0]?.argv[2] ?? ''
+
+    const ok = spawnSync('/bin/sh', ['-c', script, 'sh', 'printf', '%s', 'a b;$(x)'], {
+      encoding: 'utf8',
+    })
+    expect(Buffer.from(ok.stdout.trim(), 'base64').toString()).toBe('a b;$(x)')
+    const failed = spawnSync('/bin/sh', ['-c', script, 'sh', 'false'], { encoding: 'utf8' })
+    expect(failed.status).not.toBe(0)
   })
 
   it('子进程关闭 glab 的遥测上报与更新检查', async () => {

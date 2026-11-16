@@ -82,6 +82,45 @@ describe('工单详情视图', () => {
     ).toEqual([false, true])
   })
 
+  it('GitLab 正文与评论里的上传图片经宿主取回显示，同一张图只取一次', async () => {
+    const path = '/uploads/f0fbf025e4c7f2a49dbc24c93a22f055/gzt-1.png'
+    const backend = fakeBackend(
+      detail({
+        backend: 'gitlab',
+        body: `![工资明细](${path})`,
+        uploadsBaseUrl: 'https://gitlab.chyait.top/-/project/216/uploads/',
+        comments: [{ author: 'bob', body: `再看一次 ![工资明细](${path})`, createdAt: null }],
+      }),
+      undefined,
+      { [path]: { ok: true, result: { mediaType: 'image/png', base64: 'iVBORw0KGgo=' } } },
+    )
+    renderView(backend.client)
+
+    await screen.findByTestId('detail-title')
+    await waitFor(() => {
+      expect(element('detail-body').querySelector('img')?.getAttribute('src')).toBe(
+        'data:image/png;base64,iVBORw0KGgo=',
+      )
+    })
+    await waitFor(() => {
+      expect(element('detail-comments').querySelector('img')?.getAttribute('src')).toBe(
+        'data:image/png;base64,iVBORw0KGgo=',
+      )
+    })
+    expect(backend.attachmentCalls).toEqual([['/repo', path]])
+  })
+
+  it('非 GitLab 详情不请求附件', async () => {
+    const backend = fakeBackend(detail({ body: '![图](/uploads/abc/a.png)' }))
+    renderView(backend.client)
+
+    await screen.findByTestId('detail-title')
+    expect(element('detail-body').querySelector('img')?.getAttribute('src')).toBe(
+      '/uploads/abc/a.png',
+    )
+    expect(backend.attachmentCalls).toEqual([])
+  })
+
   it('没有评论时显示空状态', async () => {
     renderView(fakeBackend(detail({ comments: [] })).client)
 

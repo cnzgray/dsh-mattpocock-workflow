@@ -14,6 +14,7 @@ import {
   GITLAB_NOTES,
   GITLAB_REMOTES_OUTPUT,
   gitlabIssue,
+  gitlabIssueDetail,
   issuesJson,
 } from './fixtures.ts'
 import { NOW, recordedRunner, trackerWith } from './tracker-test-support.ts'
@@ -357,6 +358,46 @@ describe('GitLab 工单详情与变更', () => {
     ])
   })
 
+  it('从 issue 的项目 id 与实例源给出上传附件的补全前缀', async () => {
+    const issueOutput = JSON.stringify({
+      ...gitlabIssueDetail({
+        iid: 15,
+        title: '右侧栏任务面板 MVP',
+        description: '![工资明细](/uploads/f0fbf025e4c7f2a49dbc24c93a22f055/gzt-1.png)',
+        webUrl: 'https://gitlab.chyait.top/chyait-projects/hxcrmoa/hxoa-livebos/-/issues/15',
+      }),
+      project_id: 216,
+    })
+    const runner: CommandRunner = (command, args) => {
+      if (command === 'git') return Promise.resolve({ stdout: GITLAB_REMOTES_OUTPUT, stderr: '' })
+      const endpoint = args[1] ?? ''
+      if (endpoint === `${GITLAB_PROJECT_ENDPOINT}/issues/15`) {
+        return Promise.resolve({ stdout: issueOutput, stderr: '' })
+      }
+      if (endpoint.includes('/notes?')) return Promise.resolve({ stdout: '[]', stderr: '' })
+      throw new CommandError('failed', 'unexpected', `unexpected endpoint ${endpoint}`, 1)
+    }
+    const tracker = createGitlabTracker({ run: runner, now: () => NOW })
+
+    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
+
+    expect(detail?.uploadsBaseUrl).toBe('https://gitlab.chyait.top/-/project/216/uploads/')
+    // 正文保持原文；补全发生在界面渲染时。
+    expect(detail?.body).toBe('![工资明细](/uploads/f0fbf025e4c7f2a49dbc24c93a22f055/gzt-1.png)')
+  })
+
+  it('缺项目 id 时不给补全前缀', async () => {
+    const { tracker } = mutableGitlabTracker({
+      labels: [],
+      assignees: [],
+      state: 'opened',
+    })
+
+    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
+
+    expect(detail?.uploadsBaseUrl).toBeNull()
+  })
+
   it('评论按页拉取，短页即停止', async () => {
     const pages = new Map([
       [1, JSON.stringify(GITLAB_NOTES.slice(0, 2))],
@@ -553,6 +594,7 @@ const GITLAB_DETAIL_EXPECTED: TicketDetail = {
   state: 'open',
   author: 'dave',
   body: '## 目标\n\n在面板里看工单。',
+  uploadsBaseUrl: null,
   labels: ['enhancement', 'ready-for-agent'],
   assignees: ['alice'],
   comments: [

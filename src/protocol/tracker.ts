@@ -46,6 +46,11 @@ export const RPC_METHODS = {
   ticketOptions: 'ticket.options',
   /** 永久删除一张工单；必须带 `confirm: 'delete'`，宿主再按权限拒绝或执行。 */
   ticketDelete: 'ticket.delete',
+  /**
+   * 取回正文 / 评论里内联的后端上传图片（目前只有 GitLab 的 `/uploads/`）。
+   * 宿主用已登录的 CLI 取字节，token 不出宿主。
+   */
+  ticketAttachment: 'ticket.attachment',
 } as const
 
 /** 工单的开闭状态。 */
@@ -359,6 +364,13 @@ export interface TicketDetail {
   readonly author: string | null
   /** 正文原文，保留原始 Markdown；界面渲染时不改写原文。 */
   readonly body: string
+  /**
+   * 正文与评论里根相对 `/uploads/` 附件地址的补全前缀（含结尾 `/uploads/`）。
+   * GitLab 把拖进正文的附件写成 `/uploads/<secret>/<filename>`，网页端补成
+   * `<实例源>/-/project/<id>/uploads/...`；面板不在 GitLab 的源上，不补全就会把附件
+   * 地址解析到面板自己的 origin 上。其他后端没有这种地址时为 null。
+   */
+  readonly uploadsBaseUrl: string | null
   readonly labels: readonly string[]
   /** 分配人的远端用户名。 */
   readonly assignees: readonly string[]
@@ -438,6 +450,23 @@ export interface TicketOptions {
   readonly assignees: readonly AssigneeOption[]
 }
 
+/** 取内联附件的参数。 */
+export interface TicketAttachmentParams {
+  readonly workspaceRoot: string
+  /** 正文里的根相对附件地址，形如 `/uploads/<secret>/<filename>`；宿主再按后端规则严格校验。 */
+  readonly path: string
+}
+
+/** 附件根相对地址的前缀；界面只把这类地址交给宿主取图。 */
+export const ATTACHMENT_PATH_PREFIX = '/uploads/'
+
+/** 内联附件：图片类型与 base64 字节，界面拼成 data URL 显示。 */
+export interface TicketAttachment {
+  /** 宿主按文件头识别出的图片类型，例如 `image/png`。 */
+  readonly mediaType: string
+  readonly base64: string
+}
+
 /** 方法名到参数类型的映射。 */
 export interface RpcParamsMap {
   'snapshot.get': SnapshotParams
@@ -450,6 +479,7 @@ export interface RpcParamsMap {
   'ticket.update': TicketUpdateParams
   'ticket.options': SnapshotParams
   'ticket.delete': TicketDeleteParams
+  'ticket.attachment': TicketAttachmentParams
 }
 
 /** 已支持的方法名。 */

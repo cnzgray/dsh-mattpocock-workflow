@@ -116,6 +116,12 @@ export interface TicketDetail {
   readonly author: string | null
   /** 正文原文，保留原始 Markdown，不做二次渲染。 */
   readonly body: string
+  /**
+   * 正文与评论里根相对 `/uploads/` 附件地址的补全前缀（含结尾 `/uploads/`）。
+   * GitLab 的附件在正文里是 `/uploads/<secret>/<filename>`，网页端补成
+   * `<实例源>/-/project/<id>/uploads/...`；其他后端为 null。
+   */
+  readonly uploadsBaseUrl: string | null
   readonly labels: readonly string[]
   /** 分配人的远端用户名：GitHub login / GitLab、Gitea username。 */
   readonly assignees: readonly string[]
@@ -232,6 +238,14 @@ export interface Tracker {
    * 业务失败（含没有权限）抛 {@link TrackerError}。
    */
   deleteTicket?: (workspaceRoot: string, reference: TicketReference) => Promise<void>
+  /**
+   * 可选能力：取回工单正文 / 评论里内联的后端上传图片。
+   *
+   * `path` 是正文里的根相对附件地址（GitLab 为 `/uploads/<secret>/<filename>`）；
+   * 适配器只按当前工作区的项目推导抓取目标，不信任正文里的主机。取不到、不是图片或
+   * 超过大小上限时抛 {@link TrackerError}。
+   */
+  fetchAttachment?: (workspaceRoot: string, path: string) => Promise<TicketAttachment>
 }
 
 /**
@@ -263,8 +277,26 @@ export interface CommandOutput {
 export type CommandRunner = (
   command: string,
   args: readonly string[],
-  options?: { readonly cwd?: string },
+  options?: CommandOptions,
 ) => Promise<CommandOutput>
+
+/** 一次命令的执行选项。 */
+export interface CommandOptions {
+  readonly cwd?: string
+  /**
+   * 标准输出的交付形式。默认 `text`；`base64` 用于二进制响应（如图片附件）：
+   * 子进程服务只交付 UTF-8 文本，原始字节会被解码坏，所以由执行器把输出转成 base64 再收集。
+   */
+  readonly stdout?: 'text' | 'base64'
+}
+
+/** 后端附件的原始字节，按 base64 交付；只用于图片内联显示。 */
+export interface TicketAttachment {
+  /** 按文件头识别出的图片类型，例如 `image/png`。 */
+  readonly mediaType: string
+  /** 图片字节的 base64，不含换行。 */
+  readonly base64: string
+}
 
 /** 标签名集合，由宿主从 protocol 的常量传入，规则本身留在 core。 */
 export interface TicketLabelNames {

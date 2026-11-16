@@ -48,6 +48,8 @@ interface GitlabIssue {
   readonly labels: readonly string[]
   readonly assignees: readonly string[]
   readonly url: string | null
+  /** 项目数字 id：正文里的上传附件地址按它补全成 `/-/project/<id>/uploads/...`。 */
+  readonly projectId: number | null
   readonly createdAt: string
   readonly updatedAt: string
 }
@@ -77,6 +79,7 @@ export async function readGitlabDetail(
     state: issue.state,
     author: issue.author,
     body: issue.body,
+    uploadsBaseUrl: projectUploadsBase(issue.url, issue.projectId),
     labels: issue.labels,
     assignees: issue.assignees,
     comments,
@@ -224,9 +227,38 @@ function parseIssue(output: string): GitlabIssue {
     labels: readNameList(payload.labels),
     assignees: readUserNames(payload.assignees, 'username'),
     url: readOptionalString(payload.web_url),
+    // 上传附件的补全依赖项目 id；缺失时不猜，正文原样返回。
+    projectId:
+      typeof payload.project_id === 'number' &&
+      Number.isInteger(payload.project_id) &&
+      payload.project_id > 0
+        ? payload.project_id
+        : null,
     createdAt: readRequiredString(payload.created_at, '创建时间'),
     updatedAt: readRequiredString(payload.updated_at, '更新时间'),
   }
+}
+
+/**
+ * 正文里 `/uploads/` 附件的补全前缀：`<实例源>/-/project/<id>/uploads/`。
+ * GitLab 把拖进正文的附件写成根相对路径 `/uploads/<secret>/<filename>`，网页端按项目
+ * id 补成上面的绝对地址；面板不在 GitLab 的源上，不补全会落到面板自己的 origin 上。
+ * 网页地址不可解析、缺项目 id 或不是 http(s) 时返回 null，界面保持原样。
+ * @param url - issue 的网页地址。
+ * @param projectId - 项目数字 id。
+ * @returns 补全前缀或 null。
+ */
+function projectUploadsBase(url: string | null, projectId: number | null): string | null {
+  if (url === null || projectId === null) return null
+  let origin: string
+  try {
+    origin = new URL(url).origin
+  } catch {
+    return null
+  }
+  // 非 http(s) 协议没有源，补出来反而是坏地址。
+  if (origin === 'null') return null
+  return `${origin}/-/project/${String(projectId)}/uploads/`
 }
 
 function parseNotesPage(output: string): {

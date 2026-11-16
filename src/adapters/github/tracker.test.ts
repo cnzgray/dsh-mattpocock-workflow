@@ -590,6 +590,7 @@ const GH_DETAIL_EXPECTED: TicketDetail = {
   state: 'open',
   author: 'dave',
   body: '## 目标\n\n在面板里看工单。',
+  uploadsBaseUrl: null,
   labels: ['enhancement', 'ready-for-agent'],
   assignees: ['alice'],
   comments: [

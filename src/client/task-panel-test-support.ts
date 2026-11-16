@@ -183,6 +183,7 @@ export const DETAIL: TicketDetail = {
   state: 'open',
   author: 'carol',
   body: '正文',
+  uploadsBaseUrl: null,
   labels: ['enhancement'],
   assignees: [],
   comments: [{ author: 'bob', body: '补充验收标准', createdAt: '2026-11-12T10:00:00Z' }],
@@ -246,6 +247,7 @@ export function fakeClient(
     getOptions: () =>
       Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
     deleteTicket: () => Promise.reject(new Error('未使用')),
+    getAttachment: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
   return { client, getCalls, refreshCalls, fullRefreshCalls, detailCalls }
@@ -264,6 +266,7 @@ export function clientWith(overrides: Partial<PanelClient>): PanelClient {
     getOptions: () =>
       Promise.resolve({ ok: false, error: { code: 'capability-unsupported', message: '未使用' } }),
     deleteTicket: () => Promise.reject(new Error('未使用')),
+    getAttachment: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.reject(new Error('未使用')),
     ...overrides,
   }
