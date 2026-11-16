@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as React from 'react'
 
@@ -14,8 +14,11 @@ import {
   FIXED_REPORT,
   GITEA_REPORT,
   MARKDOWN_REPORT,
+  ONE_SKILL_MISSING_REPORT,
   REPORT,
   RETRY_REPORT,
+  SKIPPED_SKILLS_REPORT,
+  TWO_SKILLS_MISSING_REPORT,
   WORKSPACE_FAIL,
 } from './env-check-view-test-support.ts'
 import type { PanelClient } from './rpc.ts'
@@ -431,6 +434,72 @@ describe('环境检查视图', () => {
     expect(screen.getByTestId('env-error').textContent).toContain('请在打开的工作区里重新打开面板')
     expect(screen.queryByTestId('env-error-retry')).toBeNull()
     expect(fake.calls).toEqual([])
+  })
+})
+
+describe('技能总装卡片', () => {
+  it('缺两项以上技能时出现卡片，明细按检查项顺序点名缺失技能', async () => {
+    renderView(() => okResponse(TWO_SKILLS_MISSING_REPORT))
+    await screen.findByTestId('env-items')
+
+    const card = screen.getByTestId('env-skill-batch')
+    expect(card.textContent).toContain('技能总装')
+    expect(screen.getByTestId('env-skill-batch-detail').textContent).toBe(
+      '缺少 2 项必需技能：to-spec、to-tickets',
+    )
+    expect(within(card).getByTestId('env-remedy-link').getAttribute('href')).toBe(
+      'https://github.com/mattpocock/skills',
+    )
+    // 卡片不是检查项，不参与通过数统计。
+    expect(screen.getByTestId('env-summary').textContent).toContain('环境检查 4/9')
+  })
+
+  it.each([
+    ['只缺一项技能', ONE_SKILL_MISSING_REPORT],
+    ['技能全部通过', FIXED_REPORT],
+    ['技能项被跳过', SKIPPED_SKILLS_REPORT],
+  ])('%s时不显示总装卡片', async (_case, report) => {
+    renderView(() => okResponse(report))
+    await screen.findByTestId('env-items')
+
+    expect(screen.queryByTestId('env-skill-batch')).toBeNull()
+  })
+
+  it('点总装卡片的填入按钮，一次注入全部缺失技能与全局安装位置', async () => {
+    const injected: string[] = []
+    renderView(() => okResponse(TWO_SKILLS_MISSING_REPORT), {
+      injection: fakeInjection({
+        inject: (text) => {
+          injected.push(text)
+          return 'filled'
+        },
+      }),
+    })
+    await screen.findByTestId('env-items')
+    const card = screen.getByTestId('env-skill-batch')
+
+    fireEvent.click(within(card).getByTestId('env-remedy-fill'))
+
+    expect(injected).toHaveLength(1)
+    expect(injected[0]).toContain('to-spec')
+    expect(injected[0]).toContain('to-tickets')
+    expect(injected[0]).toContain('~/.agents/skills')
+    expect(injected[0]).toContain('~/.dsh/skills')
+    expect(injected[0]).not.toContain('.claude/skills')
+  })
+
+  it('总装卡片的复制按钮复制同一条总装提示词', async () => {
+    const clipboard = stubClipboard('ok')
+    renderView(() => okResponse(TWO_SKILLS_MISSING_REPORT))
+    await screen.findByTestId('env-items')
+    const card = screen.getByTestId('env-skill-batch')
+
+    fireEvent.click(within(card).getByTestId('env-remedy-copy-prompt'))
+
+    await screen.findByText('已复制')
+    expect(clipboard.copied).toHaveLength(1)
+    expect(clipboard.copied[0]).toContain('to-spec')
+    expect(clipboard.copied[0]).toContain('to-tickets')
   })
 })
 

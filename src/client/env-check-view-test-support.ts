@@ -173,3 +173,60 @@ export const CANDIDATE_REPORT: EnvCheckReport = {
   ],
   capabilities: [],
 }
+
+function missingSkill(subject: string): EnvCheckItem {
+  return row({
+    id: 'skill',
+    subject,
+    status: 'fail',
+    detail: 'DSH 技能清单与磁盘目录都没有找到',
+    remedy: { code: 'install-skill', subject },
+  })
+}
+
+function installedSkill(subject: string): EnvCheckItem {
+  return row({ id: 'skill', subject, detail: 'DSH 技能清单已收录' })
+}
+
+/** 缺两项技能：每项自己的解决还在，另应出现总装卡片。 */
+export const TWO_SKILLS_MISSING_REPORT: EnvCheckReport = {
+  ...REPORT,
+  items: [
+    ...REPORT.items.filter((item) => item.id !== 'skill'),
+    missingSkill('to-spec'),
+    missingSkill('to-tickets'),
+    installedSkill('triage'),
+  ],
+}
+
+/** 只缺一项技能：逐项解决已经等价，不出现总装卡片。 */
+export const ONE_SKILL_MISSING_REPORT: EnvCheckReport = {
+  ...REPORT,
+  items: [
+    ...REPORT.items.filter((item) => item.id !== 'skill'),
+    missingSkill('to-spec'),
+    installedSkill('to-tickets'),
+  ],
+}
+
+/** 主目录不可解析：技能项被跳过，不算缺失，不出现总装卡片。 */
+export const SKIPPED_SKILLS_REPORT: EnvCheckReport = {
+  ...REPORT,
+  items: [
+    ...REPORT.items.filter((item) => item.id !== 'skill'),
+    row({
+      id: 'skill',
+      subject: 'to-spec',
+      status: 'skipped',
+      detail: '未执行检查',
+      blockedBy: { id: 'home', subject: null },
+    }),
+    row({
+      id: 'skill',
+      subject: 'to-tickets',
+      status: 'skipped',
+      detail: '未执行检查',
+      blockedBy: { id: 'home', subject: null },
+    }),
+  ],
+}

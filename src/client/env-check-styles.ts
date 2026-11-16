@@ -34,17 +34,31 @@ export const ENV_BODY_STYLE: CSSProperties = {
   padding: '0 12px 12px',
 }
 
-export const ENV_CARD_STYLE: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr)',
-  columnGap: 10,
-  rowGap: 4,
-  alignItems: 'start',
+/** 检查项与独立小节共用的卡片表面：边框、圆角、底色、内边距与文字色。 */
+const CARD_SURFACE_STYLE: CSSProperties = {
   padding: '9px 12px',
   border: `1px solid ${COLORS.border}`,
   borderRadius: 10,
   background: COLORS.surface,
   color: COLORS.text,
+}
+
+/** 跟检查项同一种边框与内边距的独立小节：总装卡片与本地快照库共用。 */
+export const ENV_SECTION_STYLE: CSSProperties = {
+  ...CARD_SURFACE_STYLE,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 4,
+}
+
+export const ENV_CARD_STYLE: CSSProperties = {
+  ...CARD_SURFACE_STYLE,
+  display: 'grid',
+  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  columnGap: 10,
+  rowGap: 4,
+  alignItems: 'start',
 }
 
 export const ENV_CARD_HIGHLIGHT_STYLE: CSSProperties = {

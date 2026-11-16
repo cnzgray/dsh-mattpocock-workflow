@@ -28,11 +28,23 @@ export type RemedyAction =
   | { readonly kind: 'command'; readonly command: string }
   | { readonly kind: 'retry' }
 
+/** 解决的次要链接。 */
+export interface RemedyLink {
+  readonly href: string
+  readonly label: string
+}
+
 /** 解决区的文案：摘要、动作与可选的次要链接。 */
 export interface RemedyContent {
   readonly summary: string
   readonly action: RemedyAction
-  readonly link?: { readonly href: string; readonly label: string }
+  readonly link?: RemedyLink
+}
+
+/** 一次装齐缺失技能的结果：动作固定是会话提示词，链接固定是来源仓库。 */
+export interface SessionRemedyContent extends RemedyContent {
+  readonly action: Extract<RemedyAction, { kind: 'session' }>
+  readonly link: RemedyLink
 }
 
 interface CliText {
@@ -64,6 +76,11 @@ const CLI: Readonly<Record<EnvCliBackend, CliText>> = {
 }
 
 const SKILLS_REPO = 'https://github.com/mattpocock/skills'
+
+/** 安装技能的来源链接：单项解决与总装卡片共用同一处构造。 */
+function skillsRepoLink(t: Translate): RemedyLink {
+  return { href: SKILLS_REPO, label: t('env.remedy.installSkillLink') }
+}
 
 function cliOf(subject: string | null): CliText | undefined {
   return subject === 'github' || subject === 'gitlab' || subject === 'gitea'
@@ -142,9 +159,9 @@ const REMEDIES: Readonly<
       summary: t('env.remedy.installSkillSummary', { skill }),
       action: {
         kind: 'session',
-        prompt: t('env.remedy.installSkillPrompt', { skill, title: context.title }),
+        prompt: t('env.remedy.installSkillPrompt', { skill }),
       },
-      link: { href: SKILLS_REPO, label: t('env.remedy.installSkillLink') },
+      link: skillsRepoLink(t),
     }
   },
   'init-workspace': (context, t) => ({
@@ -220,4 +237,26 @@ export function remedyContent(
   t: Translate,
 ): RemedyContent {
   return REMEDIES[code](context, t)
+}
+
+/**
+ * 缺失技能总装的文案与动作：一条会话提示词把全部缺失技能一次装到用户主目录。
+ * 与 `remedyContent` 共用来源仓库常量与翻译入口，但不属于解决码表。
+ * @param skills - 缺失技能，按检查项固定顺序。
+ * @param t - 翻译入口。
+ * @returns 摘要、会话提示词与来源仓库链接。
+ */
+export function installSkillsContent(
+  skills: readonly string[],
+  t: Translate,
+): SessionRemedyContent {
+  const list = skills.map((skill) => `- ${skill}`).join('\n')
+  return {
+    summary: t('env.remedy.installSkillsSummary', { count: skills.length }),
+    action: {
+      kind: 'session',
+      prompt: t('env.remedy.installSkillsPrompt', { skills: list }),
+    },
+    link: skillsRepoLink(t),
+  }
 }

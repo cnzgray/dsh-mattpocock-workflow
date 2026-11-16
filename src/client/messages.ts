@@ -222,10 +222,16 @@ export const zh = {
   'env.remedy.loginCli': '登录 {cli}；自建实例要在登录时填实例地址，登录后重新检查。',
   'env.remedy.skillMissing': '缺失技能',
   'env.remedy.installSkillSummary':
-    '让当前会话把 {skill} 技能装到 DSH 会扫描的技能目录（如 .agents/skills），来源是 mattpocock/skills。',
+    '让当前会话把 {skill} 装到 ~/.agents/skills（DSH 技能目录），所有工作区通用。',
   'env.remedy.installSkillPrompt':
-    '安装 mattpocock/skills 里的 {skill} 技能到当前工作区 DSH 会扫描的技能目录（如 .agents/skills 或 .dsh/skills），让环境检查项「{title}」通过。装好后告诉我，我再重新检查。',
+    '从 mattpocock/skills 安装 {skill} 技能到 ~/.agents/skills（~/.dsh/skills 同样有效），目录结构是 <技能名>/SKILL.md；装到主目录后所有工作区都可用。装好后告诉我，我再重新检查。',
+  'env.remedy.installSkillsSummary':
+    '一条提示词把 {count} 项缺失技能装到 ~/.agents/skills（DSH 技能目录），所有工作区通用。',
+  'env.remedy.installSkillsPrompt':
+    '从 mattpocock/skills 一次装齐这些技能：\n{skills}\n装到 ~/.agents/skills（~/.dsh/skills 同样有效），每个技能按 <技能名>/SKILL.md 存放；装到主目录后所有工作区都可用。装好后告诉我，我再重新检查。',
   'env.remedy.installSkillLink': 'mattpocock/skills 仓库',
+  'env.skills.title': '技能总装',
+  'env.skills.detail': '缺少 {count} 项必需技能：{skills}',
   'env.remedy.initWorkspaceSummary': '让当前会话运行 {skill}，把工作区按面板要求初始化。',
   'env.remedy.initWorkspacePrompt': '初始化当前工作区。环境检查项「{title}」未通过：{detail}。',
   'env.remedy.initWorkspaceOutro': '按技能完成初始化后告诉我，我再重新检查。',
@@ -745,10 +751,16 @@ export const en: Record<MessageKey, string> = {
     'Sign in to {cli}; for self-hosted instances, enter the instance address, then recheck.',
   'env.remedy.skillMissing': 'missing skill',
   'env.remedy.installSkillSummary':
-    'Have the current session install the {skill} skill into a directory DSH scans (such as .agents/skills); the source is mattpocock/skills.',
+    'Have the current session install {skill} into ~/.agents/skills (a DSH skills directory); works in every workspace.',
   'env.remedy.installSkillPrompt':
-    'Install the {skill} skill from mattpocock/skills into a directory DSH scans in the current workspace (such as .agents/skills or .dsh/skills) so the environment check “{title}” passes. Tell me when it is done and I will recheck.',
+    'Install the {skill} skill from mattpocock/skills into ~/.agents/skills (~/.dsh/skills works too), as <skill>/SKILL.md; skills in the home directory work in every workspace. Tell me when it is done and I will recheck.',
+  'env.remedy.installSkillsSummary':
+    'One prompt installs {count} missing skills into ~/.agents/skills (a DSH skills directory); works in every workspace.',
+  'env.remedy.installSkillsPrompt':
+    'Install these skills from mattpocock/skills in one go:\n{skills}\nPut them under ~/.agents/skills (~/.dsh/skills works too), one directory per skill as <skill>/SKILL.md; skills in the home directory work in every workspace. Tell me when it is done and I will recheck.',
   'env.remedy.installSkillLink': 'mattpocock/skills repository',
+  'env.skills.title': 'Install all skills',
+  'env.skills.detail': 'Missing {count} required skills: {skills}',
   'env.remedy.initWorkspaceSummary':
     'Have the current session run {skill} to initialize the workspace as the panel expects.',
   'env.remedy.initWorkspacePrompt':

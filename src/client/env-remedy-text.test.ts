@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ENV_REMEDY_CODES, type EnvRemedyCode } from '../protocol/env-check.ts'
 import {
+  installSkillsContent,
   remedyContent as remedyContentWithT,
   type RemedyAction,
   type RemedyContext,
@@ -67,7 +68,7 @@ describe('解决文案表', () => {
     })
   })
 
-  it('安装技能的会话提示词点名技能，并链接到 mattpocock/skills', () => {
+  it('安装技能的会话提示词点名技能，默认装到主目录并链接到 mattpocock/skills', () => {
     const content = remedyContent('install-skill', {
       ...CONTEXT,
       subject: 'triage',
@@ -78,7 +79,35 @@ describe('解决文案表', () => {
     if (content.action.kind !== 'session') throw new Error('动作类型不符')
     expect(content.action.prompt).toContain('triage')
     expect(content.action.prompt).toContain('mattpocock/skills')
+    expect(content.action.prompt).toContain('~/.agents/skills')
+    expect(content.action.prompt).toContain('~/.dsh/skills')
+    expect(content.action.prompt).toContain('<技能名>/SKILL.md')
+    expect(content.action.prompt).toContain('所有工作区')
+    expect(content.action.prompt).not.toContain('.claude/skills')
+    expect(content.action.prompt).not.toContain('当前工作区')
     expect(content.link?.href).toBe('https://github.com/mattpocock/skills')
+  })
+
+  it('总装提示词一次点名全部缺失技能，并写明来源、主目录与目录结构', () => {
+    const content = installSkillsContent(['to-spec', 'to-tickets'], builtinZhTranslate)
+
+    expect(content.action.prompt).toContain('to-spec')
+    expect(content.action.prompt).toContain('to-tickets')
+    expect(content.action.prompt.indexOf('to-spec')).toBeLessThan(
+      content.action.prompt.indexOf('to-tickets'),
+    )
+    expect(content.action.prompt).toContain('mattpocock/skills')
+    expect(content.action.prompt).toContain('~/.agents/skills')
+    expect(content.action.prompt).toContain('~/.dsh/skills')
+    expect(content.action.prompt).toContain('<技能名>/SKILL.md')
+    expect(content.action.prompt).toContain('所有工作区')
+    expect(content.action.prompt).toContain('装好后告诉我，我再重新检查')
+    expect(content.action.prompt).not.toContain('.claude/skills')
+    expect(content.summary).toContain('2')
+    expect(content.link).toEqual({
+      href: 'https://github.com/mattpocock/skills',
+      label: 'mattpocock/skills 仓库',
+    })
   })
 
   it('初始化工作区的会话提示词点名初始化技能与失败项', () => {

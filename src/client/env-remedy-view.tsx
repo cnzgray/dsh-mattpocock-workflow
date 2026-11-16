@@ -61,17 +61,27 @@ export function RemedySection(props: {
       </div>
       <RemedyActionView action={content.action} handlers={props.handlers} />
       {content.link === undefined ? null : (
-        <a
-          data-testid="env-remedy-link"
-          href={content.link.href}
-          target="_blank"
-          rel="noreferrer"
-          style={ENV_REMEDY_LINK_STYLE}
-        >
-          {content.link.label}
-        </a>
+        <RemedyLink href={content.link.href} label={content.link.label} />
       )}
     </div>
+  )
+}
+
+/** 解决的次要链接：新窗口打开，不抢主操作的视觉。 */
+export function RemedyLink(props: {
+  readonly href: string
+  readonly label: string
+}): React.ReactElement {
+  return (
+    <a
+      data-testid="env-remedy-link"
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      style={ENV_REMEDY_LINK_STYLE}
+    >
+      {props.label}
+    </a>
   )
 }
 
@@ -112,7 +122,8 @@ function RemedyActionView(props: {
   }
 }
 
-function SessionAction(props: {
+/** 会话动作：填入当前会话或复制提示词；总装卡片与逐项解决共用。 */
+export function SessionAction(props: {
   readonly prompt: string
   readonly injection: PromptInjection
 }): React.ReactElement {

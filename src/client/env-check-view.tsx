@@ -23,12 +23,14 @@ import {
   ENV_HEADER_STYLE,
   ENV_HIGHLIGHT_STYLE,
   ENV_SKIP_STYLE,
+  ENV_SECTION_STYLE,
   ENV_STATUS_COLORS,
   ENV_SUMMARY_STYLE,
   ENV_TITLE_STYLE,
 } from './env-check-styles.ts'
 import { envBackendLabel, envCheckTitle } from './env-check-text.ts'
 import { RemedySection, type RemedyHandlers } from './env-remedy-view.tsx'
+import { missingSkills, SkillBatchCard } from './env-skill-batch.tsx'
 import { useI18n } from './i18n.tsx'
 import type { Translate } from './i18n-runtime.ts'
 import type { PromptInjection } from './injection.ts'
@@ -46,16 +48,8 @@ const STATUS_KEYS: Readonly<Record<EnvCheckStatus, MessageKey>> = {
 
 /** 本地快照库小节：跟检查项卡片同一种边框，只是排成纵向。 */
 const ENV_CACHE_SECTION_STYLE: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-start',
-  gap: 4,
+  ...ENV_SECTION_STYLE,
   margin: '0 12px 12px',
-  padding: '9px 12px',
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 10,
-  background: COLORS.surface,
-  color: COLORS.text,
 }
 
 /** 清空失败的原因：不能静默，用户要知道为什么没清掉。 */
@@ -147,6 +141,7 @@ export function EnvCheckView(props: EnvCheckViewProps): React.ReactElement {
       ) : null}
       {report === null ? null : (
         <div style={ENV_BODY_STYLE}>
+          <SkillBatchCard skills={missingSkills(report.items)} injection={props.injection} />
           <ItemList
             report={report}
             highlighted={highlighted}
