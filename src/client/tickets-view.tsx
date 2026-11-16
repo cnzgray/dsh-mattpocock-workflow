@@ -24,12 +24,13 @@ import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tick
 import {
   ACTION_BAR_STYLE,
   EMPTY_STYLE,
+  LIST_HEADER_STYLE,
   LOADED_STYLE,
   TREE_DEGRADED_STYLE,
   TREE_NOTE_STYLE,
 } from './task-panel-styles.ts'
 import { buildTicketTree, type TreeRow } from './ticket-tree.ts'
-import { hierarchyHintKey } from './tickets-tree-controls.tsx'
+import { hierarchyHintKey, LayoutControl } from './tickets-tree-controls.tsx'
 import { Toolbar } from './tickets-toolbar.tsx'
 import { useCollapsedTickets } from './use-collapsed-tickets.ts'
 import {
@@ -290,12 +291,8 @@ function SnapshotContent(props: {
         sortKey={props.sortKey}
         direction={props.direction}
         counts={props.counts}
-        layout={props.preferenceLayout}
-        hierarchyAvailable={props.hierarchyAvailable}
-        hierarchyHint={t(hierarchyHintKey(props.snapshot))}
         onFilter={props.onFilter}
         onSort={props.onSort}
-        onLayout={props.onLayout}
       />
       {props.snapshot.viewer === null ? null : (
         <MyTicketsBar
@@ -308,13 +305,16 @@ function SnapshotContent(props: {
           onClear={props.onClearMyTickets}
         />
       )}
-      <TreeNotes
-        snapshot={props.snapshot}
-        layout={props.layout}
-        preferenceLayout={props.preferenceLayout}
-        hierarchyAvailable={props.hierarchyAvailable}
-      />
       <TicketRows
+        layoutControl={
+          <LayoutControl
+            layout={props.preferenceLayout}
+            hierarchyAvailable={props.hierarchyAvailable}
+            hierarchyHint={t(hierarchyHintKey(props.snapshot))}
+            onLayout={props.onLayout}
+          />
+        }
+        notes={<TreeNotes {...props} />}
         snapshot={props.snapshot}
         visible={props.visible}
         rows={props.rows}
@@ -393,6 +393,10 @@ function useFocusedTicket(
 }
 
 function TicketRows(props: {
+  /** 列表头右侧的布局切换。 */
+  readonly layoutControl: React.ReactNode
+  /** 列表头下方的父子说明。 */
+  readonly notes: React.ReactNode
   readonly snapshot: WorkspaceSnapshot
   readonly visible: readonly TicketSnapshot[]
   readonly rows: readonly TreeRow[] | undefined
@@ -416,10 +420,14 @@ function TicketRows(props: {
 
   return (
     <>
-      <div data-testid="loaded-total" style={LOADED_STYLE}>
-        {t('tickets.loaded', { loaded: props.snapshot.loaded, total: props.snapshot.total })}
-        {more.capped ? t('tickets.loadedCapped') : ''}
+      <div style={LIST_HEADER_STYLE}>
+        <span data-testid="loaded-total" style={LOADED_STYLE}>
+          {t('tickets.loaded', { loaded: props.snapshot.loaded, total: props.snapshot.total })}
+          {more.capped ? t('tickets.loadedCapped') : ''}
+        </span>
+        {props.layoutControl}
       </div>
+      {props.notes}
       <TicketList
         tickets={props.visible}
         rows={props.rows}

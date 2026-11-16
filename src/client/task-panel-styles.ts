@@ -218,6 +218,25 @@ export const SEGMENTED_STYLE: CSSProperties = {
   background: COLORS.track,
 }
 
+/** 只放图标的紧凑分段槽，例如列表头的布局切换。 */
+export const ICON_SEGMENTED_STYLE: CSSProperties = {
+  ...SEGMENTED_STYLE,
+  padding: 1,
+  gap: 1,
+  borderRadius: 6,
+}
+
+/** 图标分段里的单个按钮：方形，覆盖文字分段的内边距。 */
+export const ICON_CHIP_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 20,
+  height: 18,
+  padding: 0,
+  borderRadius: 5,
+}
+
 /** 面板顶部：左侧视图页签，右侧流程帮助入口；分隔线横跨整行。 */
 export const VIEW_BAR_STYLE: CSSProperties = {
   display: 'flex',
@@ -288,8 +307,17 @@ export const TOOLBAR_STYLE: CSSProperties = {
   padding: '0 12px 4px',
 }
 
-export const LOADED_STYLE: CSSProperties = {
+/** 列表头：左边“已加载”计数，右边布局切换。 */
+export const LIST_HEADER_STYLE: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
   padding: '0 12px 6px',
+}
+
+export const LOADED_STYLE: CSSProperties = {
   color: COLORS.tertiary,
   fontSize: 11,
   fontVariantNumeric: 'tabular-nums',

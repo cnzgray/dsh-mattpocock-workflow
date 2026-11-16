@@ -1,6 +1,6 @@
 /**
- * 列表工具栏：状态筛选、排序与布局切换。筛选计数基于整份快照，
- * 不随当前筛选变化；布局切换只改渲染，不发请求。
+ * 列表工具栏：状态筛选与排序。筛选计数基于整份快照，
+ * 不随当前筛选变化。
  */
 import * as React from 'react'
 
@@ -18,8 +18,6 @@ import {
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
 import type { TicketSortKey, TicketCounts, TicketFilter, SortDirection } from './ticket-view.ts'
-import { LayoutControl } from './tickets-tree-controls.tsx'
-import type { TicketLayout } from './view-preference.ts'
 
 /** 过滤条件到词典键。 */
 const FILTER_KEYS: Readonly<Record<TicketFilter, MessageKey>> = {
@@ -45,12 +43,8 @@ export function Toolbar(props: {
   readonly sortKey: TicketSortKey
   readonly direction: SortDirection
   readonly counts: TicketCounts
-  readonly layout: TicketLayout
-  readonly hierarchyAvailable: boolean
-  readonly hierarchyHint: string
   readonly onFilter: (filter: TicketFilter) => void
   readonly onSort: (key: TicketSortKey) => void
-  readonly onLayout: (layout: TicketLayout) => void
 }): React.ReactElement {
   const { t } = useI18n()
   return (
@@ -77,12 +71,6 @@ export function Toolbar(props: {
         onToggleDirection={() => {
           props.onSort(props.sortKey)
         }}
-      />
-      <LayoutControl
-        layout={props.layout}
-        hierarchyAvailable={props.hierarchyAvailable}
-        hierarchyHint={props.hierarchyHint}
-        onLayout={props.onLayout}
       />
     </div>
   )

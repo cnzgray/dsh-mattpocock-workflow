@@ -221,3 +221,32 @@ export function TrashIcon(): React.ReactElement {
     </svg>
   )
 }
+
+/** 平铺布局：三条等长横线。 */
+export function FlatListIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M3 4h10M3 8h10M3 12h10"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** 父子布局：一条父行，下挂两条缩进的子行。 */
+export function TreeListIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M3 3.5h10M5 3.5V12h2M5 8h2M9 8h4M9 12h4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
