@@ -113,7 +113,7 @@ npm 那一步在 Release 之后：它失败不会挡住 Release，重跑同一�
 ```bash
 pnpm build
 pnpm pack --pack-destination dist
-npm publish dist/*.tgz --dry-run --offline --json   # 看 npm 会发布哪些文件
+npm publish ./dist/*.tgz --dry-run --offline --json   # 看 npm 会发布哪些文件
 ```
 
 `pnpm pack` 会跑一次 `prepare`（构建 + 尽力安装 git 钩子），所以 tarball 里一定有 `lib/`。发行契约测试
@@ -126,7 +126,7 @@ tarball。
 
 1. npm 账号开启 2FA；
 2. 确认 scope `@cnzgray` 属于你（与 npm 用户名同名即已存在；否则先建组织）；
-3. 本地首次发布，把包名占住：`npm login` 后 `npm publish dist/*.tgz`（只用一次，不要把 token 写进仓库；
+3. 本地首次发布，把包名占住：`npm login` 后 `npm publish ./dist/*.tgz`（只用一次，不要把 token 写进仓库；
    带 scope 的包靠 `publishConfig.access = public` 才公开）；
 4. 在 npmjs.com 该包的 Settings → Trusted Publisher 里加 GitHub Actions：组织/用户 `cnzgray`、仓库
    `dsh-mattpocock-workflow`、workflow `release.yml`，并允许 `npm publish`；

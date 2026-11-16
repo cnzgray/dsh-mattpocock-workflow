@@ -66,7 +66,7 @@ jobs:
         run: gh release download "$GITHUB_REF_NAME" --pattern '*.tgz' --dir dist
       - name: 发布到 npm
         run: |
-          if npm publish dist/*.tgz; then
+          if npm publish ./dist/*.tgz; then
             exit 0
           fi
           # 重跑同一个 tag 时该版本已存在，视为成功；其它失败（认证、命名、内容）继续失败。

@@ -198,3 +198,13 @@ function matchesOf(installedDir: string, pattern: string): string[] {
     .filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
     .map((name) => `${parent}/${name}`)
 }
+
+describe('发布工作流', () => {
+  it('npm publish 的 tarball 路径以 ./ 开头，不会被当成 GitHub 简写', () => {
+    // `npm publish dist/x.tgz` 会被解析为 GitHub 仓库 `dist/x.tgz` 并去 git ls-remote，必然失败。
+    const workflow = readFileSync(join(ROOT, '.github/workflows/release.yml'), 'utf8')
+    const targets = [...workflow.matchAll(/npm publish (\S+)/gu)].map((match) => match[1])
+    expect(targets.length).toBeGreaterThan(0)
+    for (const target of targets) expect(target).toMatch(/^\.?\//u)
+  })
+})
