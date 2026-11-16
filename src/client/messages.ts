@@ -431,10 +431,10 @@ export const zh = {
   'help.diagram.intakeTriage.summary': '原始报告先变成池里的票，再由 triage 定性。',
   'help.diagram.featureChain.title': '需求链',
   'help.diagram.featureChain.summary':
-    '需求先入池，再按情况走定性、访谈或画图；之后写规格、拆票、实现。需求已经清楚可以直接走直达入口。',
+    '需求先入池，再按情况走定性、访谈或画图；之后写规格，规格够小就直接实现，需要拆成多张票才走 to-tickets。需求已经清楚可以直接走直达入口。',
   'help.diagram.directSpec.title': '需求已明确',
   'help.diagram.directSpec.summary':
-    '需求已经清楚时不必先入池：直接 /to-spec 写上需求描述，它会建好带规格的需求票，再拆票、实现。',
+    '需求已经清楚时不必先入池：直接 /to-spec 写上需求描述，它会建好带规格的需求票；规格够小就直接实现，需要拆成多张票才走 to-tickets。',
   'help.diagram.bugChain.title': '缺陷链',
   'help.diagram.bugChain.summary': '缺陷一律先 triage；难查的再诊断，根因清楚的直接实现。',
   'help.diagram.chooseInterview.title': '访谈还是画图',
@@ -451,6 +451,9 @@ export const zh = {
   'help.note.vague': '需求还模糊',
   'help.note.tooBig': '一个会话装不下',
   'help.note.afterFlow': '走完之后',
+  'help.note.smallSpec': '规格够小',
+  'help.note.noTickets': '不需要拆票',
+  'help.note.ticketsNeeded': '需要拆成多张票时',
   'help.note.withDescription': '带上需求描述',
   'help.note.directSpecState': '需求相对明确',
   'help.note.specReady': '规格已写好',
@@ -944,10 +947,10 @@ export const en: Record<MessageKey, string> = {
     'A raw report becomes a ticket in the pool, then triage classifies it.',
   'help.diagram.featureChain.title': 'Feature chain',
   'help.diagram.featureChain.summary':
-    'A feature enters the pool, then goes through triage, interview, or mapping as needed; then spec, ticket breakdown, and implementation. A clear feature can use the direct entry.',
+    'A feature enters the pool, then goes through triage, interview, or mapping as needed; then the spec: a spec small enough goes straight to implementation, and only a spec that splits into several tickets goes through to-tickets. A clear feature can use the direct entry.',
   'help.diagram.directSpec.title': 'Feature already clear',
   'help.diagram.directSpec.summary':
-    'When the feature is clear, skip intake: run /to-spec with the feature description, and it creates a specified feature ticket, then breaks it down and implements it.',
+    'When the feature is clear, skip intake: run /to-spec with the feature description, and it creates a specified feature ticket; a spec small enough goes straight to implementation, and only a spec that splits into several tickets goes through to-tickets.',
   'help.diagram.bugChain.title': 'Bug chain',
   'help.diagram.bugChain.summary':
     'Bugs always go through triage first; hard ones are diagnosed, and clear root causes go straight to implementation.',
@@ -966,6 +969,9 @@ export const en: Record<MessageKey, string> = {
   'help.note.vague': 'feature still vague',
   'help.note.tooBig': 'does not fit one session',
   'help.note.afterFlow': 'after the flow',
+  'help.note.smallSpec': 'spec is small enough',
+  'help.note.noTickets': 'no ticket breakdown needed',
+  'help.note.ticketsNeeded': 'needs several tickets',
   'help.note.withDescription': 'with the feature description',
   'help.note.directSpecState': 'Feature is fairly clear',
   'help.note.specReady': 'spec is written',

@@ -38,6 +38,22 @@ export interface HelpDiagram {
 /** 命令节点的公共字段；`stops` 默认 true，终点节点再单独覆盖。 */
 const STOPPING_COMMAND_NODE = { command: null, state: null, note: null, stops: true } as const
 
+/**
+ * 规格之后的分叉：规格够小直接实现，需要拆成多张票时才停下走 to-tickets。
+ * 「需求链」与「需求已明确」两张图共用，免得一处改了另一处忘。
+ */
+const SPEC_FORK_ROW: HelpRow = {
+  nodes: [
+    {
+      command: null,
+      state: { key: 'help.note.smallSpec' },
+      note: 'help.note.noTickets',
+      stops: false,
+    },
+    { ...STOPPING_COMMAND_NODE, command: 'toTickets', note: 'help.note.ticketsNeeded' },
+  ],
+}
+
 /** 帮助页的六张图。 */
 export const HELP_DIAGRAMS: readonly HelpDiagram[] = [
   {
@@ -121,7 +137,7 @@ export const HELP_DIAGRAMS: readonly HelpDiagram[] = [
         ],
       },
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toSpec', note: 'help.note.afterFlow' }] },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
+      SPEC_FORK_ROW,
       { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'implement', note: null, stops: false }] },
     ],
   },
@@ -159,7 +175,7 @@ export const HELP_DIAGRAMS: readonly HelpDiagram[] = [
           },
         ],
       },
-      { nodes: [{ ...STOPPING_COMMAND_NODE, command: 'toTickets', note: null }] },
+      SPEC_FORK_ROW,
       { nodes: [{ command: 'implement', state: null, note: null, stops: false }] },
     ],
   },

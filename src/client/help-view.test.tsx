@@ -148,8 +148,44 @@ describe('实现之后场景', () => {
   })
 })
 
+describe('需求链场景', () => {
+  it('规格之后分叉：规格够小直接实现，需要拆成多张票才走 to-tickets', async () => {
+    render(<TaskPanel {...panelProps()} />)
+    await screen.findAllByTestId('ticket-row')
+    await openHelp()
+
+    const diagram = HELP_DIAGRAMS.find((item) => item.id === 'feature-chain')
+    if (diagram === undefined) throw new Error('缺少“需求链”场景')
+
+    fireEvent.click(screen.getByTestId(`flow-tab-${diagram.id}`))
+    const panel = screen.getByTestId('flow-diagrams')
+    const svgs = panel.querySelectorAll('svg[role="img"]')
+    expect(svgs).toHaveLength(1)
+    expect(svgs[0]?.getAttribute('aria-label')).toBe('需求链')
+
+    const nodes = [...panel.querySelectorAll('g[data-stops]')]
+    const smallSpec = nodes.find((node) => node.textContent.includes('规格够小'))
+    expect(smallSpec?.getAttribute('data-command')).toBeNull()
+    expect(smallSpec?.getAttribute('data-stops')).toBe('false')
+    expect(smallSpec?.textContent).toContain('不需要拆票')
+
+    const toTickets = panel.querySelector('[data-command="to-tickets"]')
+    expect(toTickets?.getAttribute('data-owner')).toBe('matt')
+    expect(toTickets?.getAttribute('data-stops')).toBe('true')
+    expect(toTickets?.textContent).toContain('需要拆成多张票时')
+
+    expect(panel.querySelector('[data-command="implement"]')?.getAttribute('data-stops')).toBe(
+      'false',
+    )
+
+    // 摘要直接说清两条路，不用细看节点也能选路。
+    expect(panel.textContent).toContain('规格够小就直接实现')
+    expect(panel.textContent).toContain('需要拆成多张票才走 to-tickets')
+  })
+})
+
 describe('直达规格场景', () => {
-  it('需求已明确时单独一张图，画出从需求描述到拆票、实现的直达路径', async () => {
+  it('需求已明确时单独一张图，画出从需求描述经规格到实现的直达路径，拆票按需', async () => {
     render(<TaskPanel {...panelProps()} />)
     await screen.findAllByTestId('ticket-row')
     await openHelp()
@@ -169,5 +205,20 @@ describe('直达规格场景', () => {
     expect(panel.querySelector('[data-command="implement"]')).toBeTruthy()
     expect(panel.querySelector('[data-command^="mattwf-"]')).toBeNull()
     expect(panel.textContent).toContain('ready-for-agent')
+
+    const nodes = [...panel.querySelectorAll('g[data-stops]')]
+    const smallSpec = nodes.find((node) => node.textContent.includes('规格够小'))
+    expect(smallSpec?.getAttribute('data-command')).toBeNull()
+    expect(smallSpec?.getAttribute('data-stops')).toBe('false')
+    expect(smallSpec?.textContent).toContain('不需要拆票')
+    expect(panel.querySelector('[data-command="to-tickets"]')?.getAttribute('data-stops')).toBe(
+      'true',
+    )
+    expect(panel.querySelector('[data-command="implement"]')?.getAttribute('data-stops')).toBe(
+      'false',
+    )
+
+    expect(panel.textContent).toContain('规格够小就直接实现')
+    expect(panel.textContent).toContain('需要拆成多张票才走 to-tickets')
   })
 })
