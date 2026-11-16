@@ -9,7 +9,7 @@
  */
 import type { ClientCapabilities } from './capabilities.ts'
 
-const PLUGIN_NAME = 'dsh-mattpocock-workflow'
+const PLUGIN_NAME = '@cnzgray/dsh-mattpocock-workflow'
 
 /**
  * 打开动作的总尝试次数。宿主在 React 渲染会话切换之前就换掉在屏会话，会话面在

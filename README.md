@@ -46,12 +46,48 @@
 
 面板本身只读工单与环境，不修改工单、不安装、不登录、不改用户的工作区文件，也不会自动发送提示词；建票与关票由 agent 按插件命令用跟踪器自己的方式完成，解决区只提供命令与提示词，不代为执行。
 
+## 安装
+
+三种方式效果相同，选一种即可；都要求 DSH `>= 0.2.0-rc.2`。
+
+1. **按包名从 npm 安装**：`dsh plugin --profile <profile> add @cnzgray/dsh-mattpocock-workflow`。
+   这是唯一支持「插件」页检查更新与就地升级的通道；包由 CI 用可信发布（OIDC）发布，带 provenance。
+2. **一条命令从 Git 安装**：`dsh plugin --profile <profile> add github:cnzgray/dsh-mattpocock-workflow`。
+   仓库自带的 `prepare` 会从源码构建出宿主入口与客户端 bundle。
+3. **从 Release 下载预构建 tarball**：在 GitHub Releases 里取
+   `cnzgray-dsh-mattpocock-workflow-<版本>.tgz`，再执行
+   `dsh plugin --profile <profile> add /绝对路径/<文件>.tgz`。tarball 里已含构建产物，安装不触发构建脚本，
+   适合网络受限、或想固定版本离线留存的场景。
+
+Desktop 的 profile 由应用自己管理，在「插件」页安装即可；安装确认框会写明来源（npm 版本、Git 提交还是
+tarball 资产），以及这次安装会不会执行构建脚本。上面的命令用于 web / tui 等自建 profile。
+
+### 装不上怎么办
+
+从 Git 安装会执行仓库的 `prepare`，pnpm 10 起默认拦下依赖的构建脚本。DSH 的安装界面会给出
+**「允许这些脚本并重试」**，点它即可；用 CLI 时把 pnpm 报错里建议的键**原样**加进 profile 的
+`pnpm-workspace.yaml`（`allowBuilds` 下一行 `<键>: true`）。键就是这次安装的 spec，不同 pnpm 版本
+可能带、也可能不带末尾的提交号，以 pnpm 打印的为准：
+
+```yaml
+allowBuilds:
+  '@cnzgray/dsh-mattpocock-workflow@github:cnzgray/dsh-mattpocock-workflow#<提交>': true
+```
+
+Release tarball 安装不需要这一步；从 npm 安装同样不触发构建脚本。
+
+### 卸载
+
+`dsh plugin --profile <profile> remove @cnzgray/dsh-mattpocock-workflow`；Desktop 在「插件」页移除。
+卸载会一并移除 profile 里的组合包层，但不会删除插件自己的快照缓存
+（`$DSH_HOME/cache/dsh-mattpocock-workflow/`，见下文），需要时手动删除。
+
 ## 界面语言
 
 面板文案跟随 DSH 的界面语言（设置 → 通用 → 语言），当前提供中文与英文两套；其余语言沿 DSH 的回退链显示英文。
 切换语言后面板立即改写，不需要刷新页面或重开面板。插件不另设语言开关，DSH 的语言设置是唯一来源。
 
-- 宿主提供 locale 服务时，插件在浏览器端注册自己的命名空间词典（`dsh-mattpocock-workflow`），
+- 宿主提供 locale 服务时，插件在浏览器端注册自己的命名空间词典（`@cnzgray/dsh-mattpocock-workflow`），
   面板通过同一个翻译入口取词；locale 服务晚于面板就绪也能接上；
 - 宿主没有 locale 服务（老版本 DSH）时，面板使用内置中文词典，行为与接入前一致；
   环境检查底部的「能力诊断」会把「界面语言服务」记为缺失；

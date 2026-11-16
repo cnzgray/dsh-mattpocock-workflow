@@ -23,7 +23,10 @@ export const SNAPSHOT_STORE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 /** 最多保留多少个工作区的缓存。 */
 export const SNAPSHOT_STORE_MAX_ENTRIES = 20
 
-/** 缓存目录名；DSH 数据根下的一个子目录，只属于这个插件。 */
+/**
+ * 缓存目录名；DSH 数据根下的一个子目录，只属于这个插件。
+ * 不跟包名走：改名时保持原值，用户已有的快照不会被丢在新目录之外。
+ */
 const DIRECTORY_NAME = 'dsh-mattpocock-workflow'
 
 /** 本地快照库的读写能力。宿主只依赖这个接口，测试用内存实现。 */

@@ -30,8 +30,8 @@ export default defineConfig(
     },
   },
   {
-    // DSH 按默认导出加载服务端插件入口；配置文件也由各自的工具按默认导出读取。
-    files: ['src/host/index.ts', '*.config.ts'],
+    // 配置文件由各自的工具按默认导出读取。
+    files: ['*.config.ts'],
     rules: { 'no-restricted-syntax': 'off' },
   },
   {

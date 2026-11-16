@@ -1,5 +1,5 @@
 {
-  "name": "dsh-mattpocock-workflow",
+  "name": "@cnzgray/dsh-mattpocock-workflow",
   "version": "0.1.0",
   "description": "在 DSH 里运行 mattpocock/skills 工作流的 MattWorkflow 任务面板插件。",
   "license": "MIT",
@@ -36,8 +36,7 @@
     "cordis.patch.yml"
   ],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "dsh": {
     "bundle": {
@@ -45,7 +44,6 @@
     },
     "client": {
       "platform": "web",
-      "immediately": true,
       "inject": []
     }
   },
@@ -61,7 +59,7 @@
     "files": "node scripts/check-file-size.ts",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "prepare": "lefthook install"
+    "prepare": "node scripts/prepare.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -83,6 +81,7 @@
     "react-dom": "19.3.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   }
 }

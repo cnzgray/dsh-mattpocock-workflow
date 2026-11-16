@@ -9,7 +9,10 @@ import type { BackendKind } from './backend.ts'
 import type { EnvCheckParams } from './env-check.ts'
 import type { TicketActionReason, TicketSkillAction } from './labels.ts'
 
-/** 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。 */
+/**
+ * 插件私有的 HTTP 路由。宿主用 `connection.fetch.register` 挂载，界面用同源 fetch 调用。
+ * 路由是内部地址，不跟包名走：改名时保持原值，避免两侧常量不同步。
+ */
 export const RPC_PATH = '/api/dsh-mattpocock-workflow'
 
 /**

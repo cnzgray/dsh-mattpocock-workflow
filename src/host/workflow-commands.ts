@@ -93,7 +93,7 @@ export function registerWorkflowCommands(
     return () => {
       for (const dispose of disposers) dispose()
     }
-  }, 'dsh-mattpocock-workflow: 插件命令')
+  }, '@cnzgray/dsh-mattpocock-workflow: 插件命令')
 }
 
 /**

@@ -153,7 +153,7 @@ describe('desktop profile 链接检测', () => {
 })
 
 describe('构建管线', () => {
-  it('宿主产物是带默认导出的 ESM', async () => {
+  it('宿主产物是按文档加载的具名导出 ESM', async () => {
     const paths = buildPaths(ROOT, makeTempDir('dsh-lib-'))
     const host = await build({
       ...createHostBuildOptions(META, paths),
@@ -163,7 +163,9 @@ describe('构建管线', () => {
 
     const outputs = Object.values(host.metafile.outputs)
     expect(outputs).toHaveLength(1)
-    expect(outputs[0]?.exports).toContain('default')
+    // DSH 把包模块当 Cordis 插件加载：name / inject / apply 是文档化形态，不靠 unwrapExports 解包 default。
+    expect(outputs[0]?.exports).toEqual(expect.arrayContaining(['name', 'inject', 'apply']))
+    expect(outputs[0]?.exports).not.toContain('default')
   })
 
   it('开发模式的客户端产物带外壳和能定位到 TSX 的 source map', async () => {

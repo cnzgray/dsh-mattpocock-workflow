@@ -25,7 +25,8 @@ import { createPanelClient, type PanelClient } from './rpc.ts'
 import { startPanelFollow } from './panel-follow.ts'
 import { TaskPanel } from './task-panel.tsx'
 
-const PLUGIN_NAME = 'dsh-mattpocock-workflow'
+const PLUGIN_NAME = '@cnzgray/dsh-mattpocock-workflow'
+// 页签身份跟随用户已保存的会话状态，不跟包名走：改包名时保持原值，避免旧页签变成未注册的 kind。
 const TAB_ID = 'dsh-mattpocock-workflow:task-panel'
 const TAB_KIND = 'dsh-mattpocock-workflow'
 

@@ -41,6 +41,7 @@ export interface PreferenceStorage {
   removeItem(key: string): void
 }
 
+// 浏览器本地存储的键前缀，用户已保存的视图偏好按它归属；改包名时保持原值。
 const KEY_PREFIX = 'dsh-mattpocock-workflow:view:'
 const STORAGE_VERSION = 1
 const MAX_ENTRIES = 50

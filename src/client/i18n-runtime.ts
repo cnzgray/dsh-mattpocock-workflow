@@ -32,7 +32,7 @@ export interface LocaleServiceLike {
 }
 
 /** 面板自己的命名空间：插件包名，不向 DSH 的 common 命名空间塞词。 */
-export const MESSAGES_NAMESPACE = 'dsh-mattpocock-workflow'
+export const MESSAGES_NAMESPACE = '@cnzgray/dsh-mattpocock-workflow'
 
 /** 替换 `{name}` 占位符；没有对应参数时原样保留。 */
 const PLACEHOLDER = /\{([A-Za-z0-9_.-]+)\}/g

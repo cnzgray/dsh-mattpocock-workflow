@@ -1,6 +1,6 @@
 # 安装时由 `dsh plugin --profile <name> add` 根据 package.json 的 dsh.bundle.patch 自动装配，
 # 卸载时自动移除，不需要手动编辑。
 - insert:
-    - id: dsh-mattpocock-workflow
-      name: 'dsh-mattpocock-workflow'
+    - id: '@cnzgray/dsh-mattpocock-workflow'
+      name: '@cnzgray/dsh-mattpocock-workflow'
       config: {}

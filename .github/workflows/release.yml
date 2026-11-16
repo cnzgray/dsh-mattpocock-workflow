@@ -1,5 +1,9 @@
-# 只负责发布，不跑验证（验证以本地 `pnpm check` 为准，见 docs/adr/0001-engineering-standards.md 第 5 节）。
-# 推送 v* 标签时构建并发布到 npm。发布用 npm Trusted Publishing（OIDC），仓库里不存任何 npm token。
+# 打 v* tag 时产出三样用户可安装的东西：
+#   1. 可直接安装的 Git 提交——就是打 tag 的这次提交，仓库自带的 prepare 会从源码构建；
+#   2. 同一版本的预构建 tarball，作为 GitHub Release 资产，安装时不触发构建；
+#   3. 同一份 tarball 发布到 npm，供按包名安装与注册表更新检查使用。
+# npm 用可信发布（OIDC），仓库里不存任何长期 token；provenance 由 npm 自动生成。
+# 工作流只做构建与产物校验，不跑测试套件——合并前的唯一门禁是本地 `pnpm check`。
 name: release
 
 on:
@@ -8,11 +12,12 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -20,7 +25,52 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      # tag 必须与 manifest 版本一致：否则 Release 与 npm 上的版本会跟 tag 对不上。
+      - name: 校验 tag 与版本
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$expected" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME 与 package.json 的版本 $expected 不一致"
+            exit 1
+          fi
       - run: pnpm build
-      - run: pnpm publish --no-git-checks
+      - name: 打包预构建 tarball
+        run: pnpm pack --pack-destination dist
+      # 同一个 tag 重跑时 Release 已存在就覆盖资产，而不是整条流程卡在这里。
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tgz \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.tgz --clobber
+
+  npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # 可信发布：npm CLI 用这次 OIDC 令牌换取一次性的发布凭证。
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      # 发布的就是 Release 上那份 tarball：npm 上的字节与用户下载到的资产完全一致。
+      - name: 取回 Release 资产
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download "$GITHUB_REF_NAME" --pattern '*.tgz' --dir dist
+      - name: 发布到 npm
+        run: |
+          if npm publish dist/*.tgz; then
+            exit 0
+          fi
+          # 重跑同一个 tag 时该版本已存在，视为成功；其它失败（认证、命名、内容）继续失败。
+          name=$(tar -xOf dist/*.tgz package/package.json | jq -r .name)
+          version=$(tar -xOf dist/*.tgz package/package.json | jq -r .version)
+          echo "发布失败，确认 $name@$version 是否已经发布过"
+          npm view "$name@$version" version

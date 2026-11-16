@@ -1,5 +1,6 @@
 /**
- * 服务端插件入口。DSH 按默认导出加载：inject 里列出的服务就绪后才调用 apply。
+ * 服务端插件入口。DSH 把包模块当 Cordis 插件加载：具名 `name` / `inject` / `apply` 是文档化形态，
+ * 不依赖 Loader 的 `unwrapExports` 兼容路径。inject 里列出的服务就绪后才调用 apply。
  * 这里只做组装：工单规则在 core，各后端读取在 adapters，RPC 契约在 protocol。
  *
  * 每个 `ctx.get` 都做存在性检查：DSH 版本不同或某个服务缺失时，
@@ -35,66 +36,73 @@ import { createTicketService } from './ticket-service.ts'
 import { createCommandRunner } from './subprocess-runner.ts'
 import { registerWorkflowCommands } from './workflow-commands.ts'
 
-const PLUGIN_NAME = 'dsh-mattpocock-workflow'
+const PLUGIN_NAME = '@cnzgray/dsh-mattpocock-workflow'
 
-const plugin = {
-  inject: ['subprocess', 'timer'] as string[],
-  apply(rawCtx: unknown): void {
-    const ctx = rawCtx as DshContext
-    const logger = ctx.logger(PLUGIN_NAME)
+/** 插件名：Cordis 用它标记插件条目。 */
+export const name = PLUGIN_NAME
 
-    // 插件命令是插件自带的内嵌技能：技能服务就绪后注册，缺失时只降级。
-    if (ctx.get('skills') === undefined) {
-      logger.info('%s', 'skills 服务尚未就绪，插件命令等待注册。')
+/** 硬依赖：命令执行与计时服务就绪后才挂载。 */
+export const inject: string[] = ['subprocess', 'timer']
+
+/**
+ * 挂载插件。inject 列出的服务就绪后由 Cordis 调用。
+ * @param rawCtx - 宿主上下文；按 dsh-types 里的窄接口逐个读取。
+ */
+export function apply(rawCtx: unknown): void {
+  const ctx = rawCtx as DshContext
+  const logger = ctx.logger(PLUGIN_NAME)
+
+  // 插件命令是插件自带的内嵌技能：技能服务就绪后注册，缺失时只降级。
+  if (ctx.get('skills') === undefined) {
+    logger.info('%s', 'skills 服务尚未就绪，插件命令等待注册。')
+  }
+  ctx.inject(['skills'], (scope) => {
+    registerWorkflowCommands(scope, logger)
+  })
+
+  // connection 是可选依赖：没有它时面板仍可加载，只是没有 RPC 通道。
+  ctx.inject(['connection'], (scope) => {
+    const connection = readConnection(scope.get('connection'))
+    if (connection === undefined) {
+      logger.warn('%s', 'connection 服务不可用，工单 RPC 未注册。')
+      return
     }
-    ctx.inject(['skills'], (scope) => {
-      registerWorkflowCommands(scope, logger)
-    })
 
-    // connection 是可选依赖：没有它时面板仍可加载，只是没有 RPC 通道。
-    ctx.inject(['connection'], (scope) => {
-      const connection = readConnection(scope.get('connection'))
-      if (connection === undefined) {
-        logger.warn('%s', 'connection 服务不可用，工单 RPC 未注册。')
-        return
-      }
+    const subprocess = readSubprocess(scope.get('subprocess'))
+    const timer = readTimer(scope.get('timer'))
+    if (subprocess === undefined || timer === undefined) {
+      logger.warn('%s', 'subprocess 或 timer 服务不可用，工单 RPC 未注册。')
+      return
+    }
 
-      const subprocess = readSubprocess(scope.get('subprocess'))
-      const timer = readTimer(scope.get('timer'))
-      if (subprocess === undefined || timer === undefined) {
-        logger.warn('%s', 'subprocess 或 timer 服务不可用，工单 RPC 未注册。')
-        return
-      }
+    const rpc = createRpcHandler(
+      scope,
+      createCommandRunner(subprocess, timer),
+      timer,
+      createLog(logger),
+    )
 
-      const rpc = createRpcHandler(
-        scope,
-        createCommandRunner(subprocess, timer),
-        timer,
-        createLog(logger),
-      )
-
-      let dispose: (() => Promise<void>) | undefined
-      try {
-        dispose = connection.fetch.register({
-          path: RPC_PATH,
-          methods: ['POST'],
-          requestBody: 'buffered',
-          fetch: createRpcFetchHandler(rpc),
-        })
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        logger.error('%s %s', '工单 RPC 注册失败：', reason)
-        return
-      }
-      scope.effect(
-        () => () => {
-          void dispose()
-        },
-        `${PLUGIN_NAME}: ${RPC_PATH}`,
-      )
-      logger.info('%s %s', '工单 RPC 已注册：', RPC_PATH)
-    })
-  },
+    let dispose: (() => Promise<void>) | undefined
+    try {
+      dispose = connection.fetch.register({
+        path: RPC_PATH,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: createRpcFetchHandler(rpc),
+      })
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      logger.error('%s %s', '工单 RPC 注册失败：', reason)
+      return
+    }
+    scope.effect(
+      () => () => {
+        void dispose()
+      },
+      `${PLUGIN_NAME}: ${RPC_PATH}`,
+    )
+    logger.info('%s %s', '工单 RPC 已注册：', RPC_PATH)
+  })
 }
 
 /**
@@ -182,5 +190,3 @@ function readHostCapabilities(scope: DshContext): readonly CapabilityDiagnostic[
     status: scope.get(id) === undefined ? ('missing' as const) : ('present' as const),
   }))
 }
-
-export default plugin

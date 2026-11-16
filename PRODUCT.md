@@ -8,7 +8,7 @@ web
 
 ## Users
 
-主要用户是公开插件的外部使用者：任何在 DSH 里运行 mattpocock/skills 工作流的开发者，通过 npm 安装本插件。
+主要用户是公开插件的外部使用者：任何在 DSH 里运行 mattpocock/skills 工作流的开发者，通过 npm 包、Git 仓库或 Release tarball 安装本插件。
 他们在 DSH 右侧栏打开“MattWorkflow”页签，一边和 agent 对话，一边看当前工作区的工单、挑下一张可接工单，
 并把“新建需求”“+ bug”“to-spec 需求”“处理工单”的预设提示词按用户选择填进当前会话或新会话。设计按陌生用户的标准：第一次安装、
 环境可能还没配好、不一定熟悉 triage 标签与技能。
