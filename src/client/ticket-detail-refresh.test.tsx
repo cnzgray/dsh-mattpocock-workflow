@@ -29,14 +29,17 @@ describe('刷新工单', () => {
     const refresh = button('detail-refresh')
     expect(refresh.getAttribute('aria-label')).toBe('刷新工单')
     expect(refresh.title).toBe('刷新工单')
-    // 在详情头部，技能徽标之后、关闭/重开之前。
+    // 在详情头部，技能徽标与关闭/重开之后、复制链接之前。
     expect(refresh.closest('header')).not.toBeNull()
     expect(
       element('skill-badge').compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(
-      refresh.compareDocumentPosition(element('detail-state-toggle')) &
+      element('detail-state-toggle').compareDocumentPosition(refresh) &
         Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      refresh.compareDocumentPosition(element('detail-copy')) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 

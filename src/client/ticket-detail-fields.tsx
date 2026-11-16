@@ -59,7 +59,7 @@ export interface CopyState {
 }
 
 /**
- * 头部右侧的工单操作：刷新、关闭/重开、复制链接。都是低频动作，放在导航行里不占正文区域；
+ * 头部右侧的工单操作：关闭/重开、刷新、复制链接。都是低频动作，放在导航行里不占正文区域；
  * 刷新是图标按钮，重读期间禁用、变暗并换成「正在刷新工单…」；
  * 关闭用错误色文字，复制成功后图标短暂变成对勾。
  */
@@ -81,18 +81,6 @@ export function HeaderActions(
 
   return (
     <>
-      <button
-        type="button"
-        data-testid="detail-refresh"
-        data-hover="soft"
-        disabled={props.refreshDisabled}
-        aria-label={refreshLabel}
-        title={refreshLabel}
-        onClick={props.onRefresh}
-        style={{ ...HEADER_ICON_BUTTON_STYLE, opacity: props.refreshDisabled ? 0.6 : 1 }}
-      >
-        <RefreshIcon />
-      </button>
       {detail.capabilities.state ? (
         <button
           type="button"
@@ -108,6 +96,18 @@ export function HeaderActions(
           {t(next === 'closed' ? 'detail.close' : 'detail.reopen')}
         </button>
       ) : null}
+      <button
+        type="button"
+        data-testid="detail-refresh"
+        data-hover="soft"
+        disabled={props.refreshDisabled}
+        aria-label={refreshLabel}
+        title={refreshLabel}
+        onClick={props.onRefresh}
+        style={{ ...HEADER_ICON_BUTTON_STYLE, opacity: props.refreshDisabled ? 0.6 : 1 }}
+      >
+        <RefreshIcon />
+      </button>
       {detail.url === null ? null : (
         <button
           type="button"
