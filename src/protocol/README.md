@@ -23,9 +23,11 @@ RPC 方法：
 
 `snapshot.get`、`snapshot.refresh` 与 `snapshot.resolveBlockers` 都返回同一个 `WorkspaceSnapshot`：
 
-- 工单级：判定结果（`status`、`category`）、关闭时间（`closedAt`，能给才给）与阻塞引用（`blockedBy`，
-  能给才给；GitHub 列表查询没有依赖边）；
-- 快照级：仓库标识、后端、实例主机、拉取时间、已加载数与总数、阻塞是否定稿；
+- 工单级：判定结果（`status`、`category`）、创建人、分配人登录名（`assignees`，没有分配人概念时为空数组）、
+  关闭时间（`closedAt`，能给才给）与阻塞引用（`blockedBy`，能给才给；GitHub 列表查询没有依赖边）；
+- 快照级：仓库标识、后端、实例主机、当前登录用户（`viewer`，识别不出时为 null）、拉取时间、已加载数与总数、
+  阻塞是否定稿；`viewer` 与每张票的 `assignees` 是人员筛选的必填字段，客户端缺字段或类型不对时按
+  `fetch-failed` 拒绝整份快照；
 - 指标级：`metrics`，含三个压力维度（`PressureDimension` / `PressureTier`）、关键数字、样本覆盖度
   （`coverage`）与关注清单（`attention`）。`MetricValue` 用 `value: null` + `gap` 表示后端给不出的指标；
   维度数据不足时 `PressureDimensionReport.tier` 为 `null`，总档位只合并可判档的维度。

@@ -11,8 +11,9 @@ import type { Ticket, TicketAuthor, TicketState } from './ticket.ts'
 /**
  * 本地快照库的格式版本。版本不符的条目一律按没有缓存处理。
  * 2：工单带上网页地址；旧缓存没有地址，作废后重拉一次补齐。
+ * 3：条目带当前登录用户，工单带分配人；旧缓存作废后重拉一次补齐人员筛选所需的数据。
  */
-export const SNAPSHOT_STORE_VERSION = 2
+export const SNAPSHOT_STORE_VERSION = 3
 
 /** 缓存文件里存的后端类型。 */
 const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown']
@@ -34,6 +35,8 @@ export interface SnapshotStoreEntry {
   readonly repositoryKey: string
   /** 拉取时的实例主机；本地 Markdown 为 null。 */
   readonly repositoryHost: string | null
+  /** 拉取时的当前登录用户登录名；识别不出时为 null。 */
+  readonly viewer: string | null
   /** 拉取时刻（毫秒时间戳），也是下一次增量的窗口起点。 */
   readonly fetchedAt: number
   /** 当时加载到的票数。 */
@@ -59,6 +62,7 @@ export function serializeSnapshotStoreEntry(entry: SnapshotStoreEntry): string {
     repository: entry.repository,
     repositoryKey: entry.repositoryKey,
     repositoryHost: entry.repositoryHost,
+    viewer: entry.viewer,
     fetchedAt: entry.fetchedAt,
     loaded: entry.loaded,
     total: entry.total,
@@ -114,6 +118,9 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
   const repositoryHost = value.repositoryHost
   if (repositoryHost !== null && typeof repositoryHost !== 'string') return undefined
 
+  const viewer = value.viewer
+  if (viewer !== null && typeof viewer !== 'string') return undefined
+
   const windowLimit = value.windowLimit
   if (
     windowLimit !== undefined &&
@@ -132,6 +139,7 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
     repository,
     repositoryKey,
     repositoryHost: repositoryHost ?? null,
+    viewer,
     fetchedAt,
     loaded,
     total,
@@ -179,6 +187,9 @@ function readTicket(value: unknown): Ticket | undefined {
   const labels = readStringArray(value.labels)
   if (labels === undefined) return undefined
 
+  const assignees = readStringArray(value.assignees)
+  if (assignees === undefined) return undefined
+
   const author = readAuthor(value.author)
   if (author === undefined) return undefined
 
@@ -199,6 +210,7 @@ function readTicket(value: unknown): Ticket | undefined {
       state,
       labels,
       author,
+      assignees,
       createdAt,
       updatedAt,
       openBlockers,
@@ -215,6 +227,7 @@ function readTicket(value: unknown): Ticket | undefined {
     state,
     labels,
     author,
+    assignees,
     createdAt,
     updatedAt,
     openBlockers,

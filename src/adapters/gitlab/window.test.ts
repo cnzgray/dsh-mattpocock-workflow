@@ -44,7 +44,9 @@ describe('GitLab 列表窗口', () => {
     expect(snapshot.loaded).toBe(2)
     expect(snapshot.total).toBe(250)
     expect(snapshot.windowLimit).toBe(2)
-    const calls = recorded.calls.filter((call) => call[0] === 'glab')
+    const calls = recorded.calls.filter(
+      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user',
+    )
     expect(calls).toHaveLength(1)
     const call = calls[0]?.join(' ') ?? ''
     expect(call).toContain('--include')
@@ -66,7 +68,9 @@ describe('GitLab 列表窗口', () => {
     expect(snapshot.windowLimit).toBe(3)
     expect(snapshot.total).toBe(250)
     // 只有第一页需要响应头，后续页不再带 `--include`。
-    const calls = recorded.calls.filter((call) => call[0] === 'glab')
+    const calls = recorded.calls.filter(
+      (call) => call[0] === 'glab' && call[call.length - 1] !== 'user',
+    )
     expect(calls).toHaveLength(2)
     expect(calls[1]).not.toContain('--include')
   })

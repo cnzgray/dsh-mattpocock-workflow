@@ -11,6 +11,7 @@ import {
   GITLAB_LINKS,
   GITLAB_REMOTES_OUTPUT,
   GITLAB_TOTAL_OUTPUT,
+  GITLAB_USER_OUTPUT,
 } from './fixtures.ts'
 import { createGitlabTracker } from './tracker.ts'
 
@@ -25,6 +26,8 @@ export interface RunnerOptions {
   readonly total?: () => string
   readonly links?: (iid: number) => string
   readonly graphql?: () => string
+  /** `glab api user` 的输出；抛错模拟身份查询失败。 */
+  readonly user?: () => string
 }
 
 export interface RecordedRunner {
@@ -52,6 +55,13 @@ export function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
       graphqlCalls.push(args.join(' '))
       return Promise.resolve({
         stdout: (options.graphql ?? (() => GITLAB_BLOCKED_BY_OUTPUT))(),
+        stderr: '',
+      })
+    }
+
+    if (endpoint === 'user') {
+      return Promise.resolve({
+        stdout: (options.user ?? (() => GITLAB_USER_OUTPUT))(),
         stderr: '',
       })
     }

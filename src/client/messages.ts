@@ -56,6 +56,15 @@ export const zh = {
   'filter.blocked': '阻塞',
   'filter.ready': '可接',
 
+  'mine.group': '我的工单筛选',
+  'mine.assigned': '分配给我',
+  'mine.created': '我创建的',
+  'mine.clear': '清除',
+  'mine.countHint': '数字按当前状态筛选统计',
+  'mine.viewer': '@{login}',
+  'mine.viewerHint': '人员筛选按当前登录用户匹配',
+  'mine.viewerTitle': '@{login} · 人员筛选按当前登录用户匹配',
+
   'sort.group': '排序',
   'sort.field': '排序字段',
   'sort.status': '状态',
@@ -533,6 +542,15 @@ export const en: Record<MessageKey, string> = {
   'filter.closed': 'Closed',
   'filter.blocked': 'Blocked',
   'filter.ready': 'Ready',
+
+  'mine.group': 'My ticket filters',
+  'mine.assigned': 'Assigned to me',
+  'mine.created': 'Created by me',
+  'mine.clear': 'Clear',
+  'mine.countHint': 'Counts follow the current status filter',
+  'mine.viewer': '@{login}',
+  'mine.viewerHint': 'People filters match the signed-in user',
+  'mine.viewerTitle': '@{login} · People filters match the signed-in user',
 
   'sort.group': 'Sort',
   'sort.field': 'Sort field',

@@ -13,6 +13,7 @@ import {
   GITEA_LABEL_PAGES,
   GITEA_REMOTES_OUTPUT,
   GITEA_REPO_PERMISSION_OUTPUT,
+  GITEA_USER_OUTPUT,
   apiCall,
   failedApiCall,
   giteaIssue,
@@ -32,6 +33,8 @@ interface RunnerOptions {
   /** 带 `since` 的增量查询用这一组输出。 */
   readonly changes?: (page: number) => RecordedApiCall
   readonly dependencies?: (index: number) => RecordedApiCall
+  /** `tea api /user` 的输出；返回失败响应模拟身份查询失败。 */
+  readonly user?: () => RecordedApiCall
 }
 
 interface RecordedRunner {
@@ -53,6 +56,11 @@ function recordedRunner(options: RunnerOptions = {}): RecordedRunner {
     }
 
     const endpoint = args[2] ?? ''
+    if (endpoint === '/user') {
+      const recorded = (options.user ?? (() => GITEA_USER_OUTPUT))()
+      return Promise.resolve({ stdout: recorded.stdout, stderr: recorded.stderr })
+    }
+
     const dependency = /\/issues\/(\d+)\/dependencies/.exec(endpoint)
     if (dependency !== null) {
       const index = Number.parseInt(dependency[1] ?? '', 10)
@@ -102,6 +110,17 @@ describe('Gitea 工单后端', () => {
       ['#16', 16, 'open'],
       ['#9', 9, 'closed'],
     ])
+    expect(snapshot.viewer).toBe('cnzgray')
+    expect(snapshot.tickets.map((ticket) => ticket.assignees)).toEqual([['alice'], ['cnzgray'], []])
+  })
+
+  it('身份查询失败时列表仍然成功，当前用户为 null', async () => {
+    const { tracker } = trackerWith({ user: () => failedApiCall(503, 'unavailable') })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.tickets).toHaveLength(3)
+    expect(snapshot.viewer).toBeNull()
   })
 
   it('窗口按更新时间倒序取页，够数就停并给出总数', async () => {
@@ -241,7 +260,9 @@ describe('Gitea 工单后端', () => {
 
     await tracker.fetchSnapshot('/workspace')
 
-    const endpoints = calls.filter((call) => call[0] === 'tea').map((call) => call[3] ?? '')
+    const endpoints = calls
+      .filter((call) => call[0] === 'tea' && call[3] !== '/user')
+      .map((call) => call[3] ?? '')
     expect(endpoints.length).toBeGreaterThan(0)
     for (const endpoint of endpoints) {
       expect(endpoint).not.toContain('/pulls')
@@ -320,11 +341,33 @@ describe('Gitea 工单增量', () => {
 
     await tracker.fetchChanges?.('/workspace', SINCE)
 
-    const totalCall = calls.find((call) => call[0] === 'tea' && !(call[3] ?? '').includes('since='))
+    const totalCall = calls.find(
+      (call) =>
+        call[0] === 'tea' &&
+        (call[3] ?? '').includes('/issues?') &&
+        !(call[3] ?? '').includes('since='),
+    )
     expect(totalCall?.[3]).toContain('state=all')
     expect(totalCall?.[3]).toContain('type=issues')
     expect(totalCall?.[3]).toContain('limit=1')
     expect(totalCall?.[3]).not.toContain('since=')
+  })
+
+  it('增量顺带刷新当前登录用户', async () => {
+    const { tracker } = trackerWith()
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.viewer).toBe('cnzgray')
+  })
+
+  it('增量身份查询失败时省略当前用户，由宿主沿用基准身份', async () => {
+    const { tracker } = trackerWith({ user: () => failedApiCall(503, 'unavailable') })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
+    expect(Object.hasOwn(changes ?? {}, 'viewer')).toBe(false)
   })
 
   it('返回窗口内变更过的票，并给出它的阻塞数', async () => {
@@ -709,6 +752,8 @@ describeTrackerContract('Gitea', {
     total: 3,
     refs: ['#15', '#16', '#9'],
     fetchedAt: NOW,
+    viewer: 'cnzgray',
+    assignees: { '#15': ['alice'], '#16': ['cnzgray'], '#9': [] },
   },
   empty: {
     createTracker: () =>
@@ -723,7 +768,7 @@ describeTrackerContract('Gitea', {
   changes: {
     createTracker: () => createGiteaTracker({ run: recordedRunner().runner, now: () => NOW }),
     since: SINCE,
-    expected: { refs: ['#16'], total: 3 },
+    expected: { refs: ['#16'], total: 3, viewer: 'cnzgray' },
   },
   detail: {
     createTracker: () =>

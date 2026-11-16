@@ -35,6 +35,7 @@ const NEW_TICKET: TicketSnapshot = {
   skillActionReason: 'untriaged',
   labels: [],
   author: null,
+  assignees: [],
   createdAt: '2026-11-12T10:00:00Z',
   updatedAt: '2026-11-12T10:00:00Z',
   openBlockers: 0,

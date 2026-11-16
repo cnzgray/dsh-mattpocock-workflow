@@ -75,12 +75,14 @@ export function giteaIssue(overrides: {
   readonly closedAt?: string
   readonly pullRequest?: boolean
   readonly user?: Record<string, unknown> | null
+  readonly assignees?: readonly string[]
 }): Record<string, unknown> {
   const issue: Record<string, unknown> = {
     id: overrides.number,
     number: overrides.number,
     title: overrides.title,
     state: overrides.state ?? 'open',
+    assignees: (overrides.assignees ?? []).map((login) => ({ login, full_name: login })),
     labels: (overrides.labels ?? []).map((name, index) => ({
       id: index + 1,
       name,
@@ -106,6 +108,7 @@ export const GITEA_ISSUES = [
     number: 15,
     title: '右侧栏任务面板 MVP',
     labels: ['enhancement', 'ready-for-agent'],
+    assignees: ['alice'],
     createdAt: '2026-11-12T14:11:22Z',
     updatedAt: '2026-11-21T14:11:38Z',
   }),
@@ -113,6 +116,7 @@ export const GITEA_ISSUES = [
     number: 16,
     title: 'Gitea 工单后端',
     labels: ['enhancement', 'ready-for-agent'],
+    assignees: ['cnzgray'],
     body: '## 目标\n\n在 Gitea 仓库里读取工单。',
     createdAt: '2026-11-12T14:14:07Z',
     updatedAt: '2026-11-20T09:15:00Z',
@@ -129,6 +133,9 @@ export const GITEA_ISSUES = [
 ]
 
 export const GITEA_ISSUES_OUTPUT = apiCall(GITEA_ISSUES, GITEA_ISSUES.length)
+
+/** `tea api /user` 的录制输出：当前登录用户。 */
+export const GITEA_USER_OUTPUT = apiCall({ login: 'cnzgray', full_name: 'Cnzgray' })
 
 /**
  * 增量查询的录制输出：只回窗口内变更过的票。

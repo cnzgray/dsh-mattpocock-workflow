@@ -90,6 +90,10 @@ describe('后台刷新的可见变化', () => {
     expect(snapshotVisibleChange(SNAPSHOT, closed)).toBe(true)
   })
 
+  it('当前登录用户变了也落地，人员筛选按新身份生效', () => {
+    expect(snapshotVisibleChange(SNAPSHOT, { ...SNAPSHOT, viewer: 'other-user' })).toBe(true)
+  })
+
   it('数据来源、陈旧标记与失败原因变了也落地', () => {
     expect(snapshotVisibleChange(SNAPSHOT, { ...SNAPSHOT, source: 'cache' })).toBe(true)
     expect(snapshotVisibleChange(SNAPSHOT, { ...SNAPSHOT, stale: true })).toBe(true)

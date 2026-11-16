@@ -61,6 +61,21 @@ describe('GitLab 工单后端', () => {
       ['#16', 16, 'open'],
       ['#9', 9, 'closed'],
     ])
+    expect(snapshot.viewer).toBe('cnzgray')
+    expect(snapshot.tickets.map((ticket) => ticket.assignees)).toEqual([['alice'], ['cnzgray'], []])
+  })
+
+  it('身份查询失败时列表仍然成功，当前用户为 null', async () => {
+    const { tracker } = trackerWith({
+      user: () => {
+        throw new CommandError('failed', 'glab 退出码 1', 'HTTP 503', 1)
+      },
+    })
+
+    const snapshot = await tracker.fetchSnapshot('/workspace')
+
+    expect(snapshot.tickets).toHaveLength(3)
+    expect(snapshot.viewer).toBeNull()
   })
 
   it('超过一页时按页循环到短页为止', async () => {
@@ -250,6 +265,10 @@ describe('GitLab 工单后端', () => {
       // 第一页带 `--include` 读响应头，接口路径始终是最后一个参数；GraphQL 另有分支。
       const endpoint = call.includes('graphql') ? 'graphql' : (call[call.length - 1] ?? '')
       expect(endpoint).not.toContain('merge_requests')
+      if (endpoint === 'user') {
+        // 身份查询走 /user，不碰工单接口。
+        continue
+      }
       if (endpoint === 'graphql') {
         expect(call.slice(2).join(' ')).not.toContain('merge_requests')
       } else {
@@ -553,6 +572,8 @@ describeTrackerContract('GitLab', {
     total: 3,
     refs: ['#15', '#16', '#9'],
     fetchedAt: NOW,
+    viewer: 'cnzgray',
+    assignees: { '#15': ['alice'], '#16': ['cnzgray'], '#9': [] },
   },
   empty: {
     createTracker: () =>
@@ -581,7 +602,7 @@ describeTrackerContract('GitLab', {
   changes: {
     createTracker: () => createGitlabTracker({ run: recordedRunner().runner, now: () => NOW }),
     since: SINCE,
-    expected: { refs: ['#16'], total: 3 },
+    expected: { refs: ['#16'], total: 3, viewer: 'cnzgray' },
   },
   fields: {
     closedAt: { '#9': '2026-11-11T10:00:00Z' },

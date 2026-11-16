@@ -227,12 +227,15 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (!('repository' in value) || typeof value.repository !== 'string') return false
   if (!('repositoryHost' in value)) return false
   if (value.repositoryHost !== null && typeof value.repositoryHost !== 'string') return false
+  // 当前用户是人员筛选的必填依据：缺字段或类型不对时拒绝整份响应，不静默当成无身份。
+  if (!('viewer' in value)) return false
+  if (value.viewer !== null && typeof value.viewer !== 'string') return false
   if (!('fetchedAt' in value) || typeof value.fetchedAt !== 'number') return false
   if (!('loaded' in value) || typeof value.loaded !== 'number') return false
   if (!('total' in value) || typeof value.total !== 'number') return false
   if (!('windowLimit' in value) || typeof value.windowLimit !== 'number') return false
   if (!('tickets' in value) || !Array.isArray(value.tickets)) return false
-  if (!value.tickets.every(hasSkillAction)) return false
+  if (!value.tickets.every(hasTicketFilterFields)) return false
   if (!('metrics' in value) || typeof value.metrics !== 'object' || value.metrics === null) {
     return false
   }
@@ -267,10 +270,19 @@ function isSnapshotCacheInfo(value: unknown): value is SnapshotCacheInfo {
   return true
 }
 
-function hasSkillAction(value: unknown): boolean {
+/**
+ * 列表筛选依赖的每票字段：技能动作与分配人。
+ * 缺任一字段都按整份响应格式不对处理，避免宿主与界面版本错配时静默显示错误的「我的工单」。
+ */
+function hasTicketFilterFields(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false
   if (!('skillAction' in value) || !isSkillAction(value.skillAction)) return false
-  return 'skillActionReason' in value && isActionReason(value.skillActionReason)
+  if (!('skillActionReason' in value) || !isActionReason(value.skillActionReason)) return false
+  return 'assignees' in value && isStringArray(value.assignees)
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
 function isSkillAction(value: unknown): value is TicketSkillAction {

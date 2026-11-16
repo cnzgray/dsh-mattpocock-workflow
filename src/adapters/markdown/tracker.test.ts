@@ -108,6 +108,8 @@ describe('本地 Markdown 工单后端', () => {
 
     expect(snapshot.repository).toBe('ws')
     expect(snapshot.fetchedAt).toBe(NOW)
+    expect(snapshot.viewer).toBeNull()
+    expect(snapshot.tickets.every((ticket) => ticket.assignees.length === 0)).toBe(true)
     expect(snapshot.loaded).toBe(4)
     expect(snapshot.total).toBe(4)
     expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual([
@@ -128,6 +130,7 @@ describe('本地 Markdown 工单后端', () => {
       state: 'closed',
       labels: ['resolved'],
       author: null,
+      assignees: [],
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
       openBlockers: 0,
@@ -145,6 +148,7 @@ describe('本地 Markdown 工单后端', () => {
       loaded: 0,
       total: 0,
       tickets: [],
+      viewer: null,
     })
   })
 
@@ -321,6 +325,13 @@ describeTrackerContract('本地 Markdown', {
       '.scratch/login/issues/03-session.md',
     ],
     fetchedAt: NOW,
+    viewer: null,
+    assignees: {
+      '.scratch/billing/issues/05-refund.md': [],
+      '.scratch/login/issues/01-token.md': [],
+      '.scratch/login/issues/02-bug.md': [],
+      '.scratch/login/issues/03-session.md': [],
+    },
   },
   empty: {
     createTracker: () => trackerFor({ directories: {}, files: {} }),
@@ -331,7 +342,7 @@ describeTrackerContract('本地 Markdown', {
   changes: {
     createTracker: () => trackerFor(MOVED_TREE),
     since: UPDATED,
-    expected: { refs: ['.scratch/login/issues/02-bug.md'], total: 4 },
+    expected: { refs: ['.scratch/login/issues/02-bug.md'], total: 4, viewer: null },
   },
   detail: {
     createTracker: () => trackerFor(),

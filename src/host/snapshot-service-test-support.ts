@@ -44,6 +44,7 @@ export function ticket(overrides: Partial<Ticket>): Ticket {
     state: 'open',
     labels: [],
     author: null,
+    assignees: [],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     openBlockers: 0,
@@ -160,6 +161,7 @@ export function snapshot(overrides: Partial<TrackerSnapshot> = {}): TrackerSnaps
     loaded: TICKETS.length,
     total: 30,
     tickets: TICKETS,
+    viewer: 'cnzgray',
     ...overrides,
   }
 }
@@ -297,6 +299,7 @@ export function storedEntry(overrides: Partial<SnapshotStoreEntry> = {}): Snapsh
     repository: 'cnzgray/dsh-mattpocock-workflow',
     repositoryKey: 'github@github.com/cnzgray/repo',
     repositoryHost: 'github.com',
+    viewer: 'cnzgray',
     fetchedAt: 1_000,
     loaded: TICKETS.length,
     total: 30,

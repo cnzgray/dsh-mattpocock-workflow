@@ -16,6 +16,8 @@ const AUTHOR = {
 
 const RECORDED_ISSUES = {
   data: {
+    /** GraphQL 根字段：当前登录用户。 */
+    viewer: AUTHOR,
     repository: {
       issues: {
         totalCount: 30,
@@ -29,6 +31,7 @@ const RECORDED_ISSUES = {
             updatedAt: '2026-11-12T14:11:38Z',
             labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
             author: AUTHOR,
+            assignees: { nodes: [{ login: 'alice' }] },
             issueDependenciesSummary: { blockedBy: 0 },
           },
           {
@@ -39,6 +42,7 @@ const RECORDED_ISSUES = {
             updatedAt: '2026-11-12T14:14:19Z',
             labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
             author: AUTHOR,
+            assignees: { nodes: [{ login: 'cnzgray' }] },
             issueDependenciesSummary: { blockedBy: 1 },
           },
           {
@@ -49,6 +53,7 @@ const RECORDED_ISSUES = {
             updatedAt: '2026-11-12T08:00:00Z',
             labels: { nodes: [{ name: 'bug' }] },
             author: AUTHOR,
+            assignees: { nodes: [] },
             issueDependenciesSummary: { blockedBy: 0 },
           },
           {

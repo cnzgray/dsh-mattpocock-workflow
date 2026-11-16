@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { CommandError } from '../../core/tracker-error.ts'
 import { gitlabIssue, includeOutput, issuesJson } from './fixtures.ts'
 import { NOW, recordedRunner, trackerWith } from './tracker-test-support.ts'
 import { createGitlabTracker } from './tracker.ts'
@@ -28,13 +29,32 @@ describe('GitLab 工单增量', () => {
 
     await tracker.fetchChanges?.('/workspace', SINCE)
 
-    const totalCall = calls.find(
-      (call) => call[0] === 'glab' && !(call[3] ?? '').includes('updated_after'),
-    )
+    const totalCall = calls.find((call) => call[0] === 'glab' && call[2] === '--include')
     expect(totalCall?.[2]).toBe('--include')
     expect(totalCall?.[3]).toContain('state=all')
     expect(totalCall?.[3]).toContain('per_page=1')
     expect(totalCall?.[3]).toContain('page=1')
+  })
+
+  it('增量顺带刷新当前登录用户', async () => {
+    const { tracker } = trackerWith()
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.viewer).toBe('cnzgray')
+  })
+
+  it('增量身份查询失败时省略当前用户，由宿主沿用基准身份', async () => {
+    const { tracker } = trackerWith({
+      user: () => {
+        throw new CommandError('failed', 'glab 退出码 1', 'HTTP 503', 1)
+      },
+    })
+
+    const changes = await tracker.fetchChanges?.('/workspace', SINCE)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
+    expect(Object.hasOwn(changes ?? {}, 'viewer')).toBe(false)
   })
 
   it('只取回变更过的票，不做阻塞加工', async () => {

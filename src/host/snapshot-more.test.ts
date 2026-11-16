@@ -134,6 +134,20 @@ describe('加载更多', () => {
     expect(new Set(third.tickets.map((item) => item.ref)).size).toBe(200)
   })
 
+  it('扩窗响应没带身份时沿用当前已知身份', async () => {
+    const { service } = serviceWith([
+      snapshot({ viewer: 'cnzgray' }),
+      snapshot({ viewer: null, windowLimit: SNAPSHOT_PAGE_SIZE * 2 }),
+    ])
+
+    const first = expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
+    expect(first.viewer).toBe('cnzgray')
+
+    const more = expectOk(await service.handle('snapshot.more', { workspaceRoot: ROOT }))
+
+    expect(more.viewer).toBe('cnzgray')
+  })
+
   it('旧快照没有窗口字段时按首屏一页处理', async () => {
     const store = memoryStore([storedEntry()])
     const { service } = serviceWith([snapshot()], 'github', undefined, { store })

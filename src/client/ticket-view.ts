@@ -63,6 +63,75 @@ export function filterTickets(
   }
 }
 
+/** 人员筛选：两个独立开关；两个都开时取并集。 */
+export interface PersonFilter {
+  readonly assignedToMe: boolean
+  readonly createdByMe: boolean
+}
+
+/** “分配给我 / 我创建的”两个角色在当前集合里的数量。 */
+export interface MyTicketCounts {
+  readonly assignedToMe: number
+  readonly createdByMe: number
+}
+
+/**
+ * 统计两个人员角色的数量；两个角色各算各的，互不影响。
+ * 当前用户为 null 时返回 0：身份识别不出时不假装能按人筛选。
+ * @param tickets - 已按状态筛选的工单。
+ * @param viewer - 当前登录用户登录名。
+ * @returns 两个计数。
+ */
+export function countMyTickets(
+  tickets: readonly TicketSnapshot[],
+  viewer: string | null,
+): MyTicketCounts {
+  if (viewer === null) return { assignedToMe: 0, createdByMe: 0 }
+
+  let assignedToMe = 0
+  let createdByMe = 0
+  for (const ticket of tickets) {
+    if (isAssignedTo(ticket, viewer)) assignedToMe += 1
+    if (isCreatedBy(ticket, viewer)) createdByMe += 1
+  }
+  return { assignedToMe, createdByMe }
+}
+
+/**
+ * 按人员筛选。两个开关都开时取并集：分配给我或我创建的都留下。
+ * 当前用户为 null 时忽略人员开关，列表只受状态筛选影响。
+ * @param tickets - 已按状态筛选的工单。
+ * @param filter - 两个人员开关。
+ * @param viewer - 当前登录用户登录名。
+ * @returns 保持原顺序的新数组。
+ */
+export function filterMyTickets(
+  tickets: readonly TicketSnapshot[],
+  filter: PersonFilter,
+  viewer: string | null,
+): readonly TicketSnapshot[] {
+  if (viewer === null || (!filter.assignedToMe && !filter.createdByMe)) return [...tickets]
+
+  return tickets.filter(
+    (ticket) =>
+      (filter.assignedToMe && isAssignedTo(ticket, viewer)) ||
+      (filter.createdByMe && isCreatedBy(ticket, viewer)),
+  )
+}
+
+/** 登录名比较不区分大小写。 */
+function sameLogin(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+function isAssignedTo(ticket: TicketSnapshot, viewer: string): boolean {
+  return ticket.assignees.some((login) => sameLogin(login, viewer))
+}
+
+function isCreatedBy(ticket: TicketSnapshot, viewer: string): boolean {
+  return ticket.author !== null && sameLogin(ticket.author.login, viewer)
+}
+
 /**
  * 按字段排序，相等时保持输入顺序。
  * @param tickets - 已判定的工单。

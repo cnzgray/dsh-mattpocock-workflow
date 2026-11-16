@@ -23,7 +23,7 @@ import { TrackerError } from '../../core/tracker-error.ts'
 import { deleteGiteaTicket, readGiteaDeletePermission } from './delete.ts'
 import { applyGiteaChanges, readGiteaDetail } from './detail.ts'
 import { readGiteaOptions } from './options.ts'
-import { parseDependencies, parseIssuesPage, type ParsedIssue } from './parse.ts'
+import { parseDependencies, parseIssuesPage, parseViewer, type ParsedIssue } from './parse.ts'
 import { callGiteaApi, ensureSuccess, readRepository, type GiteaRepository } from './shared.ts'
 
 /** Gitea 后端依赖。 */
@@ -56,8 +56,11 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
   return {
     async fetchSnapshot(workspaceRoot: string, windowLimit?: number): Promise<TrackerSnapshot> {
       const window = windowLimit === undefined ? undefined : Math.max(1, Math.trunc(windowLimit))
+      // 身份查询与列表并行发出；失败只丢身份，不让列表失败。
+      const viewerTask = readViewer(deps, workspaceRoot).catch(() => null)
       const repository = await readRepository(deps.run, workspaceRoot)
       const issues = await readIssues(deps, workspaceRoot, repository, pageSize, undefined, window)
+      const viewer = await viewerTask
       const states = new Map<number, TicketState>()
       for (const issue of issues.items) {
         if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
@@ -87,6 +90,7 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         loaded: tickets.length,
         total: Math.max(issues.total ?? tickets.length, tickets.length),
         tickets,
+        viewer,
         ...(window === undefined ? {} : { windowLimit: window }),
       }
     },
@@ -144,9 +148,16 @@ async function readGiteaChanges(
     throw new TrackerError('fetch-failed', '增量窗口的起点不是有效时间戳。')
   }
 
+  // 增量也刷新身份：切换 CLI 账号后下一次刷新就按新身份匹配。
+  // 查询失败时省略这个字段，宿主沿用基准数据里的身份；成功但没有身份时为 null。
+  const viewerTask = readViewer(deps, workspaceRoot).then(
+    (viewer) => viewer,
+    () => undefined,
+  )
   const repository = await readRepository(deps.run, workspaceRoot)
   const total = await readGiteaTotal(deps, workspaceRoot, repository)
   const issues = await readIssues(deps, workspaceRoot, repository, pageSize, since)
+  const viewer = await viewerTask
 
   const states = new Map<number, TicketState>()
   for (const issue of issues.items) {
@@ -173,7 +184,25 @@ async function readGiteaChanges(
     }),
   }))
 
-  return { tickets, truncated: issues.truncated, total }
+  return {
+    tickets,
+    truncated: issues.truncated,
+    total,
+    ...(viewer === undefined ? {} : { viewer }),
+  }
+}
+
+/**
+ * 当前登录用户：`tea api /user` 的 `login`。
+ * @param deps - 后端依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 登录名或 null。
+ * @throws {TrackerError} 命令失败、响应非 2xx 或响应体不是 JSON。
+ */
+async function readViewer(deps: GiteaTrackerDeps, workspaceRoot: string): Promise<string | null> {
+  const response = await callGiteaApi(deps.run, workspaceRoot, '/user')
+  ensureSuccess(response, '读取 Gitea 当前用户')
+  return parseViewer(response.body)
 }
 
 /**

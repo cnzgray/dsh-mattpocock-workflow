@@ -609,6 +609,14 @@ describeTrackerContract('GitHub', {
     total: 30,
     refs: ['#15', '#16', '#12', '#9', '#7'],
     fetchedAt: NOW,
+    viewer: 'cnzgray',
+    assignees: {
+      '#15': ['alice'],
+      '#16': ['cnzgray'],
+      '#12': [],
+      '#9': [],
+      '#7': [],
+    },
   },
   empty: {
     createTracker: () =>

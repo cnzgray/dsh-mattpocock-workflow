@@ -133,6 +133,7 @@ function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): Pars
       state,
       labels: readLabels(value.labels),
       author: readAuthor(value.user, AUTHOR_FIELDS, avatarBaseUrl),
+      assignees: readAssignees(value.assignees),
       createdAt: readString(value.created_at, `第 ${String(number)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(number)} 张票的更新时间`),
       openBlockers: 0,
@@ -159,6 +160,38 @@ function readLabels(value: unknown): readonly string[] {
     }
     return []
   })
+}
+
+/**
+ * 当前登录用户：`/user` 响应里的 `login`。
+ * 字段缺失或类型不对时按识别不出处理。
+ * @param body - `tea api /user` 的响应体。
+ * @returns 登录名或 null。
+ * @throws {TrackerError} 响应体不是 JSON。
+ */
+export function parseViewer(body: string): string | null {
+  const payload = parseJson(body)
+  if (!isRecord(payload)) return null
+  const login = payload.login
+  return typeof login === 'string' && login.length > 0 ? login : null
+}
+
+/**
+ * 分配人登录名。字段缺失、不是数组、条目不是对象或登录名为空时跳过该条目；
+ * 一次脏数据只按空数组处理，不让整张列表失败。
+ * @param value - Gitea issue 的 `assignees`。
+ * @returns 登录名数组。
+ */
+function readAssignees(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return []
+
+  const logins: string[] = []
+  for (const assignee of value) {
+    if (!isRecord(assignee)) continue
+    const login = assignee.login
+    if (typeof login === 'string' && login.length > 0) logins.push(login)
+  }
+  return logins
 }
 
 function readString(value: unknown, field: string): string {

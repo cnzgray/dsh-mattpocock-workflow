@@ -23,6 +23,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   backend: 'github',
   repository: 'cnzgray/dsh-mattpocock-workflow',
   repositoryHost: 'github.com',
+  viewer: 'cnzgray',
   fetchedAt: 1,
   loaded: 0,
   total: 0,
@@ -46,6 +47,7 @@ const TICKET = {
   skillActionReason: 'ready-for-agent',
   labels: [],
   author: null,
+  assignees: ['alice'],
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   openBlockers: 0,
@@ -167,6 +169,21 @@ describe('快照 RPC 客户端', () => {
       ok: false,
       error: { code: 'fetch-failed' },
     })
+  })
+
+  it('快照缺少 viewer 或类型不对时返回 fetch-failed', async () => {
+    for (const viewer of [undefined, 7, {}]) {
+      const broken = { ...SNAPSHOT, viewer }
+      const client = createPanelClient(
+        builtinZhTranslate,
+        recordingFetch(response({ ok: true, result: broken })).fetchImpl,
+      )
+
+      await expect(client.get('/repo')).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'fetch-failed' },
+      })
+    }
   })
 
   it('快照的刷新失败原因格式不对时返回 fetch-failed', async () => {
@@ -293,6 +310,21 @@ describe('快照 RPC 客户端', () => {
       })
     },
   )
+
+  it('工单缺少 assignees 或不是字符串数组时返回 fetch-failed', async () => {
+    for (const assignees of [undefined, 'alice', ['alice', 7]]) {
+      const legacy = { ...SNAPSHOT, tickets: [{ ...TICKET, assignees }] }
+      const client = createPanelClient(
+        builtinZhTranslate,
+        recordingFetch(response({ ok: true, result: legacy })).fetchImpl,
+      )
+
+      await expect(client.get('/repo')).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'fetch-failed' },
+      })
+    }
+  })
 
   it('工单的技能动作不在词表里时返回 fetch-failed', async () => {
     const legacy = { ...SNAPSHOT, tickets: [{ ...TICKET, skillAction: 'unknown' }] }

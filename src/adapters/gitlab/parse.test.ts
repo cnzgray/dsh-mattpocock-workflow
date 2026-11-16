@@ -7,6 +7,7 @@ import {
   parseGlabInclude,
   parseIssuesPage,
   parseNativeBlockers,
+  parseViewer,
 } from './parse.ts'
 
 describe('GitLab 工单解析', () => {
@@ -42,6 +43,7 @@ describe('GitLab 工单解析', () => {
           displayName: 'Cnzgray',
           avatarUrl: 'https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png',
         },
+        assignees: [],
         createdAt: '2026-11-12T14:11:22Z',
         updatedAt: '2026-11-21T14:11:38Z',
         openBlockers: 0,
@@ -50,6 +52,45 @@ describe('GitLab 工单解析', () => {
       description: '# 目标\n',
       hasBlockingIssuesCount: false,
     })
+  })
+
+  it('把 assignees[].username 映射成登录名数组，脏条目跳过', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        {
+          iid: 15,
+          title: '分配人字段',
+          state: 'opened',
+          assignees: [{ username: 'alice' }, null, { username: '' }, { username: 7 }],
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ]),
+    )
+
+    expect(parsed[0]?.ticket.assignees).toEqual(['alice'])
+  })
+
+  it('缺 assignees 时按空数组处理', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        {
+          iid: 15,
+          title: '没有分配人',
+          state: 'opened',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ]),
+    )
+
+    expect(parsed[0]?.ticket.assignees).toEqual([])
+  })
+
+  it('从 /user 响应里读当前登录用户', () => {
+    expect(parseViewer(JSON.stringify({ username: 'cnzgray' }))).toBe('cnzgray')
+    expect(parseViewer(JSON.stringify({ username: '' }))).toBeNull()
+    expect(parseViewer(JSON.stringify({}))).toBeNull()
   })
 
   it('记录列表里是否带 blocking_issues_count 能力字段', () => {

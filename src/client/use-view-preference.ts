@@ -17,6 +17,9 @@ export interface ViewPreferenceControls {
   readonly preference: ViewPreference
   readonly setFilter: (filter: TicketFilter) => void
   readonly toggleSort: (key: TicketSortKey) => void
+  readonly toggleAssignedToMe: () => void
+  readonly toggleCreatedByMe: () => void
+  readonly clearMyTickets: () => void
 }
 
 interface ViewState {
@@ -65,6 +68,15 @@ export function useViewPreference(workspaceRoot: string | undefined): ViewPrefer
         return
       }
       apply({ ...preference, sortKey: key, direction: defaultSortDirection(key) })
+    },
+    toggleAssignedToMe: () => {
+      apply({ ...preference, assignedToMe: !preference.assignedToMe })
+    },
+    toggleCreatedByMe: () => {
+      apply({ ...preference, createdByMe: !preference.createdByMe })
+    },
+    clearMyTickets: () => {
+      apply({ ...preference, assignedToMe: false, createdByMe: false })
     },
   }
 }

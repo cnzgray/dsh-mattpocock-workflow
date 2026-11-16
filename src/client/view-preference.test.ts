@@ -11,7 +11,13 @@ import {
   type ViewPreference,
 } from './view-preference.ts'
 
-const SAVED: ViewPreference = { filter: 'closed', sortKey: 'number', direction: 'desc' }
+const SAVED: ViewPreference = {
+  filter: 'closed',
+  sortKey: 'number',
+  direction: 'desc',
+  assignedToMe: true,
+  createdByMe: false,
+}
 
 class MemoryStorage implements PreferenceStorage {
   private readonly items = new Map<string, string>()
@@ -138,6 +144,41 @@ describe('视图偏好', () => {
       ...SAVED,
       direction: DEFAULT_VIEW.direction,
     })
+  })
+
+  it('旧记录没有人员开关时按关闭读取，其余字段保留', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      delete record.assignedToMe
+      delete record.createdByMe
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      assignedToMe: false,
+      createdByMe: false,
+    })
+  })
+
+  it('非法人员开关只回退该字段，另一个开关与筛选排序保留', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      record.assignedToMe = 'yes'
+      record.createdByMe = true
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      assignedToMe: DEFAULT_VIEW.assignedToMe,
+      createdByMe: true,
+    })
+  })
+
+  it('默认视图不按人员筛选', () => {
+    expect(DEFAULT_VIEW.assignedToMe).toBe(false)
+    expect(DEFAULT_VIEW.createdByMe).toBe(false)
   })
 
   it('JSON 损坏时整体回退默认视图', () => {

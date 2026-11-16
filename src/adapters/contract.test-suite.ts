@@ -83,6 +83,8 @@ export type TrackerChangesFixture =
          * 后端显式声明它，避免拿窗口内的计数凑数。
          */
         readonly total: number
+        /** 增量顺带刷新的当前登录用户；后端不查身份时写 null。 */
+        readonly viewer: string | null
       }
     }
   | { readonly unsupported: true }
@@ -97,6 +99,10 @@ export interface TrackerContractFixture {
     readonly total: number
     readonly refs: readonly string[]
     readonly fetchedAt: number
+    /** 当前登录用户；识别不出时显式写 null。 */
+    readonly viewer: string | null
+    /** ref → 期望的分配人登录名。 */
+    readonly assignees: Readonly<Record<string, readonly string[]>>
   }
   /** 空仓库：各后端用自己的空输入，验证零计数不会变成错误。 */
   readonly empty: {
@@ -157,6 +163,7 @@ function describeListContract(fixture: TrackerContractFixture): void {
     expect(snapshot.total).toBe(fixture.expected.total)
     expect(snapshot.loaded).toBe(snapshot.tickets.length)
     expect(snapshot.tickets.map((ticket) => ticket.ref)).toEqual(fixture.expected.refs)
+    expect(snapshot.viewer).toBe(fixture.expected.viewer)
   })
 
   it('使用注入的时钟作为快照时间', async () => {
@@ -185,6 +192,7 @@ function describeListContract(fixture: TrackerContractFixture): void {
       expect(['open', 'closed']).toContain(ticket.state)
       expect(Array.isArray(ticket.labels)).toBe(true)
       expect(ticket.openBlockers).toBeGreaterThanOrEqual(0)
+      expect(ticket.assignees).toEqual(fixture.expected.assignees[ticket.ref])
     }
   })
 
@@ -268,6 +276,14 @@ function describeChangesContract(fixture: TrackerContractFixture): void {
 
     expect(observed?.total).toBe(changes.expected.total)
     expect(Number.isInteger(observed?.total)).toBe(true)
+  })
+
+  it('增量给出当前登录用户', async () => {
+    const tracker = changes.createTracker()
+
+    const observed = await tracker.fetchChanges?.(fixture.workspaceRoot, changes.since)
+
+    expect(observed?.viewer).toBe(changes.expected.viewer)
   })
 }
 

@@ -53,6 +53,7 @@ export function parseMarkdownTickets(files: readonly MarkdownTicketFile[]): Tick
       state: markdownState(file.content),
       labels: markdownLabels(file.content),
       author: null,
+      assignees: [],
       createdAt: file.createdAt,
       updatedAt: file.updatedAt,
       openBlockers: blockers.openBlockers,

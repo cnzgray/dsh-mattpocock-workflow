@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { giteaIssue, includeHeaders } from './fixtures.ts'
-import { parseApiResponse, parseDependencies, parseIssuesPage } from './parse.ts'
+import { parseApiResponse, parseDependencies, parseIssuesPage, parseViewer } from './parse.ts'
 
 describe('Gitea API 响应解析', () => {
   it('从标准错误里读出状态码与总条数', () => {
@@ -55,6 +55,7 @@ describe('Gitea 工单解析', () => {
             displayName: 'Cnzgray',
             avatarUrl: 'https://gitea.example.com/avatars/1',
           },
+          assignees: [],
           createdAt: '2026-11-12T14:11:22Z',
           updatedAt: '2026-11-21T14:11:38Z',
           openBlockers: 0,
@@ -63,6 +64,42 @@ describe('Gitea 工单解析', () => {
         body: '# 目标\n',
       },
     ])
+  })
+
+  it('把 assignees[].login 映射成登录名数组，脏条目跳过', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        giteaIssue({
+          number: 15,
+          title: '分配人字段',
+          assignees: ['alice', 'bob'],
+        }),
+      ]),
+    )
+
+    expect(parsed[0]?.ticket.assignees).toEqual(['alice', 'bob'])
+  })
+
+  it('缺 assignees 时按空数组处理', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        {
+          number: 15,
+          title: '没有分配人',
+          state: 'open',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ]),
+    )
+
+    expect(parsed[0]?.ticket.assignees).toEqual([])
+  })
+
+  it('从 /user 响应里读当前登录用户', () => {
+    expect(parseViewer(JSON.stringify({ login: 'cnzgray' }))).toBe('cnzgray')
+    expect(parseViewer(JSON.stringify({ login: '' }))).toBeNull()
+    expect(parseViewer(JSON.stringify({}))).toBeNull()
   })
 
   it('实例内的相对头像补成绝对地址，绝对地址原样保留', () => {

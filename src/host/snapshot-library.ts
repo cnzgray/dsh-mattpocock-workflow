@@ -9,7 +9,7 @@ import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
 import { isRecord } from '../core/json.ts'
 import { computeMetrics } from '../core/metrics.ts'
 import type { RepositoryAddress } from '../core/remote.ts'
-import { withSkillActions } from '../core/skill-action.ts'
+import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
 import { SNAPSHOT_STORE_VERSION, type SnapshotStoreEntry } from '../core/snapshot-store.ts'
 import type {
   BlockerResolution,
@@ -27,6 +27,7 @@ import {
   type RpcResult,
   type SnapshotCacheInfo,
   type SnapshotMetrics,
+  type SnapshotSource,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import type { ResolvedBackend } from './backend-resolver.ts'
@@ -120,6 +121,7 @@ export async function writeStored(
     repository: raw.repository,
     repositoryKey: repositoryKey(resolved.kind, resolved.address),
     repositoryHost: resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null),
+    viewer: raw.viewer,
     fetchedAt: raw.fetchedAt,
     loaded: raw.tickets.length,
     total: raw.total,
@@ -137,6 +139,66 @@ export async function writeStored(
       code: ERROR_CODES.internal,
       ...(error instanceof Error ? { reason: error.message } : {}),
     })
+  }
+}
+
+/**
+ * 把后端原始列表、判定结果与指标组装成界面快照。
+ * @param kind - 后端类型。
+ * @param repositoryHost - 实例主机；本地 Markdown 为 null。
+ * @param raw - 后端返回的原始列表。
+ * @param tickets - 附加了分类、状态与技能动作的工单。
+ * @param blockersFinalized - 阻塞信息是否已定稿。
+ * @param metrics - 项目指标。
+ * @param source - 实时或缓存。
+ * @param stale - 数据是否陈旧。
+ * @param refreshError - 最近一次刷新失败原因。
+ * @returns 界面快照。
+ */
+export function buildSnapshot(
+  kind: BackendKind,
+  repositoryHost: string | null,
+  raw: TrackerSnapshot,
+  tickets: readonly (ClassifiedTicket & SkillActionDecision)[],
+  blockersFinalized: boolean,
+  metrics: SnapshotMetrics,
+  source: SnapshotSource,
+  stale: boolean,
+  refreshError: { readonly code: ErrorCode; readonly message: string } | null,
+): WorkspaceSnapshot {
+  return {
+    backend: kind,
+    repository: raw.repository,
+    repositoryHost,
+    viewer: raw.viewer,
+    fetchedAt: raw.fetchedAt,
+    loaded: tickets.length,
+    total: raw.total,
+    windowLimit: raw.windowLimit ?? tickets.length,
+    blockersFinalized,
+    metrics,
+    source,
+    stale,
+    refreshError,
+    tickets: tickets.map((ticket) => ({
+      ref: ticket.ref,
+      number: ticket.number,
+      title: ticket.title,
+      state: ticket.state,
+      category: ticket.category,
+      status: ticket.status,
+      labels: ticket.labels,
+      author: ticket.author,
+      assignees: ticket.assignees,
+      skillAction: ticket.skillAction,
+      skillActionReason: ticket.skillActionReason,
+      createdAt: ticket.createdAt,
+      updatedAt: ticket.updatedAt,
+      openBlockers: ticket.openBlockers,
+      ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
+      ...(ticket.url === undefined ? {} : { url: ticket.url }),
+      ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
+    })),
   }
 }
 
@@ -162,6 +224,7 @@ export function buildStoredSnapshot(
     backend: stored.backend,
     repository: raw.repository,
     repositoryHost: stored.repositoryHost,
+    viewer: raw.viewer,
     fetchedAt: raw.fetchedAt,
     loaded: tickets.length,
     total: raw.total,
@@ -180,6 +243,7 @@ export function buildStoredSnapshot(
       status: ticket.status,
       labels: ticket.labels,
       author: ticket.author,
+      assignees: ticket.assignees,
       skillAction: ticket.skillAction,
       skillActionReason: ticket.skillActionReason,
       createdAt: ticket.createdAt,
@@ -301,6 +365,7 @@ function rawOf(stored: SnapshotStoreEntry): TrackerSnapshot {
     loaded: stored.tickets.length,
     total: stored.total,
     tickets: stored.tickets,
+    viewer: stored.viewer,
     // 没有窗口字段的旧条目按首屏一页处理。
     windowLimit: stored.windowLimit ?? SNAPSHOT_PAGE_SIZE,
   }

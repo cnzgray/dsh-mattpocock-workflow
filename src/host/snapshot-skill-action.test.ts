@@ -20,6 +20,7 @@ const READY_TICKET: Ticket = {
   state: 'open',
   labels: [TRACKER_LABELS.readyForAgent, TRACKER_LABELS.enhancement],
   author: null,
+  assignees: [],
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   openBlockers: 0,
@@ -31,6 +32,7 @@ const RAW: TrackerSnapshot = {
   loaded: 1,
   total: 1,
   tickets: [READY_TICKET],
+  viewer: null,
 }
 
 function serviceWithNativeBlocker(): SnapshotService {

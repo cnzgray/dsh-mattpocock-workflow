@@ -10,6 +10,7 @@ describe('GraphQL 工单解析', () => {
 
     expect(parsed.total).toBe(30)
     expect(parsed.tickets).toHaveLength(5)
+    expect(parsed.viewer).toBe('cnzgray')
     expect(parsed.tickets[0]).toEqual({
       ref: '#15',
       number: 15,
@@ -21,6 +22,7 @@ describe('GraphQL 工单解析', () => {
         displayName: 'Cnzgray',
         avatarUrl: 'https://avatars.githubusercontent.com/u/1234?v=4',
       },
+      assignees: ['alice'],
       createdAt: '2026-11-12T14:11:22Z',
       updatedAt: '2026-11-12T14:11:38Z',
       openBlockers: 0,
@@ -56,6 +58,57 @@ describe('GraphQL 工单解析', () => {
     })
 
     expect(parseIssueGraphql(output).tickets[0]?.openBlockers).toBe(0)
+  })
+
+  it('缺 viewer 时身份为 null，缺 assignees 时按空数组处理', () => {
+    const output = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            totalCount: 1,
+            nodes: [
+              {
+                number: 1,
+                title: '没有身份字段',
+                state: 'OPEN',
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    const parsed = parseIssueGraphql(output)
+
+    expect(parsed.viewer).toBeNull()
+    expect(parsed.tickets[0]?.assignees).toEqual([])
+  })
+
+  it('分配人字段异常时跳过脏条目，不让整张列表失败', () => {
+    const output = JSON.stringify({
+      data: {
+        viewer: { login: 'cnzgray' },
+        repository: {
+          issues: {
+            totalCount: 1,
+            nodes: [
+              {
+                number: 1,
+                title: '分配人字段脏了',
+                state: 'OPEN',
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+                assignees: { nodes: [{ login: 'alice' }, null, { login: '' }, { login: 7 }] },
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(parseIssueGraphql(output).tickets[0]?.assignees).toEqual(['alice'])
   })
 
   it('缺少创建人时整张票仍然可用，创建人为 null', () => {

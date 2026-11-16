@@ -53,6 +53,7 @@ describe('快照指标', () => {
       loaded: METRIC_TICKETS.length,
       total: 10,
       tickets: METRIC_TICKETS,
+      viewer: 'cnzgray',
       ...overrides,
     }
   }

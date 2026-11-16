@@ -29,6 +29,11 @@ afterEach(() => {
 
 const NOW = Date.parse('2026-11-12T15:00:00Z')
 
+/** 当前登录用户；人员筛选按它匹配。 */
+const VIEWER = 'cnzgray'
+const ALICE = { login: 'alice', displayName: null, avatarUrl: null }
+const OWNER = { login: VIEWER, displayName: 'Cnzgray', avatarUrl: null }
+
 const TICKETS: readonly TicketSnapshot[] = [
   {
     ref: '#1',
@@ -40,7 +45,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     skillAction: 'implement',
     skillActionReason: 'ready-for-agent',
     labels: [],
-    author: null,
+    author: ALICE,
+    assignees: [VIEWER],
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-05T00:00:00Z',
     openBlockers: 0,
@@ -55,7 +61,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     skillAction: 'none',
     skillActionReason: 'blocked',
     labels: [],
-    author: null,
+    author: OWNER,
+    assignees: [],
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-03T00:00:00Z',
     openBlockers: 1,
@@ -70,7 +77,8 @@ const TICKETS: readonly TicketSnapshot[] = [
     skillAction: 'none',
     skillActionReason: 'closed',
     labels: [],
-    author: null,
+    author: OWNER,
+    assignees: [],
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-11-04T00:00:00Z',
     openBlockers: 0,
@@ -81,6 +89,7 @@ const FINAL: WorkspaceSnapshot = {
   backend: 'gitlab',
   repository: 'cyit/cyit-harness',
   repositoryHost: 'gitlab.com',
+  viewer: VIEWER,
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
   total: 3,
@@ -493,6 +502,169 @@ describe('视图偏好', () => {
       if (descriptor === undefined) Reflect.deleteProperty(window, 'localStorage')
       else Object.defineProperty(window, 'localStorage', descriptor)
     }
+  })
+})
+
+describe('我的工单筛选', () => {
+  function readyClient(): PanelClient {
+    return fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    ).client
+  }
+
+  it('身份存在时显示筛选行、计数与 @登录名', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    const group = screen.getByTestId('mine-filters')
+    expect(group.getAttribute('aria-label')).toBe('我的工单筛选')
+    expect(screen.getByTestId('mine-assigned').textContent).toContain('分配给我')
+    expect(screen.getByTestId('mine-assigned').textContent).toContain('1')
+    expect(screen.getByTestId('mine-created').textContent).toContain('我创建的')
+    expect(screen.getByTestId('mine-created').textContent).toContain('1')
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('mine-created').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('mine-assigned').getAttribute('title')).toBe('数字按当前状态筛选统计')
+    expect(screen.getByTestId('mine-viewer').textContent).toBe('@cnzgray')
+    expect(screen.getByTestId('mine-viewer').getAttribute('title')).toBe(
+      '@cnzgray · 人员筛选按当前登录用户匹配',
+    )
+    expect(screen.queryByTestId('mine-clear')).toBeNull()
+    // 默认列表不受人员筛选影响。
+    expect(rowRefs()).toEqual(['#1', '#2'])
+  })
+
+  it('点击分配给我只保留对应票，并标记按下', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+
+    expect(rowRefs()).toEqual(['#1'])
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('mine-created').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('mine-clear')).toBeTruthy()
+  })
+
+  it('点击我创建的只保留对应票，再点关闭恢复', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-created'))
+    expect(rowRefs()).toEqual(['#2'])
+
+    fireEvent.click(screen.getByTestId('mine-created'))
+    expect(rowRefs()).toEqual(['#1', '#2'])
+    expect(screen.queryByTestId('mine-clear')).toBeNull()
+  })
+
+  it('两个都开时取并集', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+    fireEvent.click(screen.getByTestId('mine-created'))
+
+    expect(rowRefs()).toEqual(['#1', '#2'])
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('mine-created').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('与状态筛选交叉，计数随状态筛选变化且互不影响', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('mine-assigned').textContent).toContain('1')
+    expect(screen.getByTestId('mine-created').textContent).toContain('1')
+
+    fireEvent.click(screen.getByTestId('filter-closed'))
+    expect(screen.getByTestId('mine-assigned').textContent).toContain('0')
+    expect(screen.getByTestId('mine-created').textContent).toContain('1')
+    expect(screen.getByTestId('stat-closed').textContent).toContain('1')
+
+    fireEvent.click(screen.getByTestId('mine-created'))
+    expect(rowRefs()).toEqual(['#3'])
+
+    fireEvent.click(screen.getByTestId('filter-all'))
+    expect(screen.getByTestId('mine-assigned').textContent).toContain('1')
+    expect(screen.getByTestId('mine-created').textContent).toContain('2')
+    // 「我创建的」仍然开着：并集只按这个角色过滤。
+    expect(rowRefs()).toEqual(['#2', '#3'])
+  })
+
+  it('清除只在有开关打开时出现，点击复位人员筛选且不动状态筛选', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-all'))
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+    fireEvent.click(screen.getByTestId('mine-created'))
+    expect(rowRefs()).toEqual(['#1', '#2', '#3'])
+
+    fireEvent.click(screen.getByTestId('mine-clear'))
+
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('mine-created').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('filter-all').getAttribute('aria-pressed')).toBe('true')
+    expect(rowRefs()).toEqual(['#1', '#2', '#3'])
+    expect(screen.queryByTestId('mine-clear')).toBeNull()
+  })
+
+  it('身份识别不出时整行不出现，列表照常渲染', async () => {
+    const noViewer = { ...FINAL, viewer: null }
+    const { client } = fakeClient({ ok: true, result: noViewer }, () =>
+      Promise.resolve({ ok: true, result: noViewer }),
+    )
+    renderView(client)
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.queryByTestId('mine-filters')).toBeNull()
+    expect(rowRefs()).toEqual(['#1', '#2'])
+  })
+
+  it('人员筛选没有结果时沿用现有空状态文案，筛选行仍然可见', async () => {
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('filter-blocked'))
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+
+    expect(screen.getByTestId('empty').textContent).toBe('没有符合筛选条件的工单。')
+    expect(screen.getByTestId('mine-filters')).toBeTruthy()
+    expect(screen.getByTestId('mine-clear')).toBeTruthy()
+  })
+
+  it('重新挂载后恢复人员开关', async () => {
+    const first = renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+    first.unmount()
+
+    renderView(readyClient())
+    await screen.findAllByTestId('ticket-row')
+
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('true')
+    expect(rowRefs()).toEqual(['#1'])
+  })
+
+  it('刷新与后台刷新后保持人员开关', async () => {
+    const fake = fakeClient(
+      { ok: true, result: FINAL },
+      () => Promise.resolve({ ok: true, result: FINAL }),
+      () => Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-created'))
+    fireEvent.click(screen.getByTestId('refresh'))
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    expect(screen.getByTestId('mine-created').getAttribute('aria-pressed')).toBe('true')
+    expect(rowRefs()).toEqual(['#2'])
   })
 })
 

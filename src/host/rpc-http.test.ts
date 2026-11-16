@@ -42,6 +42,7 @@ const OK: RpcResult<WorkspaceSnapshot> = {
     backend: 'github',
     repository: 'cnzgray/dsh-mattpocock-workflow',
     repositoryHost: 'github.com',
+    viewer: 'cnzgray',
     fetchedAt: 1,
     loaded: 0,
     total: 0,

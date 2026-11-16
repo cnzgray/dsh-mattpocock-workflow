@@ -16,6 +16,7 @@ function ticket(overrides: Partial<TicketSnapshot>): TicketSnapshot {
     status: 'open',
     labels: [],
     author: null,
+    assignees: [],
     skillAction: 'none',
     skillActionReason: 'untriaged',
     createdAt: '2026-11-12T00:00:00Z',

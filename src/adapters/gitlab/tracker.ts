@@ -41,9 +41,16 @@ import {
   parseGlabInclude,
   parseIssuesPage,
   parseNativeBlockers,
+  parseViewer,
   type ParsedIssue,
 } from './parse.ts'
-import { callGlab, callGlabApiInclude, projectEndpoint, readProjectAddress } from './shared.ts'
+import {
+  callGlab,
+  callGlabApi,
+  callGlabApiInclude,
+  projectEndpoint,
+  readProjectAddress,
+} from './shared.ts'
 
 /** GitLab 后端依赖。 */
 export interface GitlabTrackerDeps {
@@ -176,7 +183,10 @@ async function readSnapshot(
 ): Promise<TrackerSnapshot> {
   const project = await readProjectAddress(deps.run, workspaceRoot)
   const window = normalizeWindow(windowLimit)
+  // 身份查询与列表并行发出，不串行增加首屏等待；失败只丢身份，不让列表失败。
+  const viewerTask = readViewer(deps, workspaceRoot).catch(() => null)
   const listing = await readIssues(deps, workspaceRoot, project.path, pageSize, window)
+  const viewer = await viewerTask
   const issues = listing.issues
   const states = new Map<number, TicketState>()
   for (const issue of issues) {
@@ -191,8 +201,20 @@ async function readSnapshot(
     loaded: tickets.length,
     total: listing.total ?? tickets.length,
     tickets,
+    viewer,
     ...(window === undefined ? {} : { windowLimit: window }),
   }
+}
+
+/**
+ * 当前登录用户：`glab api user` 的 `username`。
+ * @param deps - 后端依赖。
+ * @param workspaceRoot - 工作区根目录。
+ * @returns 登录名或 null。
+ * @throws {TrackerError} 命令失败或输出不是 JSON。
+ */
+async function readViewer(deps: GitlabTrackerDeps, workspaceRoot: string): Promise<string | null> {
+  return parseViewer(await callGlabApi(deps.run, workspaceRoot, 'user'))
 }
 
 /** 列表阶段为补齐阶段留下的线索：项目地址、列表是否已表明支持、优先探测哪张票。 */
@@ -239,6 +261,12 @@ async function readGitlabChanges(
   }
 
   const project = await readProjectAddress(deps.run, workspaceRoot)
+  // 增量也刷新身份：切换 CLI 账号后下一次刷新就按新身份匹配。
+  // 查询失败时省略这个字段，宿主沿用基准数据里的身份；成功但没有身份时为 null。
+  const viewerTask = readViewer(deps, workspaceRoot).then(
+    (viewer) => viewer,
+    () => undefined,
+  )
   const total = await readGitlabTotal(deps, workspaceRoot, project.path)
   const { issues, truncated } = await readChangedIssues(
     deps,
@@ -247,12 +275,14 @@ async function readGitlabChanges(
     listing,
     new Date(since).toISOString(),
   )
+  const viewer = await viewerTask
 
   return {
     // 增量只负责取回变更过的票，阻塞判定由宿主在合并后统一处理。
     tickets: issues.map((issue) => issue.ticket),
     truncated,
     total,
+    ...(viewer === undefined ? {} : { viewer }),
   }
 }
 

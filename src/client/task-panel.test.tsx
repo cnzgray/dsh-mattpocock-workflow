@@ -144,6 +144,7 @@ describe('任务面板', () => {
       backend: 'markdown',
       repository: 'my-workspace',
       repositoryHost: null,
+      viewer: null,
       fetchedAt: NOW - 5_000,
       loaded: 1,
       total: 1,
@@ -165,6 +166,7 @@ describe('任务面板', () => {
           skillActionReason: 'ready-for-agent',
           labels: ['ready-for-agent'],
           author: null,
+          assignees: [],
           createdAt: '2026-11-01T00:00:00Z',
           updatedAt: '2026-11-10T00:00:00Z',
           openBlockers: 0,
@@ -547,6 +549,23 @@ describe('任务面板', () => {
     await screen.findAllByTestId('ticket-row')
     expect(screen.getByTestId('filter-ready').getAttribute('aria-pressed')).toBe('true')
     expect(rowRefs()).toEqual(['#1', '#5'])
+  })
+
+  it('打开详情再返回后人员筛选仍然生效', async () => {
+    const fake = fakeClient({ ok: true, result: SNAPSHOT })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('mine-assigned'))
+    expect(rowRefs()).toEqual(['#1'])
+
+    fireEvent.click(firstRow())
+    await screen.findByTestId('detail-content')
+    fireEvent.click(screen.getByTestId('detail-back'))
+
+    await screen.findAllByTestId('ticket-row')
+    expect(screen.getByTestId('mine-assigned').getAttribute('aria-pressed')).toBe('true')
+    expect(rowRefs()).toEqual(['#1'])
   })
 
   it('agent 活动信号在详情态也刷新列表，返回列表后筛选与数据都是新的', async () => {

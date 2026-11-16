@@ -41,6 +41,7 @@ describe('本地 Markdown 工单解析', () => {
         state: 'open',
         labels: ['ready-for-agent'],
         author: null,
+        assignees: [],
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
         openBlockers: 0,

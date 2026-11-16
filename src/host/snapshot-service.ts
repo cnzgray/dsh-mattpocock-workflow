@@ -14,10 +14,10 @@
  * 并把失败原因放进快照，界面据此说明「显示的是本地缓存」。
  */
 import { mergeNativeBlockers } from '../core/blockers.ts'
-import { classifyTickets, type ClassifiedTicket } from '../core/classify.ts'
+import { classifyTickets } from '../core/classify.ts'
 import { isRecord } from '../core/json.ts'
 import { mergeTickets } from '../core/merge.ts'
-import { withSkillActions, type SkillActionDecision } from '../core/skill-action.ts'
+import { withSkillActions } from '../core/skill-action.ts'
 import type { TicketReference, TrackerChanges, TrackerSnapshot } from '../core/ticket.ts'
 import type { SnapshotStoreEntry } from '../core/snapshot-store.ts'
 import type { BackendKind } from '../protocol/backend.ts'
@@ -29,8 +29,6 @@ import {
   type ErrorCode,
   type RpcResult,
   type SnapshotCacheInfo,
-  type SnapshotMetrics,
-  type SnapshotSource,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import type { BackendResolver, ResolvedBackend } from './backend-resolver.ts'
@@ -38,6 +36,7 @@ import { readWorkspaceRoot } from './rpc-params.ts'
 import { mapSnapshotError, snapshotFailure } from './snapshot-error.ts'
 import { mergePulled, windowFor, loadMore, type MoreHost } from './snapshot-window.ts'
 import {
+  buildSnapshot,
   buildStoredSnapshot,
   cacheInfo,
   metricsOf,
@@ -318,7 +317,16 @@ async function refreshSnapshot(
       workspaceRoot,
       windowFor(cache.get(workspaceRoot), base),
     )
-    return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'full')
+    // 身份查询抖动返回 null 时沿用同一仓库上一次已知的身份，不让筛选行整行消失。
+    const current = cache.get(workspaceRoot)
+    const host = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
+    const sameRepository =
+      current?.kind === resolved.kind &&
+      current.repositoryHost === host &&
+      current.raw.repository === raw.repository
+    const previousViewer = (sameRepository ? current.raw.viewer : null) ?? base?.viewer ?? null
+    const withViewer = raw.viewer === null ? { ...raw, viewer: previousViewer } : raw
+    return await publish(deps, cache, workspaceRoot, resolved, withViewer, startedAt, 'full')
   } catch (error) {
     return await keepOldSnapshot(deps, cache, workspaceRoot, mapSnapshotError(error), startedAt)
   }
@@ -383,6 +391,8 @@ async function mergeIncremental(
     loaded: merged.length,
     total,
     tickets: merged,
+    // 后端这次查了身份就用新值；没查（省略）时沿用基准数据里的身份。
+    viewer: changes.viewer === undefined ? base.viewer : changes.viewer,
     windowLimit,
   }
   return await publish(deps, cache, workspaceRoot, resolved, raw, startedAt, 'incremental')
@@ -461,10 +471,12 @@ async function publish(
   mode: 'full' | 'incremental' | 'more',
 ): Promise<RpcResult<WorkspaceSnapshot>> {
   // 并发请求不能把窗口缩回去：保留更大的那一份，按工单引用去重后再裁剪。
-  const merged = mergePulled(cache.get(workspaceRoot), raw)
+  // 身份的「沿用」由调用方决定：全量刷新、增量与扩窗各自知道这次有没有查过身份。
+  const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
+  const current = cache.get(workspaceRoot)
+  const merged = mergePulled(current, raw)
   const tickets = withSkillActions(classifyTickets(merged.tickets, deps.labels), deps.labels)
   const resolver = resolved.tracker.resolveBlockers ?? null
-  const repositoryHost = resolved.kind === 'markdown' ? null : (resolved.address?.host ?? null)
   const finalized = resolver === null || !tickets.some((ticket) => ticket.state === 'open')
   const metrics = metricsOf(deps, resolved.kind, merged, tickets, finalized)
   const snapshot = buildSnapshot(
@@ -644,49 +656,4 @@ async function finalize(
   })
   // 旧调用方拿到的是它那一代快照的定稿结果；缓存里已经是新快照，不受影响。
   return { ok: true, result: settled }
-}
-
-function buildSnapshot(
-  kind: BackendKind,
-  repositoryHost: string | null,
-  raw: TrackerSnapshot,
-  tickets: readonly (ClassifiedTicket & SkillActionDecision)[],
-  blockersFinalized: boolean,
-  metrics: SnapshotMetrics,
-  source: SnapshotSource,
-  stale: boolean,
-  refreshError: { readonly code: ErrorCode; readonly message: string } | null,
-): WorkspaceSnapshot {
-  return {
-    backend: kind,
-    repository: raw.repository,
-    repositoryHost,
-    fetchedAt: raw.fetchedAt,
-    loaded: tickets.length,
-    total: raw.total,
-    windowLimit: raw.windowLimit ?? tickets.length,
-    blockersFinalized,
-    metrics,
-    source,
-    stale,
-    refreshError,
-    tickets: tickets.map((ticket) => ({
-      ref: ticket.ref,
-      number: ticket.number,
-      title: ticket.title,
-      state: ticket.state,
-      category: ticket.category,
-      status: ticket.status,
-      labels: ticket.labels,
-      author: ticket.author,
-      skillAction: ticket.skillAction,
-      skillActionReason: ticket.skillActionReason,
-      createdAt: ticket.createdAt,
-      updatedAt: ticket.updatedAt,
-      openBlockers: ticket.openBlockers,
-      ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
-      ...(ticket.url === undefined ? {} : { url: ticket.url }),
-      ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
-    })),
-  }
 }

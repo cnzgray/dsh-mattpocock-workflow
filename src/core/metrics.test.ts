@@ -20,6 +20,7 @@ function ticket(overrides: Partial<ClassifiedTicket> = {}): ClassifiedTicket {
     state: 'open',
     labels: [],
     author: null,
+    assignees: [],
     category: null,
     status: 'open',
     createdAt: daysAgo(1),

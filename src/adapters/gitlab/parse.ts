@@ -190,6 +190,7 @@ function parseIssue(value: unknown, index: number): ParsedIssue {
       state,
       labels: readLabels(value.labels),
       author: readAuthor(value.author, AUTHOR_FIELDS),
+      assignees: readAssignees(value.assignees),
       createdAt: readString(value.created_at, `第 ${String(iid)} 张票的创建时间`),
       updatedAt: readString(value.updated_at, `第 ${String(iid)} 张票的更新时间`),
       openBlockers: 0,
@@ -217,6 +218,38 @@ function readLabels(value: unknown): readonly string[] {
     }
     return []
   })
+}
+
+/**
+ * 当前登录用户：`/user` 响应里的 `username`。
+ * 字段缺失或类型不对时按识别不出处理。
+ * @param output - `glab api user` 的标准输出。
+ * @returns 登录名或 null。
+ * @throws {TrackerError} 输出不是 JSON。
+ */
+export function parseViewer(output: string): string | null {
+  const payload = parseJson(output)
+  if (!isRecord(payload)) return null
+  const username = payload.username
+  return typeof username === 'string' && username.length > 0 ? username : null
+}
+
+/**
+ * 分配人用户名。字段缺失、不是数组、条目不是对象或用户名为空时跳过该条目；
+ * 一次脏数据只按空数组处理，不让整张列表失败。
+ * @param value - GitLab issue 的 `assignees`。
+ * @returns 用户名数组。
+ */
+function readAssignees(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return []
+
+  const usernames: string[] = []
+  for (const assignee of value) {
+    if (!isRecord(assignee)) continue
+    const username = assignee.username
+    if (typeof username === 'string' && username.length > 0) usernames.push(username)
+  }
+  return usernames
 }
 
 function readIid(value: unknown): number {

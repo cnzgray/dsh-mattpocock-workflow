@@ -34,10 +34,12 @@ const ISSUE_NODES = `nodes {
         closedAt
         labels(first: 50) { nodes { name } }
         author { login avatarUrl ... on User { name } }
+        assignees(first: 10) { nodes { login } }
         issueDependenciesSummary { blockedBy }
       }`
 
 const ISSUE_QUERY = `query ($owner: String!, $name: String!, $limit: Int!, $after: String) {
+  viewer { login }
   repository(owner: $owner, name: $name) {
     issues(first: $limit, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
@@ -67,6 +69,7 @@ export function createGithubTracker(deps: GithubTrackerDeps): Tracker {
         loaded: tickets.tickets.length,
         total: tickets.total,
         tickets: tickets.tickets,
+        viewer: tickets.viewer,
         // 列表按更新时间倒序覆盖最近更新的 N 张票，扩窗就是把这个 N 调大。
         windowLimit: window,
       }
@@ -106,6 +109,7 @@ async function readTickets(
 ): Promise<ParsedIssues> {
   const tickets: Ticket[] = []
   let total = 0
+  let viewer: string | null = null
   let cursor: string | null = null
 
   for (;;) {
@@ -120,13 +124,15 @@ async function readTickets(
       cursor,
     )
     total = page.total
+    // viewer 是查询根字段，每页都相同；万一后续页缺失，保留已拿到的身份。
+    viewer = page.viewer ?? viewer
     tickets.push(...page.tickets)
     if (!page.hasNextPage || page.endCursor === null || page.tickets.length === 0) break
     cursor = page.endCursor
   }
 
   const windowed = tickets.slice(0, window)
-  return { total, tickets: windowed, hasNextPage: false, endCursor: null }
+  return { total, tickets: windowed, viewer, hasNextPage: false, endCursor: null }
 }
 
 /**

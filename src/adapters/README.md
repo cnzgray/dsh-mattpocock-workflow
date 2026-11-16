@@ -19,6 +19,11 @@ GitHub 用 GraphQL 游标按 100 一页续取，GitLab 与 Gitea 按各自的页
 GitLab 首屏带 `--include` 从 `X-Total` 读仓库总数，Gitea 用 `X-Total-Count`，GitHub 用 `totalCount`。
 本地 Markdown 没有翻页概念，忽略窗口。
 
+列表快照同时带当前登录用户 `viewer` 与每张票的分配人登录名 `assignees`：GitHub 在同一次 GraphQL
+查询里从根字段 `viewer.login` 与 issue 节点的 `assignees` 取回；GitLab / Gitea 在列表之外并行查询一次
+`/user`，查询失败只丢身份、不让列表失败。分配人字段缺失或条目格式不对时按空数组处理。
+本地 Markdown 没有身份与分配人概念，两项恒为 null / 空数组。
+
 | 后端          | 详情正文       | 评论                           | 链接地址 | 标签写 | 分配人写                        | 状态写 | 补全候选                                                   | 删除                                                               |
 | ------------- | -------------- | ------------------------------ | -------- | ------ | ------------------------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------ |
 | GitHub        | 是             | `gh issue view`                | 是       | 是     | 是                              | 是     | `gh label list`；`gh api .../assignees --paginate --slurp` | `gh issue delete --yes`；`viewerPermission` 为 `ADMIN`             |

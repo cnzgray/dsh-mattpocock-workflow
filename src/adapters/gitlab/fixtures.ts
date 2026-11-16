@@ -19,6 +19,7 @@ export function gitlabIssue(overrides: {
   readonly updatedAt?: string
   readonly closedAt?: string
   readonly author?: Record<string, unknown> | null
+  readonly assignees?: readonly string[]
 }): Record<string, unknown> {
   return {
     iid: overrides.iid,
@@ -26,6 +27,7 @@ export function gitlabIssue(overrides: {
     state: overrides.state ?? 'opened',
     labels: overrides.labels ?? [],
     description: overrides.description ?? '',
+    assignees: (overrides.assignees ?? []).map((username) => ({ username, name: username })),
     author:
       overrides.author === undefined
         ? {
@@ -50,6 +52,7 @@ export const GITLAB_ISSUES = [
     iid: 15,
     title: '右侧栏任务面板 MVP',
     labels: ['enhancement', 'ready-for-agent'],
+    assignees: ['alice'],
     createdAt: '2026-11-12T14:11:22Z',
     updatedAt: '2026-11-21T14:11:38Z',
   }),
@@ -57,6 +60,7 @@ export const GITLAB_ISSUES = [
     iid: 16,
     title: 'GitLab 工单后端',
     labels: ['enhancement', 'ready-for-agent'],
+    assignees: ['cnzgray'],
     description: '## 目标\n\n在 GitLab 仓库里读取工单。',
     createdAt: '2026-11-12T14:14:07Z',
     updatedAt: '2026-11-20T09:15:00Z',
@@ -73,6 +77,9 @@ export const GITLAB_ISSUES = [
 ]
 
 export const GITLAB_ISSUES_OUTPUT = issuesJson(GITLAB_ISSUES)
+
+/** `glab api user` 的录制输出：当前登录用户。 */
+export const GITLAB_USER_OUTPUT = JSON.stringify({ username: 'cnzgray', name: 'Cnzgray' })
 
 /**
  * 构造 `glab api --include` 的输出：状态行与响应头、一个空行、正文。

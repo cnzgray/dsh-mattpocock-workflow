@@ -11,13 +11,19 @@ export interface ViewPreference {
   readonly filter: TicketFilter
   readonly sortKey: TicketSortKey
   readonly direction: SortDirection
+  /** 只看分配给我的工单；默认关闭。 */
+  readonly assignedToMe: boolean
+  /** 只看我创建的工单；默认关闭。 */
+  readonly createdByMe: boolean
 }
 
-/** 没有存档时使用的视图：只看未关闭工单，可接的排在前面。 */
+/** 没有存档时使用的视图：只看未关闭工单，可接的排在前面，不按人员筛选。 */
 export const DEFAULT_VIEW: ViewPreference = {
   filter: 'open',
   sortKey: 'status',
   direction: 'asc',
+  assignedToMe: false,
+  createdByMe: false,
 }
 
 /** Web Storage 里用到的部分；测试可以注入内存实现。 */
@@ -79,6 +85,8 @@ export function readViewPreference(
     filter: isFilter(stored.filter) ? stored.filter : DEFAULT_VIEW.filter,
     sortKey: isSortKey(stored.sortKey) ? stored.sortKey : DEFAULT_VIEW.sortKey,
     direction: isDirection(stored.direction) ? stored.direction : DEFAULT_VIEW.direction,
+    assignedToMe: isBoolean(stored.assignedToMe) ? stored.assignedToMe : DEFAULT_VIEW.assignedToMe,
+    createdByMe: isBoolean(stored.createdByMe) ? stored.createdByMe : DEFAULT_VIEW.createdByMe,
   }
 }
 
@@ -104,6 +112,8 @@ export function writeViewPreference(
         filter: preference.filter,
         sortKey: preference.sortKey,
         direction: preference.direction,
+        assignedToMe: preference.assignedToMe,
+        createdByMe: preference.createdByMe,
         savedAt: now(),
         version: STORAGE_VERSION,
       }),
@@ -166,4 +176,8 @@ function isSortKey(value: unknown): value is TicketSortKey {
 
 function isDirection(value: unknown): value is SortDirection {
   return typeof value === 'string' && Object.hasOwn(DIRECTIONS, value)
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean'
 }

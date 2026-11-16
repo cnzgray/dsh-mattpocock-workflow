@@ -30,6 +30,8 @@ export interface Ticket {
   readonly labels: readonly string[]
   /** 创建人；本地 Markdown 没有创建人，为 null。 */
   readonly author: TicketAuthor | null
+  /** 分配人的远端登录名；后端没有分配人概念时为空数组。 */
+  readonly assignees: readonly string[]
   readonly createdAt: string
   readonly updatedAt: string
   /**
@@ -57,6 +59,8 @@ export interface TrackerSnapshot {
   readonly loaded: number
   readonly total: number
   readonly tickets: readonly Ticket[]
+  /** 当前登录用户的远端登录名；识别不出时为 null。 */
+  readonly viewer: string | null
   /**
    * 列表覆盖的上限：只覆盖最近更新的 N 张票（GitHub 的单页上限）。
    * 缺省表示覆盖全部。宿主合并增量时按它裁剪，使结果与全量重拉一致。
@@ -73,6 +77,11 @@ export interface TrackerChanges {
    * 不把一份不完整的增量当成完整结果。
    */
   readonly truncated: boolean
+  /**
+   * 增量刷新时顺带刷新的当前登录用户；省略表示这次没查，沿用上一次。
+   * 查询失败时省略；查询成功但没有身份时为 null。
+   */
+  readonly viewer?: string | null
   /**
    * 同一过滤条件下的权威总数：与全量列表口径一致，不受增量时间窗影响。
    *

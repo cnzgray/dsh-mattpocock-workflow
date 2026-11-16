@@ -19,6 +19,8 @@ const AUTHOR_FIELDS: AuthorFields = {
 export interface ParsedIssues {
   readonly total: number
   readonly tickets: readonly Ticket[]
+  /** 当前登录用户登录名；输出里没有时为 null。 */
+  readonly viewer: string | null
   /** 后端是否还有下一页；拿不到分页信息时按没有下一页处理。 */
   readonly hasNextPage: boolean
   /** 下一页的游标；没有下一页时为 null。 */
@@ -45,7 +47,23 @@ export function parseIssueGraphql(output: string): ParsedIssues {
     throw invalid('仓库的 issues.totalCount 不是非负整数')
   }
 
-  return { total, tickets, ...readPageCursor(issues) }
+  return { total, tickets, viewer: readViewer(payload), ...readPageCursor(issues) }
+}
+
+/**
+ * 当前登录用户：GraphQL 根字段 `viewer.login`。
+ * 缺失或类型不对时按识别不出处理，不让一次身份字段异常打挂列表。
+ * @param payload - `gh` 返回的完整 JSON。
+ * @returns 登录名或 null。
+ */
+function readViewer(payload: unknown): string | null {
+  if (!isRecord(payload)) return null
+  const data = payload.data
+  if (!isRecord(data)) return null
+  const viewer = data.viewer
+  if (!isRecord(viewer)) return null
+  const login = viewer.login
+  return typeof login === 'string' && login.length > 0 ? login : null
 }
 
 /**
@@ -96,6 +114,7 @@ function parseIssueNode(value: unknown, index: number): Ticket {
     state,
     labels: readLabels(value.labels),
     author: readAuthor(value.author, AUTHOR_FIELDS),
+    assignees: readAssignees(value.assignees),
     createdAt: readString(value.createdAt, `第 ${String(number)} 张票的创建时间`),
     updatedAt: readString(value.updatedAt, `第 ${String(number)} 张票的更新时间`),
     openBlockers: readOpenBlockers(value.issueDependenciesSummary),
@@ -140,6 +159,26 @@ function readLabels(value: unknown): readonly string[] {
     if (typeof name === 'string' && name.length > 0) labels.push(name)
   }
   return labels
+}
+
+/**
+ * 分配人登录名。字段缺失、不是数组、条目不是对象或登录名为空时跳过该条目；
+ * 一次脏数据只按空数组处理，不让整张列表失败。
+ * @param value - GraphQL 的 `assignees` 连接。
+ * @returns 登录名数组。
+ */
+function readAssignees(value: unknown): readonly string[] {
+  if (!isRecord(value)) return []
+  const nodes = value.nodes
+  if (!Array.isArray(nodes)) return []
+
+  const logins: string[] = []
+  for (const node of nodes) {
+    if (!isRecord(node)) continue
+    const login = node.login
+    if (typeof login === 'string' && login.length > 0) logins.push(login)
+  }
+  return logins
 }
 
 /**

@@ -117,10 +117,12 @@ export async function loadMore(
     const resolved = await host.resolve(workspaceRoot)
     kind = resolved.kind
     const raw = await resolved.tracker.fetchSnapshot(workspaceRoot, nextWindow)
+    // 扩窗响应没带身份时沿用当前快照的身份；同一个工作区里仓库没换才沿用。
+    const viewer = raw.viewer ?? (entry.raw.repository === raw.repository ? entry.raw.viewer : null)
     return await host.publish(
       workspaceRoot,
       resolved,
-      { ...raw, windowLimit: nextWindow },
+      { ...raw, viewer, windowLimit: nextWindow },
       startedAt,
     )
   } catch (error) {

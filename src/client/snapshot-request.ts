@@ -95,6 +95,8 @@ function visibleKey(snapshot: WorkspaceSnapshot): string {
     backend: snapshot.backend,
     repository: snapshot.repository,
     repositoryHost: snapshot.repositoryHost,
+    // 切换 CLI 账号后只有身份变化：后台刷新也要落地，人员筛选才能按新身份匹配。
+    viewer: snapshot.viewer,
     loaded: snapshot.loaded,
     total: snapshot.total,
     source: snapshot.source,

@@ -202,6 +202,8 @@ export interface TicketSnapshot {
   readonly labels: readonly string[]
   /** 创建人；本地 Markdown 没有创建人，为 null。 */
   readonly author: TicketAuthor | null
+  /** 分配人的远端登录名；后端没有分配人概念时为空数组。 */
+  readonly assignees: readonly string[]
   /** 该票对应的技能动作；`none` 表示不提供注入入口。判定在 core，界面只展示。 */
   readonly skillAction: TicketSkillAction
   /** 判定依据；界面用它渲染原因徽标和悬停说明。 */
@@ -235,6 +237,8 @@ export interface WorkspaceSnapshot {
    * 同时使用多个 Gitea 实例时，界面靠它区分同名仓库。
    */
   readonly repositoryHost: string | null
+  /** 当前登录用户的远端登录名；识别不出时为 null，界面据此隐藏人员筛选。 */
+  readonly viewer: string | null
   /** 快照生成时间（毫秒时间戳），界面用它显示“多久之前”。 */
   readonly fetchedAt: number
   /** 本次实际加载到的票数。 */

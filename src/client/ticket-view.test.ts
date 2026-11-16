@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TicketSnapshot } from '../protocol/tracker.ts'
-import { countTickets, defaultSortDirection, filterTickets, sortTickets } from './ticket-view.ts'
+import {
+  countMyTickets,
+  countTickets,
+  defaultSortDirection,
+  filterMyTickets,
+  filterTickets,
+  sortTickets,
+} from './ticket-view.ts'
+
+function author(login: string): TicketSnapshot['author'] {
+  return { login, displayName: null, avatarUrl: null }
+}
 
 function ticket(
   overrides: Partial<TicketSnapshot> & Pick<TicketSnapshot, 'number'>,
@@ -17,6 +28,7 @@ function ticket(
     skillActionReason: 'untriaged',
     labels: [],
     author: null,
+    assignees: [],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     openBlockers: 0,
@@ -87,6 +99,131 @@ describe('工单过滤', () => {
 
   it('可接只保留 ready', () => {
     expect(filterTickets(TICKETS, 'ready').map((item) => item.number)).toEqual([1, 5])
+  })
+})
+
+describe('人员筛选', () => {
+  const ALICE = 'alice'
+  const PEOPLE: readonly TicketSnapshot[] = [
+    ticket({
+      number: 1,
+      title: '分配给我',
+      status: 'ready',
+      assignees: [ALICE],
+      author: author('bob'),
+    }),
+    ticket({
+      number: 2,
+      title: '我创建的',
+      status: 'blocked',
+      assignees: ['bob'],
+      author: author('ALICE'),
+    }),
+    ticket({
+      number: 3,
+      title: '两者都是',
+      status: 'closed',
+      state: 'closed',
+      assignees: [ALICE, 'bob'],
+      author: author(ALICE),
+    }),
+    ticket({ number: 4, title: '都与我无关', assignees: [], author: null }),
+  ]
+
+  it('只开分配给我时只看分配人里有我', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: true, createdByMe: false }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 3])
+  })
+
+  it('只开我创建时只看创建人是我', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: false, createdByMe: true }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([2, 3])
+  })
+
+  it('两个都开时取并集', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: true, createdByMe: true }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 2, 3])
+  })
+
+  it('两个都关时不按人员过滤', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: false, createdByMe: false }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 2, 3, 4])
+  })
+
+  it('与状态筛选交叉生效，先状态后人员', () => {
+    const open = filterTickets(PEOPLE, 'open')
+
+    expect(
+      filterMyTickets(open, { assignedToMe: true, createdByMe: false }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1])
+    expect(
+      filterMyTickets(open, { assignedToMe: false, createdByMe: true }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([2])
+    expect(
+      filterMyTickets(open, { assignedToMe: true, createdByMe: true }, ALICE).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 2])
+  })
+
+  it('当前用户为 null 时忽略人员开关', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: true, createdByMe: true }, null).map(
+        (item) => item.number,
+      ),
+    ).toEqual([1, 2, 3, 4])
+  })
+
+  it('登录名比较不区分大小写', () => {
+    expect(
+      filterMyTickets(PEOPLE, { assignedToMe: false, createdByMe: true }, 'aLiCe').map(
+        (item) => item.number,
+      ),
+    ).toEqual([2, 3])
+  })
+
+  it('创建人为 null 或分配人为空时不算我的票', () => {
+    const counts = countMyTickets(
+      [PEOPLE[1], PEOPLE[3]].filter((item) => item !== undefined),
+      ALICE,
+    )
+
+    expect(counts).toEqual({ assignedToMe: 0, createdByMe: 1 })
+  })
+
+  it('计数按传入集合计算，两个角色互不影响', () => {
+    expect(countMyTickets(PEOPLE, ALICE)).toEqual({ assignedToMe: 2, createdByMe: 2 })
+    expect(countMyTickets([...PEOPLE], null)).toEqual({ assignedToMe: 0, createdByMe: 0 })
+  })
+
+  it('计数只覆盖当前状态筛选后的集合', () => {
+    const open = filterTickets(PEOPLE, 'open')
+
+    expect(countMyTickets(open, ALICE)).toEqual({ assignedToMe: 1, createdByMe: 1 })
+  })
+
+  it('筛选不修改输入数组', () => {
+    const original = [...PEOPLE]
+
+    filterMyTickets(PEOPLE, { assignedToMe: true, createdByMe: true }, ALICE)
+
+    expect(PEOPLE).toEqual(original)
   })
 })
 

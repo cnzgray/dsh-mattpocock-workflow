@@ -9,18 +9,16 @@ import * as React from 'react'
 
 import {
   type ErrorCode,
-  type SnapshotSource,
+  type RpcErrorBody,
   type TicketSnapshot,
   type WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { ActionBar } from './action-bar.tsx'
-import { backendLabel } from './backend-label.ts'
 import { ErrorBanner } from './error-banner.tsx'
-import { FolderIcon, RefreshIcon } from './icons.tsx'
 import { useI18n } from './i18n.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
 import type { MessageKey } from './messages.ts'
-import { formatRelativeTime } from './relative-time.ts'
+import { MyTicketsBar } from './my-tickets-bar.tsx'
 import { useNow } from './snapshot-age.ts'
 import { snapshotRefreshNotice, type SnapshotRequestState } from './snapshot-request.ts'
 import { useTicketActions, type TicketActionsState } from './ticket-actions.ts'
@@ -28,45 +26,34 @@ import type { NoticeTone } from './use-draft-injection.ts'
 import { SortControl } from './sort-control.tsx'
 import { TicketList } from './ticket-list.tsx'
 import { MoreFooter, moreStateOf, useMoreSentinel, type MoreState } from './tickets-more.tsx'
+import { TicketsHeader } from './tickets-header.tsx'
 import {
   ACTION_BAR_STYLE,
-  AGE_STYLE,
-  BACKEND_BADGE_STYLE,
-  BUTTON_STYLE,
   CHIP_ACTIVE_STYLE,
   CHIP_COUNT_STYLE,
   CHIP_DOT_STYLE,
   CHIP_STYLE,
   COLORS,
   EMPTY_STYLE,
-  HEADER_STYLE,
   LOADED_STYLE,
-  REFRESH_BUTTON_STYLE,
-  REPO_CHIP_STYLE,
-  REPO_HOST_STYLE,
-  REPO_NAME_STYLE,
   SEGMENTED_STYLE,
   TICKET_FILTERS,
   TOOLBAR_STYLE,
 } from './task-panel-styles.ts'
 import {
+  countMyTickets,
   countTickets,
+  filterMyTickets,
   filterTickets,
   sortTickets,
+  type MyTicketCounts,
   type SortDirection,
   type TicketCounts,
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
 import { useViewPreference } from './use-view-preference.ts'
-
-/** 全量刷新是次要动作：描边按钮，和刷新按钮并排但不同层级。 */
-const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
-  ...BUTTON_STYLE,
-  padding: '2px 6px',
-  fontSize: 12,
-  color: COLORS.secondary,
-}
+import type { ViewPreference } from './view-preference.ts'
 
 /** 过滤条件到词典键。 */
 const FILTER_KEYS: Readonly<Record<TicketFilter, MessageKey>> = {
@@ -75,16 +62,6 @@ const FILTER_KEYS: Readonly<Record<TicketFilter, MessageKey>> = {
   closed: 'filter.closed',
   blocked: 'filter.blocked',
   ready: 'filter.ready',
-}
-
-/** 刷新失败原因：贴在数据时间旁边，说明数据没更新，但不盖住列表。 */
-const REFRESH_ERROR_STYLE: React.CSSProperties = {
-  color: COLORS.error,
-  fontSize: 12,
-  maxWidth: 160,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
 }
 
 /** 工单列表视图依赖。 */
@@ -115,20 +92,24 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
   const clock = props.now ?? Date.now
   const { snapshot, error, refreshError, phase, refresh, refreshFull } = props.request
   const { loadMore, moreError, moreLoading } = props.request
-  const { preference, setFilter, toggleSort } = useViewPreference(props.workspaceRoot)
+  const {
+    preference,
+    setFilter,
+    toggleSort,
+    toggleAssignedToMe,
+    toggleCreatedByMe,
+    clearMyTickets,
+  } = useViewPreference(props.workspaceRoot)
   const nowValue = useNow(clock)
   const ownActions = useTicketActions(props.workspaceRoot, props.injection)
   const { injected, notice, noticeTone, inject, onSkillAction } = props.actions ?? ownActions
 
   const tickets = snapshot?.tickets ?? []
-  const counts = countTickets(tickets)
-  const visible = sortTickets(
-    filterTickets(tickets, preference.filter),
-    preference.sortKey,
-    preference.direction,
+  const { counts, myCounts, visible } = ticketViewData(
+    tickets,
+    preference,
+    snapshot?.viewer ?? null,
   )
-  const busy = phase === 'loading' || phase === 'refreshing'
-
   const focused = useFocusedTicket(props.focusRef, props.onFocusHandled, props.workspaceRoot)
 
   return (
@@ -136,49 +117,45 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       data-testid="tickets-view"
       style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
     >
-      <Header
+      <TicketsTop
         snapshot={snapshot}
         now={nowValue}
-        loading={phase === 'loading'}
-        busy={busy}
-        notice={snapshotRefreshNotice(snapshot, refreshError, t)}
+        phase={phase}
+        refreshError={refreshError}
+        error={error}
+        injection={props.injection}
+        actions={props.actions}
+        injectedAction={inject}
         onRefresh={refresh}
         onRefreshFull={refreshFull}
+        onOpenEnvCheck={props.onOpenEnvCheck}
       />
-      {props.actions === undefined ? (
-        <div style={ACTION_BAR_STYLE}>
-          <ActionBar injection={props.injection} onInject={inject} />
-        </div>
-      ) : null}
-      {error !== null ? <ErrorBanner error={error} onOpenEnvCheck={props.onOpenEnvCheck} /> : null}
       {snapshot !== null ? (
-        <>
-          <Toolbar
-            filter={preference.filter}
-            sortKey={preference.sortKey}
-            direction={preference.direction}
-            counts={counts}
-            onFilter={setFilter}
-            onSort={toggleSort}
-          />
-          <TicketRows
-            snapshot={snapshot}
-            visible={visible}
-            ticketCount={tickets.length}
-            injected={injected}
-            injection={props.injection}
-            focused={focused}
-            now={nowValue}
-            more={{
-              ...moreStateOf(snapshot),
-              loading: moreLoading,
-              error: moreError,
-              onLoadMore: loadMore,
-            }}
-            onPick={props.onOpenTicket}
-            onSkillAction={onSkillAction}
-          />
-        </>
+        <TicketsContent
+          snapshot={snapshot}
+          preference={preference}
+          counts={counts}
+          myCounts={myCounts}
+          visible={visible}
+          ticketCount={tickets.length}
+          injected={injected}
+          injection={props.injection}
+          focused={focused}
+          now={nowValue}
+          more={{
+            ...moreStateOf(snapshot),
+            loading: moreLoading,
+            error: moreError,
+            onLoadMore: loadMore,
+          }}
+          onFilter={setFilter}
+          onSort={toggleSort}
+          onToggleAssigned={toggleAssignedToMe}
+          onToggleCreated={toggleCreatedByMe}
+          onClearMyTickets={clearMyTickets}
+          onPick={props.onOpenTicket}
+          onSkillAction={onSkillAction}
+        />
       ) : phase === 'loading' ? (
         <div data-testid="loading" style={EMPTY_STYLE}>
           {t('snapshot.loading')}
@@ -186,6 +163,133 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
       ) : null}
       <Footer injection={props.injection} notice={notice} tone={noticeTone} />
     </div>
+  )
+}
+
+/**
+ * 列表数据组合：状态 → 人员 → 排序；状态过滤只算一次，计数与列表共用这份中间结果。
+ * @param tickets - 整份已加载列表。
+ * @param preference - 当前视图偏好。
+ * @param viewer - 当前登录用户登录名。
+ * @returns 状态统计、人员计数与最终可见列表。
+ */
+function ticketViewData(
+  tickets: readonly TicketSnapshot[],
+  preference: ViewPreference,
+  viewer: string | null,
+): {
+  readonly counts: TicketCounts
+  readonly myCounts: MyTicketCounts
+  readonly visible: readonly TicketSnapshot[]
+} {
+  const statusFiltered = filterTickets(tickets, preference.filter)
+  return {
+    counts: countTickets(tickets),
+    myCounts: countMyTickets(statusFiltered, viewer),
+    visible: sortTickets(
+      filterMyTickets(statusFiltered, preference, viewer),
+      preference.sortKey,
+      preference.direction,
+    ),
+  }
+}
+
+/** 仓库行、动作栏与错误横幅：首屏与刷新状态都在这里呈现。 */
+function TicketsTop(props: {
+  readonly snapshot: WorkspaceSnapshot | null
+  readonly now: number
+  readonly phase: SnapshotRequestState['phase']
+  readonly refreshError: RpcErrorBody | null
+  readonly error: RpcErrorBody | null
+  readonly injection: PromptInjection
+  readonly actions: TicketActionsState | undefined
+  readonly injectedAction: (text: string, target: InjectionTarget) => void
+  readonly onRefresh: () => void
+  readonly onRefreshFull: () => void
+  readonly onOpenEnvCheck: (code: ErrorCode) => void
+}): React.ReactElement {
+  const { t } = useI18n()
+
+  return (
+    <>
+      <TicketsHeader
+        snapshot={props.snapshot}
+        now={props.now}
+        loading={props.phase === 'loading'}
+        busy={props.phase === 'loading' || props.phase === 'refreshing'}
+        notice={snapshotRefreshNotice(props.snapshot, props.refreshError, t)}
+        onRefresh={props.onRefresh}
+        onRefreshFull={props.onRefreshFull}
+      />
+      {props.actions === undefined ? (
+        <div style={ACTION_BAR_STYLE}>
+          <ActionBar injection={props.injection} onInject={props.injectedAction} />
+        </div>
+      ) : null}
+      {props.error !== null ? (
+        <ErrorBanner error={props.error} onOpenEnvCheck={props.onOpenEnvCheck} />
+      ) : null}
+    </>
+  )
+}
+
+/** 工具栏、人员筛选行与工单列表；只在快照存在时渲染。 */
+function TicketsContent(props: {
+  readonly snapshot: WorkspaceSnapshot
+  readonly preference: ViewPreference
+  readonly counts: TicketCounts
+  readonly myCounts: MyTicketCounts
+  readonly visible: readonly TicketSnapshot[]
+  readonly ticketCount: number
+  readonly injected: string | null
+  readonly injection: PromptInjection
+  readonly focused: string | null
+  readonly now: number
+  readonly more: MoreState
+  readonly onFilter: (filter: TicketFilter) => void
+  readonly onSort: (key: TicketSortKey) => void
+  readonly onToggleAssigned: () => void
+  readonly onToggleCreated: () => void
+  readonly onClearMyTickets: () => void
+  readonly onPick: (ticket: TicketSnapshot) => void
+  readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
+}): React.ReactElement {
+  const { snapshot, preference } = props
+
+  return (
+    <>
+      <Toolbar
+        filter={preference.filter}
+        sortKey={preference.sortKey}
+        direction={preference.direction}
+        counts={props.counts}
+        onFilter={props.onFilter}
+        onSort={props.onSort}
+      />
+      {snapshot.viewer === null ? null : (
+        <MyTicketsBar
+          viewer={snapshot.viewer}
+          counts={props.myCounts}
+          assignedToMe={preference.assignedToMe}
+          createdByMe={preference.createdByMe}
+          onToggleAssigned={props.onToggleAssigned}
+          onToggleCreated={props.onToggleCreated}
+          onClear={props.onClearMyTickets}
+        />
+      )}
+      <TicketRows
+        snapshot={snapshot}
+        visible={props.visible}
+        ticketCount={props.ticketCount}
+        injected={props.injected}
+        injection={props.injection}
+        focused={props.focused}
+        now={props.now}
+        more={props.more}
+        onPick={props.onPick}
+        onSkillAction={props.onSkillAction}
+      />
+    </>
   )
 }
 
@@ -258,102 +362,6 @@ function TicketRows(props: {
         footer={more.available ? <MoreFooter state={more} sentinel={sentinel} /> : null}
       />
     </>
-  )
-}
-
-/** 数据来源徽标：本地缓存的数据不是实时的，标出来才不会误判。 */
-function SourceBadge(props: { readonly source: SnapshotSource }): React.ReactElement {
-  const { t } = useI18n()
-  return (
-    <span
-      data-testid="snapshot-source"
-      style={{
-        ...BACKEND_BADGE_STYLE,
-        color: props.source === 'cache' ? COLORS.warn : COLORS.secondary,
-      }}
-    >
-      {props.source === 'cache' ? t('source.cache') : t('source.live')}
-    </span>
-  )
-}
-
-function Header(props: {
-  readonly snapshot: WorkspaceSnapshot | null
-  readonly now: number
-  readonly loading: boolean
-  readonly busy: boolean
-  /** 数据旁边的失败原因：有数据时显示在时间旁边，不用整屏横幅盖住列表。 */
-  readonly notice: string | null
-  readonly onRefresh: () => void
-  readonly onRefreshFull: () => void
-}): React.ReactElement {
-  const { t } = useI18n()
-  return (
-    <header style={HEADER_STYLE}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <div style={REPO_CHIP_STYLE}>
-          <FolderIcon />
-          <span
-            data-testid="repo-name"
-            style={REPO_NAME_STYLE}
-            {...(props.snapshot === null ? {} : { title: props.snapshot.repository })}
-          >
-            {props.snapshot?.repository ??
-              (props.loading ? t('repo.identifying') : t('repo.unidentified'))}
-          </span>
-        </div>
-        {props.snapshot === null ? null : (
-          <span data-testid="backend-badge" style={BACKEND_BADGE_STYLE}>
-            {backendLabel(props.snapshot.backend, t)}
-          </span>
-        )}
-        {/* 数据来源：本地缓存的数据不是实时的，必须让用户一眼看出来。 */}
-        {props.snapshot === null ? null : <SourceBadge source={props.snapshot.source} />}
-        {/* 自建 Gitea 可能同时登录多个实例，主机名是区分同名仓库的唯一线索。 */}
-        {props.snapshot?.backend === 'gitea' && props.snapshot.repositoryHost !== null ? (
-          <span
-            data-testid="repo-host"
-            title={props.snapshot.repositoryHost}
-            style={REPO_HOST_STYLE}
-          >
-            {props.snapshot.repositoryHost}
-          </span>
-        ) : null}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 'none' }}>
-        <span data-testid="snapshot-age" style={AGE_STYLE}>
-          {props.snapshot === null
-            ? t('snapshot.none')
-            : formatRelativeTime(props.snapshot.fetchedAt, props.now, t)}
-        </span>
-        {props.notice === null ? null : (
-          <span data-testid="refresh-error" title={props.notice} style={REFRESH_ERROR_STYLE}>
-            {props.notice}
-          </span>
-        )}
-        <button
-          type="button"
-          data-testid="refresh"
-          data-hover="soft"
-          disabled={props.busy}
-          onClick={props.onRefresh}
-          style={{ ...REFRESH_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
-        >
-          <RefreshIcon />
-          {props.busy ? t('refresh.busy') : t('refresh.action')}
-        </button>
-        <button
-          type="button"
-          data-testid="refresh-full"
-          data-hover="soft"
-          disabled={props.busy}
-          onClick={props.onRefreshFull}
-          style={{ ...SECONDARY_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
-        >
-          {t('refresh.full')}
-        </button>
-      </div>
-    </header>
   )
 }
 
