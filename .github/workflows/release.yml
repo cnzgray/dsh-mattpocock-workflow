@@ -54,6 +54,8 @@ jobs:
       # 可信发布：npm CLI 用这次 OIDC 令牌换取一次性的发布凭证。
       id-token: write
     steps:
+      # setup-node 从 .nvmrc 读 Node 版本，这个 job 不 checkout 就找不到它。
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

@@ -208,3 +208,26 @@ describe('发布工作流', () => {
     for (const target of targets) expect(target).toMatch(/^\.?\//u)
   })
 })
+
+describe('发布工作流的 Node 版本', () => {
+  it('按 .nvmrc 选 Node 的 job 都先 checkout 仓库', () => {
+    interface Step {
+      readonly uses?: string
+      readonly with?: Readonly<Record<string, unknown>>
+    }
+    const workflow = parseYaml(
+      readFileSync(join(ROOT, '.github/workflows/release.yml'), 'utf8'),
+    ) as { readonly jobs: Readonly<Record<string, { readonly steps: readonly Step[] }>> }
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      const setupNode = job.steps.findIndex(
+        (step) => step.with?.['node-version-file'] !== undefined,
+      )
+      if (setupNode === -1) continue
+      const checkout = job.steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'))
+      expect({ name, checkoutFirst: checkout !== -1 && checkout < setupNode }).toEqual({
+        name,
+        checkoutFirst: true,
+      })
+    }
+  })
+})
