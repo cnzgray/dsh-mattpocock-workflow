@@ -13,6 +13,7 @@ import {
   fakeBackend,
   renderView,
   snapshotTicket,
+  target,
   view,
 } from './ticket-detail-view-test-support.tsx'
 
@@ -305,7 +306,7 @@ describe('工单详情视图', () => {
     await screen.findByTestId('detail-title')
     expect(element('detail-ref').textContent).toBe('#25')
 
-    rerender(view(backend.client, { ticket: snapshotTicket({ ref: '#26', number: 26 }) }))
+    rerender(view(backend.client, { target: target(snapshotTicket({ ref: '#26', number: 26 })) }))
 
     await waitFor(() => {
       expect(element('detail-ref').textContent).toBe('#26')
@@ -338,12 +339,14 @@ describe('技能按钮', () => {
     const injectDraft = vi.fn(() => 'filled' as const)
     renderView(fakeBackend().client, {
       injection: fakeInjection({ inject: injectDraft }),
-      ticket: snapshotTicket({
-        status: 'blocked',
-        skillAction: 'none',
-        skillActionReason: 'blocked',
-        openBlockers: 2,
-      }),
+      target: target(
+        snapshotTicket({
+          status: 'blocked',
+          skillAction: 'none',
+          skillActionReason: 'blocked',
+          openBlockers: 2,
+        }),
+      ),
     })
 
     await screen.findByTestId('detail-title')
@@ -409,11 +412,14 @@ describe('工单详情的后端能力', () => {
       comments: [{ author: null, body: '本地讨论记录', createdAt: null }],
       capabilities: { labels: false, assignees: false, state: false, link: false, delete: false },
     })
-    renderView(fakeBackend(local).client, {
-      ticket: snapshotTicket({ ref: local.ref, number: null }),
+    const backend = fakeBackend(local)
+    renderView(backend.client, {
+      target: target(snapshotTicket({ ref: local.ref, number: null })),
     })
 
     await screen.findByTestId('detail-title')
+    // 本地 Markdown 没有数字编号，读取详情时传 null。
+    expect(backend.detailCalls).toEqual([['/repo', local.ref, null]])
     expect(element('detail-unsupported-note').textContent).toBe(
       '当前后端（本地）不支持修改标签、修改分配人、关闭或重开、提供链接地址。',
     )

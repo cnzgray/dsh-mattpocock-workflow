@@ -13,6 +13,7 @@ export const zh = {
   'common.listSeparator': '、',
   'common.clauseSeparator': '，',
   'common.hintSeparator': '；',
+  'common.labelSeparator': '：',
 
   'backend.markdown': '本地',
   'backend.markdownLong': '本地 Markdown',
@@ -400,6 +401,13 @@ export const zh = {
 
   'detail.back': '返回列表',
   'detail.backTitle': '返回列表（Esc）',
+  'detail.backTo': '返回 {ref}',
+  'detail.backToTitle': '返回 {ref}（Esc）',
+  'detail.blockers.title': '阻塞项',
+  'detail.blockers.expand': '展开查看阻塞项',
+  'detail.blockers.collapse': '收起阻塞项',
+  'detail.blockers.unloaded': '未加载',
+  'detail.blockers.unloadedTitle': '这张阻塞票不在当前列表快照里',
   'detail.openInBrowser': '在浏览器打开 {url}',
   'detail.state.open': '开放',
   'detail.state.closed': '已关闭',
@@ -530,6 +538,7 @@ export const en: Record<MessageKey, string> = {
   'common.listSeparator': ', ',
   'common.clauseSeparator': ', ',
   'common.hintSeparator': '; ',
+  'common.labelSeparator': ': ',
 
   'backend.markdown': 'Local',
   'backend.markdownLong': 'Local Markdown',
@@ -956,6 +965,13 @@ export const en: Record<MessageKey, string> = {
 
   'detail.back': 'Back to list',
   'detail.backTitle': 'Back to list (Esc)',
+  'detail.backTo': 'Back to {ref}',
+  'detail.backToTitle': 'Back to {ref} (Esc)',
+  'detail.blockers.title': 'Blocking tickets',
+  'detail.blockers.expand': 'Show blocking tickets',
+  'detail.blockers.collapse': 'Hide blocking tickets',
+  'detail.blockers.unloaded': 'Not loaded',
+  'detail.blockers.unloadedTitle': 'This blocking ticket is outside the current list snapshot',
   'detail.openInBrowser': 'Open {url} in the browser',
   'detail.state.open': 'Open',
   'detail.state.closed': 'Closed',

@@ -48,7 +48,7 @@ export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactEleme
         data-testid="action-reason"
         data-ref={ticket.ref}
         title={hint}
-        aria-label={`${label}：${hint}`}
+        aria-label={`${label}${t('common.labelSeparator')}${hint}`}
         style={{ ...ACTION_BADGE_STYLES[ticket.skillActionReason], ...props.style }}
       >
         {label}
@@ -69,7 +69,7 @@ export function SkillActionBadge(props: SkillActionBadgeProps): React.ReactEleme
       label={label}
       icon={props.injected ? <CheckIcon /> : <InsertDraftIcon />}
       title={buttonHint}
-      ariaLabel={`${label}：${buttonHint}`}
+      ariaLabel={`${label}${t('common.labelSeparator')}${buttonHint}`}
       primaryStyle={{
         ...SKILL_BADGE_BUTTON_STYLE,
         color: ACTION_TONES[ticket.skillActionReason],

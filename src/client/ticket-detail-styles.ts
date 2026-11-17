@@ -8,7 +8,7 @@
  */
 import type { CSSProperties } from 'react'
 
-import { BUTTON_STYLE, COLORS } from './task-panel-styles.ts'
+import { ACTION_BADGE_STYLES, BUTTON_STYLE, COLORS } from './task-panel-styles.ts'
 
 /** 详情里输入框和按钮共用的高度：1px 边框 + 3px 内边距 + 18px 行高。 */
 const CONTROL_LINE_HEIGHT = '18px'
@@ -44,6 +44,13 @@ export const DETAIL_BACK_STYLE: CSSProperties = {
   fontSize: 12,
   lineHeight: CONTROL_LINE_HEIGHT,
   whiteSpace: 'nowrap',
+}
+
+/** 返回文案带上上一张票的引用：路径过长时省略，完整值放在悬停说明里。 */
+export const DETAIL_BACK_LABEL_STYLE: CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: 160,
 }
 
 export const DETAIL_REF_STYLE: CSSProperties = {
@@ -257,6 +264,89 @@ export const HEADER_ICON_BUTTON_STYLE: CSSProperties = {
   padding: 0,
   color: COLORS.secondary,
   cursor: 'pointer',
+}
+
+/** 头部的「阻塞 N」disclosure：形状沿用原因徽标，点击与展开状态走原生按钮。 */
+export const DETAIL_BLOCKERS_TOGGLE_STYLE: CSSProperties = {
+  ...ACTION_BADGE_STYLES.blocked,
+  font: 'inherit',
+  fontSize: 11,
+  background: 'transparent',
+  cursor: 'pointer',
+}
+
+/** 展开箭头：收起时朝下，展开时朝上；复用详情头部的返回箭头。 */
+export const DETAIL_BLOCKERS_CHEVRON_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  transition: 'transform 150ms ease-out',
+}
+
+/** 展开的「阻塞项」块：滚动区域里的第一块，随正文一起滚。 */
+export const DETAIL_BLOCKERS_SECTION_STYLE: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  padding: '8px 10px 6px',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 8,
+}
+
+export const DETAIL_BLOCKERS_TITLE_STYLE: CSSProperties = {
+  margin: 0,
+  color: COLORS.tertiary,
+  fontSize: 12,
+  fontWeight: 600,
+}
+
+export const DETAIL_BLOCKERS_LIST_STYLE: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+}
+
+/** 一行阻塞项是原生按钮：引用、标题与状态在一行，过长时标题省略。 */
+export const DETAIL_BLOCKER_ROW_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  minWidth: 0,
+  border: 'none',
+  borderRadius: 6,
+  padding: '3px 6px',
+  color: COLORS.text,
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 12,
+  textAlign: 'left',
+}
+
+export const DETAIL_BLOCKER_REF_STYLE: CSSProperties = {
+  flex: 'none',
+  color: COLORS.accent,
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
+}
+
+export const DETAIL_BLOCKER_TITLE_STYLE: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+export const DETAIL_BLOCKER_STATE_STYLE: CSSProperties = {
+  flex: 'none',
+  fontSize: 11,
+  whiteSpace: 'nowrap',
+}
+
+/** 引用不在当前快照里：只说明没有列表行，不伪造标题与状态。 */
+export const DETAIL_BLOCKER_UNLOADED_STYLE: CSSProperties = {
+  flex: 1,
+  color: COLORS.tertiary,
+  fontSize: 11,
 }
 
 /** 只给读屏用的文字：视觉上隐藏，但仍在无障碍树里。 */

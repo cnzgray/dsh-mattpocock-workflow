@@ -18,7 +18,11 @@ import type {
 } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { TicketDetailView, type TicketDetailViewProps } from './ticket-detail-view.tsx'
+import {
+  TicketDetailView,
+  type DetailTarget,
+  type TicketDetailViewProps,
+} from './ticket-detail-view.tsx'
 
 export const DETAIL: TicketDetail = {
   ref: '#25',
@@ -78,6 +82,14 @@ export const TICKET: TicketSnapshot = {
 
 export function snapshotTicket(overrides: Partial<TicketSnapshot> = {}): TicketSnapshot {
   return { ...TICKET, ...overrides }
+}
+
+/** 把一个快照行包成详情目标；快照里没有这张票时退回夹具的引用与编号。 */
+export function target(ticket: TicketSnapshot | null): DetailTarget {
+  if (ticket === null) {
+    return { ref: TICKET.ref, number: TICKET.number, ticket }
+  }
+  return { ref: ticket.ref, number: ticket.number, ticket }
 }
 
 export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
@@ -231,9 +243,12 @@ export function view(
     <TicketDetailView
       client={client}
       workspaceRoot="/repo"
-      ticket={TICKET}
+      target={target(TICKET)}
+      snapshotTickets={[TICKET]}
+      backRef={null}
       injection={fakeInjection()}
       onBack={() => undefined}
+      onOpenBlocker={() => undefined}
       onRefreshSnapshot={() => undefined}
       {...overrides}
     />

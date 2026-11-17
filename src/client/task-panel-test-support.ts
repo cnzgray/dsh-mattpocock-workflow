@@ -55,6 +55,7 @@ export const TICKETS: readonly TicketSnapshot[] = [
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-03T00:00:00Z',
     openBlockers: 1,
+    blockedBy: ['#1'],
   },
   {
     ref: '#3',
