@@ -1,6 +1,7 @@
 /**
  * 录制自 `tea api --include` 的固定输出，测试不连网络。
- * 仓库在自建实例 `gitea.example.com` 上，覆盖开放、阻塞、已关闭三类工单。
+ * 仓库在自建实例 `gitea.example.com` 上，覆盖开放、阻塞、已关闭三类工单；
+ * #15 是 `to-tickets` 的来源 spec，#16 是它发布的 ticket，首行写 `Part of #15`。
  */
 
 export const GITEA_REMOTES_OUTPUT = [
@@ -117,7 +118,7 @@ export const GITEA_ISSUES = [
     title: 'Gitea 工单后端',
     labels: ['enhancement', 'ready-for-agent'],
     assignees: ['cnzgray'],
-    body: '## 目标\n\n在 Gitea 仓库里读取工单。',
+    body: 'Part of #15\n\n## 目标\n\n在 Gitea 仓库里读取工单。',
     createdAt: '2026-11-12T14:14:07Z',
     updatedAt: '2026-11-20T09:15:00Z',
   }),
@@ -148,6 +149,7 @@ export const GITEA_CHANGES_OUTPUT = apiCall(
       number: 16,
       title: 'Gitea 工单后端',
       labels: ['enhancement', 'ready-for-agent'],
+      body: 'Part of #15\n\n## 目标\n\n在 Gitea 仓库里读取工单。',
       createdAt: '2026-11-12T14:14:07Z',
       updatedAt: '2026-11-21T09:15:00Z',
     }),

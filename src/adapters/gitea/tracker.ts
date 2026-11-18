@@ -6,6 +6,8 @@
  *   按页拉到拿全为止；
  * - 阻塞：优先读 Gitea 原生 issue 依赖，只查开放的工单，并发有上限；
  *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行；
+ * - 父子：Gitea 没有原生子工单，父级来自子票正文第一个非空行的 `Part of #<n>`，
+ *   在列表响应里解析，不额外请求；阻塞边不参与父子；
  * - 详情与变更在 `detail.ts`，只在打开详情或提交变更时执行。
  */
 import { resolveOpenBlockers, type NativeBlockers } from '../../core/blocked-by.ts'
@@ -89,8 +91,8 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
         fetchedAt: deps.now(),
         loaded: tickets.length,
         total: Math.max(issues.total ?? tickets.length, tickets.length),
-        // Gitea 没有原生子工单能力，不新造正文约定去模拟。
-        hierarchy: 'none',
+        // Gitea 没有原生子工单；父级来自子票正文首行的 `Part of #<n>` 约定。
+        hierarchy: 'convention',
         tickets,
         viewer,
         ...(window === undefined ? {} : { windowLimit: window }),
@@ -188,7 +190,7 @@ async function readGiteaChanges(
 
   return {
     tickets,
-    hierarchy: 'none',
+    hierarchy: 'convention',
     truncated: issues.truncated,
     total,
     ...(viewer === undefined ? {} : { viewer }),

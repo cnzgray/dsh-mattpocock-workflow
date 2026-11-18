@@ -23,12 +23,13 @@ import type { TicketLayout } from './view-preference.ts'
  */
 export function hierarchyHintKey(snapshot: WorkspaceSnapshot): MessageKey {
   if (snapshot.hierarchy === 'none') {
-    if (snapshot.backend === 'gitea') return 'layout.giteaUnavailable'
+    // Gitea 只在升级前的旧缓存里出现「无」，刷新后即为正文约定，退回通用说明。
     if (snapshot.backend === 'gitlab') return 'layout.gitlabUnavailable'
     return 'layout.none'
   }
   if (snapshot.backend === 'github') return 'layout.github'
   if (snapshot.backend === 'gitlab') return 'layout.gitlab'
+  if (snapshot.backend === 'gitea') return 'layout.gitea'
   return 'layout.markdown'
 }
 

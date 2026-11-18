@@ -19,7 +19,9 @@
 
 ## 父子关系
 
-Gitea 没有子 issue。子票正文顶部写 `Part of #<父票>`，并在父票正文的任务列表里登记子票：`- [ ] #<子票>`。
+Gitea 没有子 issue。子票正文的**第一个非空行**单独写 `Part of #<父票>`，并在父票正文的任务列表里登记子票：`- [ ] #<子票>`。
+
+任务面板只从这一行读父级。写在正文后面、放在引用块或标题里、带多余文字或指向其他仓库的 `Part of` 都不算父级。`Blocked by:` 行写在它下面；阻塞关系不代表父子。
 
 ## 阻塞
 
@@ -29,7 +31,7 @@ Gitea 原生的 issue 依赖是规范的、网页上也可见的表示。`tea` �
 - **加阻塞关系**：`tea api --method POST /repos/{owner}/{repo}/issues/<子票>/dependencies -F index=<阻塞票>`。
 - **删阻塞关系**：`tea api --method DELETE /repos/{owner}/{repo}/issues/<子票>/dependencies -F index=<阻塞票>`。
 
-实例或仓库可以关闭 issue 依赖功能，此时接口返回 404。这种情况下把 `Blocked by: #<n>, #<n>` 写在子票正文顶部，改用这一行判断阻塞。
+实例或仓库可以关闭 issue 依赖功能，此时接口返回 404。这种情况下把 `Blocked by: #<n>, #<n>` 写在子票正文顶部（有 `Part of` 行时紧跟在它后面），改用这一行判断阻塞。
 
 ## 分诊标签
 

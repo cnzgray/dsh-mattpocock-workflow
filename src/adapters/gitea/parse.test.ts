@@ -177,3 +177,67 @@ describe('Gitea 工单解析', () => {
     expect(parsed[0]?.ticket.url).toBe('https://gitea.example.com/cnzgray/dsh-workflow/issues/15')
   })
 })
+
+describe('Gitea 父级约定解析', () => {
+  /** 用一组正文构造一页工单，返回每张票的父级引用。 */
+  function parentsOf(bodies: readonly string[]): (string | undefined)[] {
+    const parsed = parseIssuesPage(
+      JSON.stringify(
+        bodies.map((body, index) =>
+          giteaIssue({ number: 20 + index, title: `票 ${String(index)}`, body }),
+        ),
+      ),
+    )
+    return parsed.map((issue) => issue.ticket.parent)
+  }
+
+  it('正文首个非空行的 Part of 读成父级引用', () => {
+    expect(
+      parentsOf([
+        'Part of #15\n\n## 目标\n',
+        '\n\n  \nPart of #15\n',
+        'part OF #15',
+        '  Part of #15  \r\n## 目标',
+        'Part of #015',
+      ]),
+    ).toEqual(['#15', '#15', '#15', '#15', '#15'])
+  })
+
+  it('不在首个非空行或格式不合法时没有父级', () => {
+    expect(
+      parentsOf([
+        '## 目标\n\nPart of #15\n',
+        '> Part of #15',
+        '## Part of #15',
+        '- Part of #15',
+        'Part of #15，见父票',
+        'Part of cnzgray/other#15',
+        'Part of #',
+        'Part of #0',
+        'Part of 15',
+        'Part of #99999999999999999999',
+        '',
+      ]),
+    ).toEqual(Array.from({ length: 11 }, () => undefined))
+  })
+
+  it('指向自己时没有父级', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([giteaIssue({ number: 16, title: '自引用', body: 'Part of #16' })]),
+    )
+
+    expect(parsed[0]?.ticket.parent).toBeUndefined()
+  })
+
+  it('父级与正文里的 Blocked by 行互不干扰', () => {
+    const parsed = parseIssuesPage(
+      JSON.stringify([
+        giteaIssue({ number: 16, title: '子票', body: 'Part of #15\n\nBlocked by: #17\n' }),
+        giteaIssue({ number: 17, title: '阻塞在首行', body: 'Blocked by: #15\n' }),
+      ]),
+    )
+
+    expect(parsed.map((issue) => issue.ticket.parent)).toEqual(['#15', undefined])
+    expect(parsed[0]?.body).toBe('Part of #15\n\nBlocked by: #17\n')
+  })
+})

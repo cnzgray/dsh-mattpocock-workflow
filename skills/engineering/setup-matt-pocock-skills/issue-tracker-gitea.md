@@ -19,7 +19,9 @@ Only read issue endpoints. `tea issues list --kind issues` and `type=issues` kee
 
 ## Parent and child tickets
 
-Gitea has no sub-issues. Put `Part of #<parent>` at the top of the child body, and register the child in the parent body's task list as `- [ ] #<child>`.
+Gitea has no sub-issues. Make `Part of #<parent>` the **first non-empty line** of the child body, alone on that line, and register the child in the parent body's task list as `- [ ] #<child>`.
+
+The task panel reads the parent only from that first line. A `Part of` line further down, inside a quote or heading, with extra text, or pointing at another repository is not treated as a parent. Keep `Blocked by:` lines below it; blocking never implies a parent.
 
 ## Blocking
 
@@ -29,7 +31,7 @@ Gitea's **native issue dependencies** are canonical and visible in the web UI. `
 - **Add a blocker**: `tea api --method POST /repos/{owner}/{repo}/issues/<child>/dependencies -F index=<blocker>`.
 - **Remove a blocker**: `tea api --method DELETE /repos/{owner}/{repo}/issues/<child>/dependencies -F index=<blocker>`.
 
-The instance or the repo can disable issue dependencies; the API then answers 404. In that case put `Blocked by: #<n>, #<n>` at the top of the child body and use that line to judge blocking.
+The instance or the repo can disable issue dependencies; the API then answers 404. In that case put `Blocked by: #<n>, #<n>` at the top of the child body (right after the `Part of` line when there is one) and use that line to judge blocking.
 
 ## Triage labels
 

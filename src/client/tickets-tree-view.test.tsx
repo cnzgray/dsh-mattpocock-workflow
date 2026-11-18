@@ -270,8 +270,10 @@ describe('父子能力与降级', () => {
 
     const toggle = screen.getByTestId<HTMLButtonElement>('layout-tree')
     expect(toggle.disabled).toBe(true)
-    expect(toggle.getAttribute('title')).toContain('Gitea')
-    expect(screen.getByTestId('tree-unavailable').textContent).toContain('Gitea')
+    // Gitea 的「无」只来自升级前的旧缓存，给通用说明，不再说暂不支持子工单。
+    expect(toggle.getAttribute('title')).toBe('当前后端不提供父子关系')
+    expect(screen.getByTestId('tree-unavailable').textContent).toContain('当前后端不提供父子关系')
+    expect(screen.getByTestId('tree-unavailable').textContent).not.toContain('Gitea')
     expect(rowRefs()).toEqual(['#1', '#2', '#3', '#4', '#5'])
   })
 
@@ -347,6 +349,77 @@ describe('父子能力与降级', () => {
     })
     expect(screen.getByTestId('tree-toggle').getAttribute('aria-expanded')).toBe('true')
     expect(row('#2').getAttribute('data-focused')).toBe('true')
+  })
+})
+
+/** `to-tickets` 在 Gitea 上发布的一组票：来源 spec 与它的直接子票。 */
+const GITEA_SPEC_TICKETS: readonly TicketSnapshot[] = [
+  ticket('#15', '来源 spec'),
+  ticket('#16', 'ticket 一', { parent: '#15' }),
+  ticket('#17', 'ticket 二', {
+    parent: '#15',
+    status: 'blocked',
+    skillActionReason: 'blocked',
+    openBlockers: 1,
+  }),
+  ticket('#9', '无关的票'),
+]
+
+function giteaSnapshot(tickets: readonly TicketSnapshot[]): WorkspaceSnapshot {
+  return snapshot({
+    backend: 'gitea',
+    repository: 'cnzgray/dsh-workflow',
+    repositoryHost: 'gitea.example.com',
+    hierarchy: 'convention',
+    tickets,
+    loaded: tickets.length,
+    total: tickets.length,
+  })
+}
+
+describe('Gitea 正文约定的父子布局', () => {
+  it('to-tickets 的 ticket 缩进挂在来源 spec 下，说明写明 Part of 约定', async () => {
+    renderView(fakeClient(giteaSnapshot(GITEA_SPEC_TICKETS)))
+    await screen.findAllByTestId('ticket-row')
+
+    const toggle = screen.getByTestId<HTMLButtonElement>('layout-tree')
+    expect(toggle.disabled).toBe(false)
+    expect(toggle.getAttribute('title')).toContain('Part of')
+    expect(screen.queryByTestId('tree-unavailable')).toBeNull()
+
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(depth('#16')).toBe('1')
+    })
+    expect([depth('#15'), depth('#17'), depth('#9')]).toEqual(['0', '1', '0'])
+    expect(row('#15').textContent).toContain('2 张子票')
+    expect(screen.queryAllByTestId('parent-badge')).toHaveLength(0)
+  })
+
+  it('来源 spec 不在当前窗口时 ticket 升到顶层并带父级徽标', async () => {
+    renderView(fakeClient(giteaSnapshot(GITEA_SPEC_TICKETS.filter((item) => item.ref !== '#15'))))
+    await screen.findAllByTestId('ticket-row')
+    fireEvent.click(screen.getByTestId('layout-tree'))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('parent-badge')).toHaveLength(2)
+    })
+    expect([depth('#16'), depth('#17')]).toEqual(['0', '0'])
+    expect(row('#16').textContent).toContain('父级 #15')
+    expect(rowRefs()).not.toContain('#15')
+  })
+
+  it('没有父级的 Gitea 票以顶层行显示，切换仍可用', async () => {
+    renderView(fakeClient(giteaSnapshot([ticket('#1', '平铺一'), ticket('#2', '平铺二')])))
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('layout-tree'))
+
+    await waitFor(() => {
+      expect(depth('#1')).toBe('0')
+    })
+    expect(depth('#2')).toBe('0')
+    expect(screen.queryAllByTestId('tree-toggle')).toHaveLength(0)
   })
 })
 

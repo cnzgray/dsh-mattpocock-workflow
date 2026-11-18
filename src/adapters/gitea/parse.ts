@@ -32,6 +32,12 @@ export interface ParsedIssue {
   readonly body: string
 }
 
+/**
+ * Gitea 没有原生子工单，tracker 约定把父级写在子票正文第一个非空行：`Part of #<父票>`。
+ * 整行只能是这一句，引用块、标题、列表前缀与跨仓库写法都不算。
+ */
+const PART_OF_LINE = /^part of #(\d+)$/i
+
 const STATUS_LINE = /^HTTP\/\S+\s+(\d{3})/m
 const TOTAL_LINE = /^x-total-count:\s*(\d+)\s*$/im
 
@@ -124,6 +130,8 @@ function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): Pars
   const state = readState(value.state, number)
   const closedAt = readClosedAt(value.closed_at, number)
   const url = readWebUrl(value.html_url)
+  const body = typeof value.body === 'string' ? value.body : ''
+  const parent = readParent(body, number)
 
   return {
     ticket: {
@@ -140,9 +148,28 @@ function parseIssue(value: unknown, index: number, avatarBaseUrl?: string): Pars
       blockedBy: [],
       ...(closedAt === undefined ? {} : { closedAt }),
       ...(url === undefined ? {} : { url }),
+      ...(parent === undefined ? {} : { parent }),
     },
-    body: typeof value.body === 'string' ? value.body : '',
+    body,
   }
+}
+
+/**
+ * 父级引用：正文第一个非空行的 `Part of #<n>`。
+ * 格式不合法、编号越界或指向自己都按无父级处理，不让整页列表失败；
+ * 父票不在当前窗口时仍保留引用。
+ * @param body - 工单正文。
+ * @param number - 本票编号，用于排除自引用。
+ * @returns `#<n>` 形式的父级引用，没有时缺席。
+ */
+function readParent(body: string, number: number): string | undefined {
+  const first = body.split(/\r?\n/).find((line) => line.trim().length > 0)
+  if (first === undefined) return undefined
+  const match = PART_OF_LINE.exec(first.trim())
+  if (match === null) return undefined
+  const parent = Number(match[1])
+  if (!Number.isSafeInteger(parent) || parent <= 0 || parent === number) return undefined
+  return `#${String(parent)}`
 }
 
 function readState(value: unknown, number: number): TicketState {

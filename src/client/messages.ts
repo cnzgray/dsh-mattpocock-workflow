@@ -57,8 +57,8 @@ export const zh = {
   'layout.github': '父子关系来自 GitHub 原生子工单',
   'layout.gitlab': '父子关系来自 GitLab 工作项层级；epic 分组不进入列表',
   'layout.markdown': '父子关系来自本地工单约定（Parent: 行）',
+  'layout.gitea': '父子关系来自 Gitea 工单正文首行的 Part of 约定',
   'layout.none': '当前后端不提供父子关系',
-  'layout.giteaUnavailable': 'Gitea 暂不支持原生子工单，父子布局不可用',
   'layout.gitlabUnavailable': '本次没有取到 GitLab 工作项层级，父子布局暂不可用；刷新会重试',
   'tree.childCount': '{count} 张子票',
   'tree.expand': '展开子票：{ref} {title}',
@@ -583,9 +583,8 @@ export const en: Record<MessageKey, string> = {
   'layout.gitlab':
     'Hierarchy comes from GitLab work item hierarchy; epic groups stay out of the list',
   'layout.markdown': 'Hierarchy comes from the local ticket convention (Parent: line)',
+  'layout.gitea': 'Hierarchy comes from the first-line Part of convention in Gitea issue bodies',
   'layout.none': 'This backend does not provide hierarchy',
-  'layout.giteaUnavailable':
-    'Gitea has no native sub-issues yet, so parent/child layout is unavailable',
   'layout.gitlabUnavailable':
     'GitLab work item hierarchy was not available this time; parent/child layout is disabled and will retry on refresh',
   'tree.childCount': '{count} child tickets',
