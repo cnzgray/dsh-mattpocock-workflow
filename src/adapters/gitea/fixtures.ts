@@ -219,14 +219,18 @@ export function giteaIssueDetail(overrides: {
   }
 }
 
-/** 构造一条 Gitea 评论。 */
+/**
+ * 构造一条 Gitea 评论。`id` 是服务端给评论的稳定身份，真实响应里唯一，
+ * 详情按它去重，所以这里必须由调用方给值。
+ */
 export function giteaComment(overrides: {
+  readonly id: number
   readonly login: string
   readonly body: string
   readonly createdAt: string
 }): Record<string, unknown> {
   return {
-    id: 1,
+    id: overrides.id,
     user: { login: overrides.login },
     body: overrides.body,
     created_at: overrides.createdAt,
@@ -234,8 +238,13 @@ export function giteaComment(overrides: {
 }
 
 export const GITEA_COMMENTS = [
-  giteaComment({ login: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }),
-  giteaComment({ login: 'carol', body: '上一次失败的原因', createdAt: '2026-11-13T10:00:00Z' }),
+  giteaComment({ id: 1, login: 'bob', body: '补充验收标准', createdAt: '2026-11-13T09:00:00Z' }),
+  giteaComment({
+    id: 2,
+    login: 'carol',
+    body: '上一次失败的原因',
+    createdAt: '2026-11-13T10:00:00Z',
+  }),
 ]
 
 /** 标签分两页返回，总条数由 `X-Total-Count` 给出。 */

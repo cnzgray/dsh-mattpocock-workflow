@@ -53,7 +53,7 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
     deps.concurrency ?? DEFAULT_CONCURRENCY,
     DEFAULT_CONCURRENCY,
   )
-  const detailDeps = { run: deps.run, pageSize }
+  const detailDeps = { run: deps.run, pageSize, concurrency }
 
   return {
     async fetchSnapshot(workspaceRoot: string, windowLimit?: number): Promise<TrackerSnapshot> {

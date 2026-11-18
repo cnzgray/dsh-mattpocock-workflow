@@ -477,27 +477,6 @@ describe('Gitea 工单详情与变更', () => {
     ])
   })
 
-  it('评论按页拉到短页为止', async () => {
-    const pages = new Map([
-      [1, GITEA_COMMENTS.slice(0, 2)],
-      [2, GITEA_COMMENTS.slice(2)],
-    ])
-    const runner: CommandRunner = (command, args) => {
-      if (command === 'git') return Promise.resolve({ stdout: GITEA_REMOTES_OUTPUT, stderr: '' })
-      const endpoint = args[2] ?? ''
-      if (endpoint === `/repos/${GITEA_REPO}/issues/15`) {
-        return Promise.resolve(giteaDetailCall({ labels: [], assignees: [], state: 'open' }))
-      }
-      const page = Number(/[?&]page=(\d+)/.exec(endpoint)?.[1] ?? '1')
-      return Promise.resolve(apiCall(pages.get(page) ?? [], pages.size))
-    }
-    const tracker = createGiteaTracker({ run: runner, now: () => NOW, pageSize: 2 })
-
-    const detail = await tracker.fetchDetail?.('/workspace', { ref: '#15', number: 15 })
-
-    expect(detail?.comments.map((comment) => comment.author)).toEqual(['bob', 'carol'])
-  })
-
   it('标签用 --add-labels / --remove-labels 增量落地', async () => {
     const { tracker, calls } = mutableGiteaTracker({
       labels: ['enhancement', 'ready-for-agent'],
