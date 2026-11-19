@@ -55,6 +55,9 @@ export interface Ticket {
   /**
    * 挡住这张票的引用集合（`Ticket.ref`），不论开闭。后端给不出依赖边时省略；
    * 引用不在已加载列表里时，链深度只按已知的未关闭票计算。
+   *
+   * 同仓库引用是 `#15`；跨仓库引用是 `owner/repo#15`（Gitea 的原生依赖可以指向
+   * 另一个仓库的票）。跨仓库引用不会匹配当前列表里的同号票。
    */
   readonly blockedBy?: readonly string[]
   /**
@@ -118,8 +121,15 @@ export interface TrackerChanges {
 /**
  * 工单引用：`ref` 与 {@link Ticket.ref} 相同，`number` 为 null 表示本地 Markdown。
  * 阻塞补齐、详情读取与变更提交都用它把结果对回同一张票。
+ *
+ * 打开跨仓库详情时 `repository` 是目标仓库的 `owner/name`；省略表示当前工作区仓库。
+ * 该形态只由 Gitea 实现，其余后端遇到仓库段返回不支持。
  */
-export type TicketReference = Pick<Ticket, 'ref' | 'number'>
+export interface TicketReference {
+  readonly ref: string
+  readonly number: number | null
+  readonly repository?: string
+}
 
 /** 一条工单评论。本地 Markdown 的评论没有作者与时间，两项为 null。 */
 export interface TicketComment {

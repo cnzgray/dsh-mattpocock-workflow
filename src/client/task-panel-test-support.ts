@@ -206,8 +206,8 @@ export interface FakeClient {
   readonly refreshVersions: (number | undefined)[]
   /** 全量刷新的调用记录：工作区根目录。 */
   readonly fullRefreshCalls: string[]
-  /** 详情请求的参数：工作区、引用、编号。 */
-  readonly detailCalls: (readonly [string, string, number | null])[]
+  /** 详情请求的参数：工作区、引用、编号与可选的跨仓库段。 */
+  readonly detailCalls: (readonly [string, string, number | null, string?])[]
 }
 
 /** 空的本地快照库：默认夹具没有真实的缓存目录。 */
@@ -249,7 +249,7 @@ export function fakeClient(
   const refreshCalls: string[] = []
   const refreshVersions: (number | undefined)[] = []
   const fullRefreshCalls: string[] = []
-  const detailCalls: (readonly [string, string, number | null])[] = []
+  const detailCalls: (readonly [string, string, number | null, string?])[] = []
   const get = (root: string): RpcResult<WorkspaceSnapshot> =>
     typeof getResult === 'function' ? getResult(root) : getResult
   const client: PanelClient = {
@@ -269,8 +269,8 @@ export function fakeClient(
     },
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => resolveResult(),
-    getDetail(root, ref, number) {
-      detailCalls.push([root, ref, number])
+    getDetail(root, ref, number, repository) {
+      detailCalls.push(repository ? [root, ref, number, repository] : [root, ref, number])
       return Promise.resolve({ ok: true, result: { ...DETAIL, ref, number } })
     },
     updateTicket: () => Promise.resolve({ ok: true, result: { applied: true } }),

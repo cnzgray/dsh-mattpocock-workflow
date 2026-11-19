@@ -7,6 +7,7 @@
  */
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 import { isRecord } from '../../core/json.ts'
+import { parseRepositorySegment } from '../../core/remote.ts'
 import {
   invalidDetail,
   isEmptyDiff,
@@ -73,7 +74,10 @@ export async function readGiteaDetail(
   reference: TicketReference,
 ): Promise<TicketDetail> {
   const number = requireTicketNumber(reference)
-  const repository = await readRepository(deps.run, workspaceRoot)
+  const repository =
+    reference.repository === undefined
+      ? await readRepository(deps.run, workspaceRoot)
+      : repositoryOf(reference.repository)
   const issue = await readIssue(deps, workspaceRoot, repository, number)
   const comments = await readComments(deps, workspaceRoot, repository, number)
 
@@ -92,6 +96,20 @@ export async function readGiteaDetail(
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
   }
+}
+
+/**
+ * 用仓库段构造详情读取所需的仓库标识。详情不读头像，基准地址留空。
+ * @param segment - `owner/name` 形式的仓库段。
+ * @returns 仓库标识。
+ * @throws {TrackerError} 仓库段不是合法的 `owner/name`。
+ */
+function repositoryOf(segment: string): GiteaRepository {
+  const parsed = parseRepositorySegment(segment)
+  if (parsed === undefined) {
+    throw new TrackerError('fetch-failed', '跨仓库引用的仓库段不合法，需要 owner/name。')
+  }
+  return { ...parsed, avatarBaseUrl: '' }
 }
 
 /**

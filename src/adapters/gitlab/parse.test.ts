@@ -152,7 +152,10 @@ describe('GitLab 工单解析', () => {
       { iid: 8, state: 'opened', link_type: 'relates_to' },
     ])
 
-    expect(parseNativeBlockers(output)).toEqual({ open: 1, refs: [15, 7] })
+    expect(parseNativeBlockers(output)).toEqual({
+      open: 1,
+      refs: [{ number: 15 }, { number: 7 }],
+    })
   })
 
   it('把 web_url 读成工单网页地址', () => {

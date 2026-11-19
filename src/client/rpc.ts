@@ -77,11 +77,12 @@ export interface PanelClient {
   resolveBlockers(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /** 重新跑一次环境检查；宿主不缓存结果。 */
   envCheck(workspaceRoot: string): Promise<RpcResult<EnvCheckReport>>
-  /** 读取单张工单详情；打开详情时按需请求，不进入列表快照。 */
+  /** 读取单张工单详情；打开详情时按需请求。`repository` 是跨仓库详情的仓库段。 */
   getDetail(
     workspaceRoot: string,
     ref: string,
     number: number | null,
+    repository?: string,
   ): Promise<RpcResult<TicketDetail>>
   /** 提交一次变更；成功后由调用方重新读取详情。 */
   updateTicket(
@@ -135,12 +136,12 @@ export function createPanelClient(t: Translate, fetchImpl: FetchLike = defaultFe
       call(fetchImpl, t, RPC_METHODS.snapshotResolveBlockers, { workspaceRoot }, isSnapshotResult),
     envCheck: (workspaceRoot) =>
       call(fetchImpl, t, RPC_METHODS.envCheck, { workspaceRoot }, isEnvCheckResult),
-    getDetail: (workspaceRoot, ref, number) =>
+    getDetail: (workspaceRoot, ref, number, repository) =>
       call(
         fetchImpl,
         t,
         RPC_METHODS.ticketGet,
-        { workspaceRoot, ref, number },
+        { workspaceRoot, ref, number, ...(repository === undefined ? {} : { repository }) },
         isTicketDetailResult,
       ),
     updateTicket: (workspaceRoot, ref, number, patch) =>

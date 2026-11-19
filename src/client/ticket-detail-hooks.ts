@@ -45,6 +45,7 @@ export interface DetailRequest {
  * @param workspaceRoot - 工作区根目录。
  * @param ref - 工单引用。
  * @param number - 数字编号；本地 Markdown 为 null。
+ * @param repository - 跨仓库详情的仓库段；当前工作区仓库为 null。
  * @param currentUpdatedAt - 列表快照里这张票的更新时间；拿不到时每次都要拉。
  * @returns 详情、阶段与手动入口。
  */
@@ -53,6 +54,7 @@ export function useDetailRequest(
   workspaceRoot: string,
   ref: string,
   number: number | null,
+  repository: string | null,
   currentUpdatedAt: string | undefined,
 ): DetailRequest {
   const [detail, setDetail] = React.useState<TicketDetail | null>(null)
@@ -72,6 +74,7 @@ export function useDetailRequest(
       workspaceRoot,
       ref,
       number,
+      repository,
       currentUpdatedAt,
       attempt,
       readId,
@@ -82,7 +85,7 @@ export function useDetailRequest(
       setRefreshing,
       setRefreshError,
     })
-  }, [client, workspaceRoot, ref, number, attempt, currentUpdatedAt])
+  }, [client, workspaceRoot, ref, number, repository, attempt, currentUpdatedAt])
 
   const refresh = (): void => {
     if (readRunning.current) return
@@ -91,7 +94,7 @@ export function useDetailRequest(
     readId.current = current
     setRefreshing(true)
 
-    void client.getDetail(workspaceRoot, ref, number).then((result) => {
+    void client.getDetail(workspaceRoot, ref, number, repository ?? undefined).then((result) => {
       if (readId.current !== current) return
       readRunning.current = false
       setRefreshing(false)
@@ -132,6 +135,8 @@ interface DetailLoadTarget {
   readonly workspaceRoot: string
   readonly ref: string
   readonly number: number | null
+  /** 跨仓库详情的仓库段；当前工作区仓库为 null。 */
+  readonly repository: string | null
   readonly currentUpdatedAt: string | undefined
   readonly readId: React.RefObject<number>
   readonly readRunning: React.RefObject<boolean>
@@ -152,6 +157,7 @@ function startDetailLoad(target: DetailLoadTarget & { readonly attempt: number }
     workspaceRoot,
     ref,
     number,
+    repository,
     currentUpdatedAt,
     readId,
     readRunning,
@@ -189,7 +195,7 @@ function startDetailLoad(target: DetailLoadTarget & { readonly attempt: number }
     setPhase('loading')
   }
 
-  void client.getDetail(workspaceRoot, ref, number).then((result) => {
+  void client.getDetail(workspaceRoot, ref, number, repository ?? undefined).then((result) => {
     if (!active) return
     applyDetailRead({
       workspaceRoot,
@@ -246,6 +252,8 @@ export function useTicketMutation(
     readonly workspaceRoot: string
     readonly ref: string
     readonly number: number | null
+    /** 跨仓库详情的仓库段；写操作不会发生，但复查仍需读对仓库。 */
+    readonly repository: string | null
     readonly onUpdated: (detail: TicketDetail) => void
     /** 写操作后重建的快照：技能动作可能变了，详情头部据此更新徽标。 */
     readonly onSnapshot: (snapshot: WorkspaceSnapshot) => void
@@ -278,7 +286,12 @@ export function useTicketMutation(
         // 列表徽标要同步；详情复查成功才替换显示值（不做乐观更新）。
         // 没带 ifVersion 的刷新回整份快照；变化行/未变回包由面板自己的刷新周期收敛。
         const [fresh, snapshot] = await Promise.all([
-          client.getDetail(options.workspaceRoot, options.ref, options.number),
+          client.getDetail(
+            options.workspaceRoot,
+            options.ref,
+            options.number,
+            options.repository ?? undefined,
+          ),
           client.refresh(options.workspaceRoot),
         ])
         if (snapshot.ok && snapshot.result.kind === 'full') {

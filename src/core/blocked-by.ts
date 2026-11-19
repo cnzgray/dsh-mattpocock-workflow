@@ -68,13 +68,32 @@ export function countDescriptionBlockers(
   return countOpenBlockers(descriptionBlockerNumbers(description), states)
 }
 
+/** 一条原生阻塞依赖：编号与可选的所属仓库。 */
+export interface BlockerReference {
+  readonly number: number
+  /**
+   * 依赖票所在仓库的 `owner/name`；后端不给时省略，按当前仓库处理。
+   * 与当前仓库不同时引用写成 `owner/repo#15`。
+   */
+  readonly repository?: string
+}
+
 /**
- * 把阻塞编号转成远端后端的票引用。
- * @param numbers - 阻塞票编号。
- * @returns 形如 `#15` 的引用集合。
+ * 把原生阻塞依赖转成远端后端的票引用。
+ * @param refs - 阻塞票编号与可选仓库。
+ * @param repository - 当前仓库的 `owner/name`；省略时无法判定同仓库，
+ *   带仓库信息的引用一律限定。
+ * @returns 同仓库的 `#15` 或跨仓库的 `owner/repo#15`。
  */
-export function remoteBlockerRefs(numbers: readonly number[]): readonly string[] {
-  return numbers.map((number) => `#${String(number)}`)
+export function remoteBlockerRefs(
+  refs: readonly BlockerReference[],
+  repository?: string,
+): readonly string[] {
+  return refs.map((ref) =>
+    ref.repository === undefined || ref.repository === repository
+      ? `#${String(ref.number)}`
+      : `${ref.repository}#${String(ref.number)}`,
+  )
 }
 
 /** 判定一张远端工单的阻塞数与阻塞引用所需的最小输入。 */
@@ -91,8 +110,8 @@ export interface OpenBlockerInput {
 export interface NativeBlockers {
   /** 未关闭的依赖票数。 */
   readonly open: number
-  /** 全部依赖票编号，不论开闭。 */
-  readonly refs: readonly number[]
+  /** 全部依赖票，不论开闭。 */
+  readonly refs: readonly BlockerReference[]
 }
 
 /** 一张远端工单的未关闭阻塞数与阻塞引用。 */
@@ -127,7 +146,7 @@ export function resolveOpenBlockers(input: OpenBlockerInput): ResolvedBlockers {
   const numbers = descriptionBlockerNumbers(input.text)
   return {
     openBlockers: countOpenBlockers(numbers, input.states),
-    blockedBy: remoteBlockerRefs(numbers),
+    blockedBy: remoteBlockerRefs(numbers.map((number) => ({ number }))),
   }
 }
 

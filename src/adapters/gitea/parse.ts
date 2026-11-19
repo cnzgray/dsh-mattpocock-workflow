@@ -5,7 +5,9 @@
  * 这里不发起任何请求，也不执行任何命令。
  */
 import { readAuthor, type AuthorFields } from '../../core/author.ts'
+import type { BlockerReference } from '../../core/blocked-by.ts'
 import { isRecord } from '../../core/json.ts'
+import { parseRepositorySegment } from '../../core/remote.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { readWebUrl } from '../../core/ticket-detail.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
@@ -77,8 +79,8 @@ export interface DependencyPage {
   readonly received: number
   /** 其中未关闭的票数。 */
   readonly open: number
-  /** 依赖票的编号；没有编号的条目（无权限）不进入引用集合。 */
-  readonly refs: readonly number[]
+  /** 依赖票的编号与所属仓库；没有编号的条目（无权限）不进入引用集合。 */
+  readonly refs: readonly BlockerReference[]
 }
 
 /**
@@ -92,16 +94,32 @@ export function parseDependencies(body: string): DependencyPage {
   if (!Array.isArray(payload)) throw invalid('工单依赖不是数组')
 
   let open = 0
-  const refs: number[] = []
+  const refs: BlockerReference[] = []
   for (const dependency of payload) {
     if (!isRecord(dependency)) continue
     const number = dependency.number
-    if (typeof number === 'number' && Number.isInteger(number) && number > 0) refs.push(number)
+    if (typeof number === 'number' && Number.isInteger(number) && number > 0) {
+      const repository = readDependencyRepository(dependency.repository)
+      refs.push(repository === undefined ? { number } : { number, repository })
+    }
     // 只读得到标题的依赖（无权限）没有 state，按未关闭处理。
     if (dependency.state === 'closed') continue
     open += 1
   }
   return { received: payload.length, open, refs }
+}
+
+/**
+ * 依赖条目上的所属仓库。Gitea 的 issue 对象带 `repository.full_name`；
+ * 缺失、非字符串或不是合法 `owner/name` 时按当前仓库处理。
+ * @param value - 依赖条目的 `repository` 字段。
+ * @returns `owner/name`，或不可用时的 undefined。
+ */
+function readDependencyRepository(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  const fullName = value.full_name
+  if (typeof fullName !== 'string') return undefined
+  return parseRepositorySegment(fullName) === undefined ? undefined : fullName
 }
 
 function readStatus(stderr: string): number {

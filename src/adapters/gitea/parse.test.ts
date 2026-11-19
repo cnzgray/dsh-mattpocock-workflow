@@ -156,7 +156,33 @@ describe('Gitea 工单解析', () => {
       { number: 0, title: 'HIDDEN' },
     ])
 
-    expect(parseDependencies(output)).toEqual({ received: 3, open: 2, refs: [15, 7] })
+    expect(parseDependencies(output)).toEqual({
+      received: 3,
+      open: 2,
+      refs: [{ number: 15 }, { number: 7 }],
+    })
+  })
+
+  it('依赖条目带 repository.full_name 时保留仓库，非法仓库按同仓库处理', () => {
+    const output = JSON.stringify([
+      {
+        ...giteaIssue({ number: 33, title: '跨仓库前置任务' }),
+        repository: { full_name: 'cyit-platform/cyit-harness' },
+      },
+      {
+        ...giteaIssue({ number: 34, title: '缺仓库' }),
+      },
+      {
+        ...giteaIssue({ number: 35, title: '非法仓库' }),
+        repository: { full_name: 'https://gitea.example.com/cyit-platform/cyit-harness' },
+      },
+    ])
+
+    expect(parseDependencies(output).refs).toEqual([
+      { number: 33, repository: 'cyit-platform/cyit-harness' },
+      { number: 34 },
+      { number: 35 },
+    ])
   })
 
   it('依赖列表不是数组时返回数据格式错误', () => {

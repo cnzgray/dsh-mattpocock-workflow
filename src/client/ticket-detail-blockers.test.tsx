@@ -118,6 +118,68 @@ describe('详情里的阻塞项', () => {
     expect(inject).not.toHaveBeenCalled()
   })
 
+  it('单条跨仓库阻塞项不会被本地同号已关闭票过滤，仍可展开', async () => {
+    const localSameNumber = snapshotTicket({
+      ref: '#33',
+      number: 33,
+      title: '本仓库同号票',
+      state: 'closed',
+      status: 'closed',
+      skillAction: 'none',
+      skillActionReason: 'closed',
+    })
+    const ticket = blocked({ ref: '#97', number: 97, openBlockers: 1 }, [
+      'cyit-platform/cyit-harness#33',
+    ])
+    renderView(fakeBackend().client, {
+      target: target(ticket),
+      snapshotTickets: [ticket, localSameNumber],
+    })
+    await screen.findByTestId('detail-title')
+
+    const toggle = button('blockers-toggle')
+    expect(toggle.textContent).toContain('阻塞 1')
+    fireEvent.click(toggle)
+
+    const items = screen.getAllByTestId('blocker-item')
+    expect(items.map((item) => item.getAttribute('data-ref'))).toEqual([
+      'cyit-platform/cyit-harness#33',
+    ])
+    expect(items[0]?.querySelector('[data-testid="blocker-unloaded"]')?.textContent).toBe('未加载')
+  })
+
+  it('同仓库与跨仓库阻塞项混排时都列出，跨仓库不借用本地同号票的标题', async () => {
+    const localSameNumber = snapshotTicket({
+      ref: '#33',
+      number: 33,
+      title: '本仓库同号票',
+      state: 'open',
+      status: 'open',
+      skillAction: 'none',
+      skillActionReason: 'untriaged',
+    })
+    const ticket = blocked({ ref: '#97', number: 97, openBlockers: 2 }, [
+      '#3',
+      'cyit-platform/cyit-harness#33',
+    ])
+    renderView(fakeBackend().client, {
+      target: target(ticket),
+      snapshotTickets: [ticket, BLOCKER_OPEN, localSameNumber],
+    })
+    await screen.findByTestId('detail-title')
+
+    fireEvent.click(button('blockers-toggle'))
+
+    const items = screen.getAllByTestId('blocker-item')
+    expect(items.map((item) => item.getAttribute('data-ref'))).toEqual([
+      '#3',
+      'cyit-platform/cyit-harness#33',
+    ])
+    expect(items[0]?.querySelector('[data-testid="blocker-title"]')?.textContent).toBe('Alpha')
+    expect(items[1]?.querySelector('[data-testid="blocker-title"]')).toBeNull()
+    expect(items[1]?.querySelector('[data-testid="blocker-unloaded"]')).toBeTruthy()
+  })
+
   it('没有阻塞引用时保持只读徽标，不出现可点击入口', async () => {
     const ticket = blocked({ openBlockers: 2 }, null)
     renderView(fakeBackend().client, { target: target(ticket), snapshotTickets: [ticket] })
@@ -195,7 +257,7 @@ describe('详情里的阻塞项', () => {
 
   it('按引用打开、快照里没有这张票时不渲染技能徽标与阻塞入口', async () => {
     renderView(fakeBackend().client, {
-      target: { ref: '#9', number: 9, ticket: null },
+      target: { ref: '#9', number: 9, ticket: null, repository: null },
       snapshotTickets: [],
     })
     await screen.findByTestId('detail-title')

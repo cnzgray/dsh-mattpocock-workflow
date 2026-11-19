@@ -9,7 +9,7 @@ import * as React from 'react'
 
 import type { TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import type { DetailTarget } from './ticket-detail-view.tsx'
-import { blockerNumber, findSnapshotTicket } from './ticket-blockers.tsx'
+import { blockerNumber, blockerRepository, findSnapshotTicket } from './ticket-blockers.tsx'
 
 /** 导航里的详情目标：详情视图的目标，外加它所属的工作区。 */
 export interface DetailTargetState {
@@ -66,7 +66,7 @@ export function useDetailNavigation(workspaceRoot: string | undefined): DetailNa
       setNavigation({
         open: {
           workspaceRoot,
-          target: { ref: ticket.ref, number: ticket.number, ticket },
+          target: { ref: ticket.ref, number: ticket.number, ticket, repository: null },
         },
         stack: [],
       })
@@ -84,6 +84,7 @@ export function useDetailNavigation(workspaceRoot: string | undefined): DetailNa
               ref,
               number: row?.number ?? blockerNumber(ref),
               ticket: row,
+              repository: blockerRepository(ref),
             },
           },
           stack: [...current.stack, from],

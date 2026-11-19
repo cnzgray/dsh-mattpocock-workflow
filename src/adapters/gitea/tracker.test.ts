@@ -144,6 +144,32 @@ describe('Gitea 工单后端', () => {
     expect(new Set(dependencyCalls)).toEqual(new Set([15, 16]))
   })
 
+  it('跨仓库依赖保留仓库限定引用，同仓库依赖仍是裸编号', async () => {
+    const { tracker } = trackerWith({
+      dependencies: () =>
+        apiCall(
+          [
+            {
+              ...giteaIssue({ number: 33, title: '跨仓库前置' }),
+              repository: {
+                id: 1,
+                name: 'cyit-harness',
+                owner: 'cyit-platform',
+                full_name: 'cyit-platform/cyit-harness',
+              },
+            },
+            giteaIssue({ number: 15, title: '本仓库前置' }),
+          ],
+          2,
+        ),
+    })
+
+    const native = await tracker.resolveBlockers?.('/workspace', [{ ref: '#16', number: 16 }])
+
+    expect(native?.open.get('#16')).toBe(2)
+    expect(native?.blockedBy.get('#16')).toEqual(['cyit-platform/cyit-harness#33', '#15'])
+  })
+
   it('补齐阶段依赖接口返回 404 时回退正文解析：返回空的原生结果', async () => {
     const { tracker } = trackerWith({
       dependencies: () => failedApiCall(404, 'Not Found'),
@@ -480,6 +506,49 @@ describe('Gitea 工单详情与变更', () => {
     expect(calls.filter((call) => call[0] === 'tea').map((call) => call[3])).toEqual([
       `/repos/${GITEA_REPO}/issues/15`,
       `/repos/${GITEA_REPO}/issues/15/comments?page=1&limit=50`,
+    ])
+  })
+
+  it('跨仓库详情按仓库段读取 issue 与 comments，返回限定引用', async () => {
+    const calls: string[][] = []
+    const runner: CommandRunner = (command, args) => {
+      calls.push([command, ...args])
+      if (command === 'git') {
+        return Promise.resolve({ stdout: GITEA_REMOTES_OUTPUT, stderr: '' })
+      }
+      const endpoint = args[2] ?? ''
+      if (endpoint === '/repos/cyit-platform/cyit-harness/issues/33') {
+        return Promise.resolve(
+          apiCall(
+            giteaIssueDetail({
+              number: 33,
+              title: '跨仓库前置任务',
+              body: '## 目标\n\n在另一个仓库里。',
+            }),
+          ),
+        )
+      }
+      if (endpoint.includes('/repos/cyit-platform/cyit-harness/issues/33/comments?')) {
+        return Promise.resolve(apiCall([], 0))
+      }
+      throw new CommandError('failed', 'unexpected', `unexpected endpoint ${endpoint}`, 1)
+    }
+    const tracker = createGiteaTracker({ run: runner, now: () => NOW })
+
+    const detail = await tracker.fetchDetail?.('/workspace', {
+      ref: 'cyit-platform/cyit-harness#33',
+      number: 33,
+      repository: 'cyit-platform/cyit-harness',
+    })
+
+    expect(detail).toMatchObject({
+      ref: 'cyit-platform/cyit-harness#33',
+      number: 33,
+      title: '跨仓库前置任务',
+    })
+    expect(calls.filter((call) => call[0] === 'tea').map((call) => call[3])).toEqual([
+      '/repos/cyit-platform/cyit-harness/issues/33',
+      '/repos/cyit-platform/cyit-harness/issues/33/comments?page=1&limit=50',
     ])
   })
 

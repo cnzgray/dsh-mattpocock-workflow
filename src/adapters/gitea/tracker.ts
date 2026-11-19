@@ -14,6 +14,7 @@
 import {
   remoteBlockerRefs,
   resolveOpenBlockers,
+  type BlockerReference,
   type NativeBlockers,
 } from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
@@ -297,11 +298,12 @@ async function readNativeResolution(
 
   const counts = new Map<string, number>()
   const blockedBy = new Map<string, readonly string[]>()
+  const repositoryName = `${repository.owner}/${repository.name}`
   for (const entry of settled) {
     if (entry.outcome !== 'ok') continue
     counts.set(entry.ref, entry.blocked.open)
     if (entry.blocked.refs.length > 0) {
-      blockedBy.set(entry.ref, remoteBlockerRefs(entry.blocked.refs))
+      blockedBy.set(entry.ref, remoteBlockerRefs(entry.blocked.refs, repositoryName))
     }
   }
   return { open: counts, blockedBy }
@@ -317,7 +319,7 @@ async function readDependencies(
   let open = 0
   let received = 0
   let total: number | undefined
-  const refs: number[] = []
+  const refs: BlockerReference[] = []
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const response = await callGiteaApi(

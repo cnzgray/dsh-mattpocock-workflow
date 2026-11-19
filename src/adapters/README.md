@@ -44,6 +44,8 @@ GitLab 首屏带 `--include` 从 `X-Total` 读仓库总数，Gitea 用 `X-Total-
 - 本地 Markdown 的引用必须是 `.scratch/<feature>/issues/<name>.md`，越界路径直接拒绝读取。
 - 可选字段：能给出关闭时间时填 `closedAt`；能给出阻塞依赖边时填 `blockedBy`（引用集合，不论开闭）；
   能给出父级时填 `parent`（父级引用，可指向列表外）。
+  同仓库阻塞引用是 `#15`；Gitea 的原生依赖可指向另一个仓库，跨仓库引用写成 `owner/repo#15`，
+  仓库名取依赖条目的 `repository.full_name`，与工作区仓库不同时才限定；缺该字段按同仓库处理。
   GitHub 列表查询只给未关闭阻塞数，整张票省略 `blockedBy`；本地 Markdown 没有关闭时间。
 - 列表与增量结果都必须显式带 `hierarchy`（`native` / `convention` / `none`）；声明 `none` 的后端不得出现 `parent`。
   父级引用只存引用字符串，不存父票的标题、状态或对象：父票信息仍从当前列表里查。

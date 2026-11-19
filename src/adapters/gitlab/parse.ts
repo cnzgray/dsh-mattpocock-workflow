@@ -4,7 +4,7 @@
  */
 import { readAuthor, type AuthorFields } from '../../core/author.ts'
 import { isRecord } from '../../core/json.ts'
-import type { NativeBlockers } from '../../core/blocked-by.ts'
+import type { BlockerReference, NativeBlockers } from '../../core/blocked-by.ts'
 import type { Ticket, TicketState } from '../../core/ticket.ts'
 import { readWebUrl } from '../../core/ticket-detail.ts'
 import { TrackerError } from '../../core/tracker-error.ts'
@@ -102,13 +102,13 @@ export function parseNativeBlockers(output: string): NativeBlockers {
   if (links === undefined) throw invalid('工单链接不是数组')
 
   let open = 0
-  const refs: number[] = []
+  const refs: BlockerReference[] = []
   for (const link of links) {
     if (!isRecord(link)) continue
     if (link.link_type !== 'is_blocked_by') continue
 
     const iid = link.iid
-    if (typeof iid === 'number' && Number.isInteger(iid) && iid > 0) refs.push(iid)
+    if (typeof iid === 'number' && Number.isInteger(iid) && iid > 0) refs.push({ number: iid })
     if (link.state === 'closed') continue
     open += 1
   }

@@ -111,6 +111,28 @@ export function repositorySlug(remote: RepositoryAddress | undefined): string | 
   return `${owner}/${name}`
 }
 
+/** 一个 `owner/name` 形式的仓库段。 */
+export interface RepositorySegment {
+  readonly owner: string
+  readonly name: string
+}
+
+/**
+ * 解析 `owner/name` 形式的仓库段。只接受两段合法字符，不接受 URL、空段或 `..`。
+ * @param value - 仓库段，例如 `cyit-platform/cyit-harness`。
+ * @returns 拆开的 owner 与 name，或格式不合法时的 undefined。
+ */
+export function parseRepositorySegment(value: string): RepositorySegment | undefined {
+  if (value.includes('://') || value.includes('@')) return undefined
+  const segments = value.split('/')
+  if (segments.length !== 2) return undefined
+  const [owner, name] = segments
+  if (owner === undefined || name === undefined) return undefined
+  if (!REPOSITORY_SEGMENT.test(owner) || !REPOSITORY_SEGMENT.test(name)) return undefined
+  if (owner === '.' || owner === '..' || name === '.' || name === '..') return undefined
+  return { owner, name }
+}
+
 function buildAddress(
   host: string | undefined,
   path: string | undefined,

@@ -239,6 +239,9 @@ export interface TicketSnapshot {
   /**
    * 挡住这张票的引用集合，不论开闭。后端给不出阻塞依赖边时省略
    * （GitHub 列表查询只给未关闭阻塞数）；宿主用它算最长阻塞链。
+   *
+   * 同仓库引用是 `#15`；跨仓库引用是 `owner/repo#15`（只有 Gitea 的原生依赖
+   * 会给出跨仓库票）。界面按完整引用匹配列表行，不会落到同号本地票上。
    */
   readonly blockedBy?: readonly string[]
   /**
@@ -432,7 +435,10 @@ export interface DetailCapabilities {
 
 /** 一张工单的完整详情。 */
 export interface TicketDetail {
-  /** 与列表里的 `TicketSnapshot.ref` 相同。 */
+  /**
+   * 与列表里的 `TicketSnapshot.ref` 相同；跨仓库详情是 `owner/repo#15`，
+   * 与打开时使用的引用一致。
+   */
   readonly ref: string
   readonly number: number | null
   readonly title: string
@@ -475,10 +481,15 @@ export interface TicketPatch {
 /** 详情读取与变更共用的参数。 */
 export interface TicketDetailParams {
   readonly workspaceRoot: string
-  /** 工单引用：远端后端是 `#15`，本地 Markdown 是相对工作区的文件路径。 */
+  /** 工单引用：远端后端是 `#15`，跨仓库是 `owner/repo#15`，本地 Markdown 是相对工作区的文件路径。 */
   readonly ref: string
   /** 数字编号；本地 Markdown 为 null。 */
   readonly number: number | null
+  /**
+   * 跨仓库详情的目标仓库 `owner/name`；省略表示当前工作区仓库。
+   * 只有 Gitea 支持；跨仓库详情是只读的。
+   */
+  readonly repository?: string
 }
 
 /** 工单变更的参数：定位一张票并给出补丁。 */

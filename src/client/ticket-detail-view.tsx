@@ -89,12 +89,14 @@ import { useTicketActions } from './ticket-actions.ts'
 
 /** 详情要打开的工单：引用与编号负责读取，快照行只用于头部判定。 */
 export interface DetailTarget {
-  /** 工单引用：远端是 `#15`，本地 Markdown 是相对工作区的文件路径。 */
+  /** 工单引用：同仓库是 `#15`，跨仓库是 `owner/repo#15`，本地 Markdown 是相对工作区的文件路径。 */
   readonly ref: string
   /** 数字编号；本地 Markdown 没有编号，为 null。 */
   readonly number: number | null
   /** 当前快照里的那一行；按引用打开、快照里没有这张票时为 null。 */
   readonly ticket: TicketSnapshot | null
+  /** 跨仓库详情的仓库段 `owner/name`；当前工作区仓库为 null。 */
+  readonly repository: string | null
 }
 
 /** 工单详情视图依赖。 */
@@ -207,11 +209,12 @@ function useDetailViewState(props: TicketDetailViewProps): {
   readonly deletion: TicketDeletion
 } {
   const { client, workspaceRoot } = props
-  const { ref, number, ticket } = props.target
+  const { ref, number, repository, ticket } = props.target
   // 技能徽标与阻塞项跟着宿主刷新后的快照走：关单/改标签后动作可能变成“已关闭”或换一个技能。
   // 排在取数钩子前面：列表里这张票的更新时间是详情缓存的有效性键。
   const { current: currentTicket, updateFromSnapshot } = useCurrentTicket(ref, ticket)
-  const request = useDetailRequest(client, workspaceRoot, ref, number, currentTicket?.updatedAt)
+  const updatedAt = currentTicket?.updatedAt
+  const request = useDetailRequest(client, workspaceRoot, ref, number, repository, updatedAt)
   // 换工作区才换缓存；同一份详情的重渲染、刷新都复用已取回的图片。
   const loadAttachment = React.useMemo(
     () => createAttachmentLoader(client, workspaceRoot),
@@ -230,6 +233,7 @@ function useDetailViewState(props: TicketDetailViewProps): {
     workspaceRoot,
     ref,
     number,
+    repository,
     onUpdated: request.replace,
     onSnapshot: updateFromSnapshot,
   })

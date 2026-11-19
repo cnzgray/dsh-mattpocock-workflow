@@ -88,9 +88,9 @@ export function snapshotTicket(overrides: Partial<TicketSnapshot> = {}): TicketS
 /** 把一个快照行包成详情目标；快照里没有这张票时退回夹具的引用与编号。 */
 export function target(ticket: TicketSnapshot | null): DetailTarget {
   if (ticket === null) {
-    return { ref: TICKET.ref, number: TICKET.number, ticket }
+    return { ref: TICKET.ref, number: TICKET.number, ticket, repository: null }
   }
-  return { ref: ticket.ref, number: ticket.number, ticket }
+  return { ref: ticket.ref, number: ticket.number, ticket, repository: null }
 }
 
 export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
@@ -114,7 +114,7 @@ export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
 
 export interface FakeBackend {
   readonly client: PanelClient
-  readonly detailCalls: (readonly [string, string, number | null])[]
+  readonly detailCalls: (readonly [string, string, number | null, string?])[]
   readonly updateCalls: (readonly [string, string, number | null, TicketPatch])[]
   readonly refreshCalls: string[]
   readonly optionsCalls: string[]
@@ -149,13 +149,12 @@ export function fakeBackend(
   let current = initial
   let updateFailure: RpcErrorBody | null = null
   let detailFailure: RpcErrorBody | null = null
-  const detailCalls: (readonly [string, string, number | null])[] = []
+  const detailCalls: (readonly [string, string, number | null, string?])[] = []
   const updateCalls: (readonly [string, string, number | null, TicketPatch])[] = []
   const refreshCalls: string[] = []
   const optionsCalls: string[] = []
   const deleteCalls: (readonly [string, string, number | null])[] = []
   const attachmentCalls: (readonly [string, string])[] = []
-
   const client: PanelClient = {
     get: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
     more: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
@@ -165,8 +164,8 @@ export function fakeBackend(
     },
     resolveBlockers: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
-    getDetail(root, ref, number) {
-      detailCalls.push([root, ref, number])
+    getDetail(root, ref, number, repository) {
+      detailCalls.push(repository ? [root, ref, number, repository] : [root, ref, number])
       if (detailFailure !== null) {
         const error = detailFailure
         detailFailure = null

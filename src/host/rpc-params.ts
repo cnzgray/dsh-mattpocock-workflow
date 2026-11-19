@@ -2,6 +2,7 @@
  * RPC 参数校验。快照服务与工单服务共用同一份形状定义，
  * 参数不合法时都返回 `invalid-params`，不把脏数据传给适配器。
  */
+import { parseRepositorySegment } from '../core/remote.ts'
 
 /** 一个工作区定位参数。 */
 export interface WorkspaceParams {
@@ -13,6 +14,8 @@ export interface TicketParams {
   readonly workspaceRoot: string
   readonly ref: string
   readonly number: number | null
+  /** 跨仓库详情的仓库段 `owner/name`；省略表示当前工作区仓库。 */
+  readonly repository?: string
 }
 
 /**
@@ -29,6 +32,7 @@ export function readWorkspaceRoot(params: unknown): string | undefined {
 
 /**
  * 读取一张票的定位参数：工作区、引用与非负编号（本地 Markdown 为 null）。
+ * 可选的仓库段必须是 `owner/name`，不接受 URL。
  * @param params - 任意请求参数。
  * @returns 定位参数；任一字段不合法时 undefined。
  */
@@ -43,5 +47,13 @@ export function readTicketParams(params: unknown): TicketParams | undefined {
   if (number !== null && !(typeof number === 'number' && Number.isInteger(number) && number > 0)) {
     return undefined
   }
-  return { workspaceRoot, ref, number }
+
+  let repository: string | undefined
+  if ('repository' in params && params.repository !== undefined) {
+    const value = params.repository
+    if (typeof value !== 'string' || parseRepositorySegment(value) === undefined) return undefined
+    repository = value
+  }
+
+  return { workspaceRoot, ref, number, ...(repository === undefined ? {} : { repository }) }
 }

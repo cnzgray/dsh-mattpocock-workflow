@@ -17,8 +17,10 @@ import type { HierarchyKind, Ticket, TicketAuthor, TicketState } from './ticket.
  *    留着会画出一棵缺边却看似完整的树，作废后重拉一次补齐。
  * 5：条目带库版本与概览统计；存储按目录落库（meta + 每票一文件 + 墓碑 + 变化日志），
  *    读侧零计算，旧缓存作废后重拉一次补齐。
+ * 6：阻塞引用区分同仓库与跨仓库（`owner/repo#n`）；旧缓存把跨仓库依赖压成裸编号，
+ *    会和本地同号票混淆，作废后重拉一次。
  */
-export const SNAPSHOT_STORE_VERSION = 5
+export const SNAPSHOT_STORE_VERSION = 6
 
 /** 缓存文件里存的后端类型。 */
 const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown']

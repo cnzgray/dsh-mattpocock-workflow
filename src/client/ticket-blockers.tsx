@@ -62,16 +62,45 @@ export function blockerItems(
   return items
 }
 
+/** 阻塞引用：同仓库 `#15`，跨仓库 `owner/repo#15`。 */
+const BLOCKER_REF = /^(?:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+))?#(\d+)$/
+
+/** 拆开的阻塞引用。 */
+interface ParsedBlockerRef {
+  readonly repository: string | null
+  readonly number: number
+}
+
 /**
- * 把阻塞引用换成读取详情用的数字编号：远端是 `#15`，本地 Markdown 路径没有编号。
+ * 把阻塞引用拆成仓库段与编号。
  * @param ref - 阻塞引用。
- * @returns 数字编号；不是 `#数字` 形式时为 null。
+ * @returns 拆开的两部分；不是 `#数字` 或 `owner/repo#数字` 形式时为 null。
+ */
+function parseBlockerRef(ref: string): ParsedBlockerRef | null {
+  const match = BLOCKER_REF.exec(ref)
+  if (match === null) return null
+  const number = Number.parseInt(match[2] ?? '', 10)
+  if (!Number.isSafeInteger(number)) return null
+  return { repository: match[1] ?? null, number }
+}
+
+/**
+ * 把阻塞引用换成读取详情用的数字编号：同仓库 `#15` 与跨仓库 `owner/repo#15`
+ * 都给出编号；本地 Markdown 路径没有编号。
+ * @param ref - 阻塞引用。
+ * @returns 数字编号；不是上述形式时为 null。
  */
 export function blockerNumber(ref: string): number | null {
-  const match = /^#(\d+)$/.exec(ref)
-  if (match === null) return null
-  const number = Number.parseInt(match[1] ?? '', 10)
-  return Number.isSafeInteger(number) ? number : null
+  return parseBlockerRef(ref)?.number ?? null
+}
+
+/**
+ * 阻塞引用里的跨仓库段；同仓库引用与本地路径为 null。
+ * @param ref - 阻塞引用。
+ * @returns `owner/repo`，或不需要限定仓库时的 null。
+ */
+export function blockerRepository(ref: string): string | null {
+  return parseBlockerRef(ref)?.repository ?? null
 }
 
 /**

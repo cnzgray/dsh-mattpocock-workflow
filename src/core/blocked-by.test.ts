@@ -39,7 +39,7 @@ describe('远端工单的阻塞数', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'open', number: 16 },
-        nativeBlockers: { open: 2, refs: [15, 9] },
+        nativeBlockers: { open: 2, refs: [{ number: 15 }, { number: 9 }] },
         text: 'Blocked by: #15',
         states: STATES,
       }),
@@ -72,7 +72,7 @@ describe('远端工单的阻塞数', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'closed', number: 9 },
-        nativeBlockers: { open: 3, refs: [15] },
+        nativeBlockers: { open: 3, refs: [{ number: 15 }] },
         text: 'Blocked by: #15',
         states: STATES,
       }),
@@ -80,7 +80,7 @@ describe('远端工单的阻塞数', () => {
     expect(
       resolveOpenBlockers({
         ticket: { state: 'open', number: null },
-        nativeBlockers: { open: 1, refs: [15] },
+        nativeBlockers: { open: 1, refs: [{ number: 15 }] },
         text: '',
         states: STATES,
       }),

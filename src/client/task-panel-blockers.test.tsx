@@ -113,6 +113,42 @@ describe('详情里的阻塞项导航', () => {
     expect(screen.getByTestId('detail-back').textContent).toContain('返回 #2')
   })
 
+  it('跨仓库阻塞项带仓库段打开详情，并回到上一张票', async () => {
+    const snapshot: WorkspaceSnapshot = {
+      ...SNAPSHOT,
+      tickets: SNAPSHOT.tickets.map((ticket) =>
+        ticket.ref === '#2'
+          ? {
+              ...ticket,
+              openBlockers: 1,
+              blockedBy: ['cyit-platform/cyit-harness#33'],
+            }
+          : ticket,
+      ),
+    }
+    const fake = fakeClient({ ok: true, result: snapshot })
+    render(<TaskPanel {...panelProps({ client: fake.client })} />)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(rowFor('#2'))
+    await screen.findByTestId('detail-content')
+    const toggle = screen.getByTestId('blockers-toggle')
+    expect(toggle.textContent).toContain('阻塞 1')
+    fireEvent.click(toggle)
+
+    const blocker = blockerFor('cyit-platform/cyit-harness#33')
+    fireEvent.click(blocker)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-ref').textContent).toBe('cyit-platform/cyit-harness#33')
+    })
+    expect(fake.detailCalls).toEqual([
+      ['/repo', '#2', 2],
+      ['/repo', 'cyit-platform/cyit-harness#33', 33, 'cyit-platform/cyit-harness'],
+    ])
+    expect(screen.getByTestId('detail-back').textContent).toContain('返回 #2')
+  })
+
   it('Esc 与返回按钮走同一条返回路径', async () => {
     const fake = fakeClient({ ok: true, result: SNAPSHOT })
     render(<TaskPanel {...panelProps({ client: fake.client })} />)

@@ -251,6 +251,97 @@ describe('工单详情服务', () => {
     expect(canDeleteCalls).toEqual([ROOT])
   })
 
+  it('跨仓库详情交给 Gitea 按仓库段读取，能力全部只读', async () => {
+    const { service, detailCalls, canDeleteCalls } = serviceWith({
+      kind: 'gitea',
+      supportDelete: true,
+    })
+
+    const result = unwrap(
+      await service.handle('ticket.get', {
+        workspaceRoot: ROOT,
+        ref: 'cyit-platform/cyit-harness#33',
+        number: 33,
+        repository: 'cyit-platform/cyit-harness',
+      }),
+    ) as WireTicketDetail
+
+    expect(detailCalls).toEqual([
+      [
+        ROOT,
+        {
+          ref: 'cyit-platform/cyit-harness#33',
+          number: 33,
+          repository: 'cyit-platform/cyit-harness',
+        },
+      ],
+    ])
+    expect(result.ref).toBe('cyit-platform/cyit-harness#33')
+    expect(result.capabilities).toEqual({
+      labels: false,
+      assignees: false,
+      state: false,
+      link: true,
+      delete: false,
+    })
+    // 跨仓库详情不查当前仓库的删除权限。
+    expect(canDeleteCalls).toEqual([])
+  })
+
+  it('非 Gitea 后端遇到仓库段返回 capability-unsupported', async () => {
+    const { service, detailCalls } = serviceWith({ kind: 'github' })
+
+    const result = await service.handle('ticket.get', {
+      workspaceRoot: ROOT,
+      ref: 'other/repo#25',
+      number: 25,
+      repository: 'other/repo',
+    })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'capability-unsupported' } })
+    expect(detailCalls).toEqual([])
+  })
+
+  it.each([
+    ['仓库段是 URL', 'https://github.com/other/repo'],
+    ['仓库段多一层', 'group/sub/repo'],
+    ['仓库段为空', ''],
+  ] as const)('%s 时 ticket.get 返回 invalid-params', async (_label, repository) => {
+    const { service, detailCalls } = serviceWith({ kind: 'gitea' })
+
+    await expect(
+      service.handle('ticket.get', {
+        workspaceRoot: ROOT,
+        ref: 'other/repo#25',
+        number: 25,
+        repository,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid-params' } })
+    expect(detailCalls).toEqual([])
+  })
+
+  it('跨仓库引用不能提交变更或删除', async () => {
+    const { service, updateCalls, deleteCalls } = serviceWith({
+      kind: 'gitea',
+      supportDelete: true,
+    })
+    const params = {
+      workspaceRoot: ROOT,
+      ref: 'cyit-platform/cyit-harness#33',
+      number: 33,
+      repository: 'cyit-platform/cyit-harness',
+    }
+
+    await expect(
+      service.handle('ticket.update', { ...params, patch: { state: 'closed' } }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'capability-unsupported' } })
+    await expect(
+      service.handle('ticket.delete', { ...params, confirm: 'delete' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'capability-unsupported' } })
+    expect(updateCalls).toEqual([])
+    expect(deleteCalls).toEqual([])
+  })
+
   it('后端不实现详情能力时返回 capability-unsupported 并说明后端', async () => {
     const { service } = serviceWith({ kind: 'markdown', supportDetail: false })
 

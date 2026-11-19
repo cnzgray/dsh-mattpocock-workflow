@@ -104,13 +104,24 @@ async function getDetail(
       return unsupported(kind, '读取工单详情')
     }
 
-    // 权限查询与详情并行；查询失败只让删除能力为 false，不影响详情本身。
+    // 跨仓库详情只有 Gitea 能按 owner/name 读取；其他后端没有这条语义。
+    const crossRepository = target.repository !== undefined
+    if (crossRepository && kind !== 'gitea') {
+      return unsupported(kind, '打开跨仓库工单')
+    }
+
+    // 权限查询与详情并行；跨仓库详情只读，不查当前仓库的删除权限。
     const [detail, canDelete] = await Promise.all([
       fetchDetail(target.workspaceRoot, referenceOf(target)),
-      readCanDelete(resolved.tracker, target.workspaceRoot),
+      crossRepository
+        ? Promise.resolve(false)
+        : readCanDelete(resolved.tracker, target.workspaceRoot),
     ])
     logResult(deps, 'info', kind, 'get', startedAt)
-    return { ok: true, result: withCapabilities(kind, resolved.tracker, detail, canDelete) }
+    return {
+      ok: true,
+      result: withCapabilities(kind, resolved.tracker, detail, canDelete, crossRepository),
+    }
   } catch (error) {
     const mapped = mapError(error)
     logResult(deps, 'warn', kind, 'get', startedAt, mapped.code)
@@ -140,6 +151,10 @@ async function update(
     const updateTicket = resolved.tracker.updateTicket
     if (updateTicket === undefined) {
       return unsupported(kind, '修改工单属性')
+    }
+    // 写 RPC 只按工作区仓库定位；跨仓库引用落到这里会改错同号本地票。
+    if (target.repository !== undefined) {
+      return unsupported(kind, '修改跨仓库工单')
     }
 
     await updateTicket(target.workspaceRoot, referenceOf(target), patch)
@@ -202,6 +217,10 @@ async function remove(
     const deleteTicket = resolved.tracker.deleteTicket
     if (deleteTicket === undefined) {
       return unsupported(kind, '删除工单')
+    }
+    // 同 update：删除只按工作区仓库定位，跨仓库引用不能落到本地同号票。
+    if (target.repository !== undefined) {
+      return unsupported(kind, '删除跨仓库工单')
     }
 
     // 删除不可撤销：调用前再查一次权限，查询失败或没有权限都不发删除命令。
@@ -315,14 +334,15 @@ function withCapabilities(
   tracker: Tracker,
   detail: TicketDetail,
   canDelete: boolean,
+  readOnly: boolean,
 ): ProtocolTicketDetail {
-  const writable = tracker.updateTicket !== undefined
+  const writable = !readOnly && tracker.updateTicket !== undefined
   const capabilities: DetailCapabilities = {
     labels: writable,
     assignees: writable,
     state: writable,
     link: detail.url !== null,
-    delete: canDelete,
+    delete: !readOnly && canDelete,
   }
 
   return { ...detail, backend: kind, capabilities }
@@ -389,7 +409,11 @@ function readField(params: unknown, key: string): unknown {
 }
 
 function referenceOf(target: TicketParams): TicketReference {
-  return { ref: target.ref, number: target.number }
+  return {
+    ref: target.ref,
+    number: target.number,
+    ...(target.repository === undefined ? {} : { repository: target.repository }),
+  }
 }
 
 function unsupported<T>(kind: BackendKind, action: string): RpcResult<T> {
