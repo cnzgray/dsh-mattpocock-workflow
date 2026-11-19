@@ -1,6 +1,9 @@
 /**
- * 列表视图的仓库行：仓库标识、后端与数据来源、快照时间、刷新失败原因与两个刷新按钮。
+ * 列表视图的仓库行：仓库标识、后端与数据来源、快照时间、刷新失败原因与刷新按钮。
  * 与列表主体分开，保持刷新状态集中在一个组件里。
+ *
+ * 刷新只有一个按钮：点击走增量；Shift+点击忽略本地快照库全量重拉（排障入口），
+ * 不并排摆两个按钮抢层级。
  */
 import * as React from 'react'
 
@@ -12,7 +15,6 @@ import { formatRelativeTime } from './relative-time.ts'
 import {
   AGE_STYLE,
   BACKEND_BADGE_STYLE,
-  BUTTON_STYLE,
   COLORS,
   HEADER_STYLE,
   REFRESH_BUTTON_STYLE,
@@ -20,14 +22,6 @@ import {
   REPO_HOST_STYLE,
   REPO_NAME_STYLE,
 } from './task-panel-styles.ts'
-
-/** 全量刷新是次要动作：描边按钮，和刷新按钮并排但不同层级。 */
-const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
-  ...BUTTON_STYLE,
-  padding: '2px 6px',
-  fontSize: 12,
-  color: COLORS.secondary,
-}
 
 /** 刷新失败原因：贴在数据时间旁边，说明数据没更新，但不盖住列表。 */
 const REFRESH_ERROR_STYLE: React.CSSProperties = {
@@ -103,21 +97,18 @@ export function TicketsHeader(props: TicketsHeaderProps): React.ReactElement {
           data-testid="refresh"
           data-hover="soft"
           disabled={props.busy}
-          onClick={props.onRefresh}
+          title={t('refresh.title')}
+          onClick={(event) => {
+            if (event.shiftKey) {
+              props.onRefreshFull()
+              return
+            }
+            props.onRefresh()
+          }}
           style={{ ...REFRESH_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
         >
           <RefreshIcon />
           {props.busy ? t('refresh.busy') : t('refresh.action')}
-        </button>
-        <button
-          type="button"
-          data-testid="refresh-full"
-          data-hover="soft"
-          disabled={props.busy}
-          onClick={props.onRefreshFull}
-          style={{ ...SECONDARY_BUTTON_STYLE, opacity: props.busy ? 0.6 : 1 }}
-        >
-          {t('refresh.full')}
         </button>
       </div>
     </header>

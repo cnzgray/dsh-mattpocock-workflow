@@ -4,18 +4,24 @@
  * - 只读：用 `tea api` 读仓库 issue 列表，`type=issues` 把 pull request 挡在接口外；
  * - 分页：总条数取自 `X-Total-Count`（`tea api --include` 写到标准错误里），
  *   按页拉到拿全为止；
- * - 阻塞：优先读 Gitea 原生 issue 依赖，只查开放的工单，并发有上限；
- *   仓库关闭了依赖功能（接口返回 404）时退回正文顶部的 `Blocked by:` 行；
+ * - 阻塞：首屏只按正文顶部的 `Blocked by:` 行回退，列表阶段零额外请求；
+ *   原生 issue 依赖在 `resolveBlockers` 补齐阶段按开放票并发查询（默认并发 8）；
+ *   仓库关闭了依赖功能（接口返回 404）时按正文解析结果定稿；
  * - 父子：Gitea 没有原生子工单，父级来自子票正文第一个非空行的 `Part of #<n>`，
  *   在列表响应里解析，不额外请求；阻塞边不参与父子；
  * - 详情与变更在 `detail.ts`，只在打开详情或提交变更时执行。
  */
-import { resolveOpenBlockers, type NativeBlockers } from '../../core/blocked-by.ts'
+import {
+  remoteBlockerRefs,
+  resolveOpenBlockers,
+  type NativeBlockers,
+} from '../../core/blocked-by.ts'
 import { mapWithConcurrency } from '../../core/concurrency.ts'
 
 import type {
+  BlockerResolution,
   CommandRunner,
-  Ticket,
+  TicketReference,
   TicketState,
   Tracker,
   TrackerChanges,
@@ -34,12 +40,13 @@ export interface GiteaTrackerDeps {
   readonly now: () => number
   /** 单页大小；默认 50，与 Gitea 的默认返回上限一致。 */
   readonly pageSize?: number
-  /** 并发查询依赖的上限。 */
+  /** 补齐阶段并发查询依赖的上限。 */
   readonly concurrency?: number
 }
 
 const DEFAULT_PAGE_SIZE = 50
-const DEFAULT_CONCURRENCY = 4
+/** 补齐阶段的默认并发：47 张开放票 ≈1s 内全部定稿。 */
+const DEFAULT_CONCURRENCY = 8
 const MAX_PAGES = 200
 
 /**
@@ -63,24 +70,15 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
       const repository = await readRepository(deps.run, workspaceRoot)
       const issues = await readIssues(deps, workspaceRoot, repository, pageSize, undefined, window)
       const viewer = await viewerTask
-      const states = new Map<number, TicketState>()
-      for (const issue of issues.items) {
-        if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
-      }
+      const states = statesOf(issues.items)
 
-      const native = await readNativeBlockers(
-        deps,
-        workspaceRoot,
-        repository,
-        issues.items,
-        pageSize,
-        concurrency,
-      )
+      // 首屏只等列表：阻塞数先按正文 `Blocked by:` 行回退，
+      // 原生依赖查询挪到补齐阶段，不挡住首屏。
       const tickets = issues.items.map((issue) => ({
         ...issue.ticket,
         ...resolveOpenBlockers({
           ticket: issue.ticket,
-          nativeBlockers: native?.get(issue.ticket.number ?? -1),
+          nativeBlockers: undefined,
           text: issue.body,
           states,
         }),
@@ -100,7 +98,11 @@ export function createGiteaTracker(deps: GiteaTrackerDeps): Tracker {
     },
 
     async fetchChanges(workspaceRoot: string, since: number): Promise<TrackerChanges> {
-      return readGiteaChanges(deps, workspaceRoot, pageSize, since, concurrency)
+      return readGiteaChanges(deps, workspaceRoot, pageSize, since)
+    },
+
+    async resolveBlockers(workspaceRoot, targets): Promise<BlockerResolution> {
+      return readNativeResolution(deps, workspaceRoot, targets, pageSize, concurrency)
     },
 
     fetchDetail: (workspaceRoot, reference) =>
@@ -140,13 +142,13 @@ async function readGiteaTotal(
  * 读取某个时刻之后变更过的工单。
  *
  * 与列表查询走同一个接口、同一套过滤条件，只多一个时间窗口。
+ * 变更票的阻塞只给正文回退：原生依赖在补齐阶段统一读取，与首屏同一套语义。
  */
 async function readGiteaChanges(
   deps: GiteaTrackerDeps,
   workspaceRoot: string,
   pageSize: number,
   since: number,
-  concurrency: number,
 ): Promise<TrackerChanges> {
   if (!Number.isFinite(since)) {
     throw new TrackerError('fetch-failed', '增量窗口的起点不是有效时间戳。')
@@ -162,27 +164,13 @@ async function readGiteaChanges(
   const total = await readGiteaTotal(deps, workspaceRoot, repository)
   const issues = await readIssues(deps, workspaceRoot, repository, pageSize, since)
   const viewer = await viewerTask
+  const states = statesOf(issues.items)
 
-  const states = new Map<number, TicketState>()
-  for (const issue of issues.items) {
-    if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
-  }
-
-  // Gitea 的阻塞数是在列表阶段就地解析的，没有单独的补齐能力；
-  // 增量里也要给变更过的票补上，否则合并后这些票会显示成没有阻塞。
-  const native = await readNativeBlockers(
-    deps,
-    workspaceRoot,
-    repository,
-    issues.items,
-    pageSize,
-    concurrency,
-  )
   const tickets = issues.items.map((issue) => ({
     ...issue.ticket,
     ...resolveOpenBlockers({
       ticket: issue.ticket,
-      nativeBlockers: native?.get(issue.ticket.number ?? -1),
+      nativeBlockers: undefined,
       text: issue.body,
       states,
     }),
@@ -261,37 +249,62 @@ async function readIssues(
   }
 }
 
-async function readNativeBlockers(
+/**
+ * 补齐阶段的原生阻塞读取：只查给定票，按并发上限逐票查询依赖接口。
+ *
+ * 依赖功能被实例或仓库关闭（404）时返回空结果，宿主对所有票保留正文回退；
+ * 单票查询失败只跳过该票，不拖垮整轮补齐。
+ */
+async function readNativeResolution(
   deps: GiteaTrackerDeps,
   workspaceRoot: string,
-  repository: GiteaRepository,
-  issues: readonly ParsedIssue[],
+  targets: readonly TicketReference[],
   pageSize: number,
   concurrency: number,
-): Promise<ReadonlyMap<number, NativeBlockers> | undefined> {
-  const open = issues.filter(
-    (issue): issue is ParsedIssue & { readonly ticket: Ticket & { readonly number: number } } =>
-      issue.ticket.state === 'open' && issue.ticket.number !== null,
+): Promise<BlockerResolution> {
+  const open = targets.filter(
+    (target): target is TicketReference & { readonly number: number } => target.number !== null,
   )
-  if (open.length === 0) return new Map()
+  if (open.length === 0) return emptyResolution()
 
-  try {
-    const counts = await mapWithConcurrency(open, concurrency, async (issue) => ({
-      number: issue.ticket.number,
-      blockedBy: await readDependencies(
-        deps,
-        workspaceRoot,
-        repository,
-        issue.ticket.number,
-        pageSize,
-      ),
-    }))
+  const repository = await readRepository(deps.run, workspaceRoot)
+  const settled = await mapWithConcurrency(
+    open,
+    concurrency,
+    async (target): Promise<SettledDependency> => {
+      try {
+        const blocked = await readDependencies(
+          deps,
+          workspaceRoot,
+          repository,
+          target.number,
+          pageSize,
+        )
+        return { ref: target.ref, outcome: 'ok', blocked }
+      } catch (error) {
+        // 依赖功能被实例或仓库关闭（404）：整张补齐按正文解析定稿。
+        if (error instanceof DependenciesUnavailable) {
+          return { ref: target.ref, outcome: 'unavailable' }
+        }
+        // 单票查询失败（网络抖动、令牌失效）：这张票保留正文回退，不拖垮整轮补齐。
+        return { ref: target.ref, outcome: 'failed' }
+      }
+    },
+  )
 
-    return new Map(counts.map((entry) => [entry.number, entry.blockedBy]))
-  } catch (error) {
-    if (error instanceof DependenciesUnavailable) return undefined
-    throw error
+  // 任一 404 都说明实例关闭了依赖功能：所有票一起退回正文解析。
+  if (settled.some((entry) => entry.outcome === 'unavailable')) return emptyResolution()
+
+  const counts = new Map<string, number>()
+  const blockedBy = new Map<string, readonly string[]>()
+  for (const entry of settled) {
+    if (entry.outcome !== 'ok') continue
+    counts.set(entry.ref, entry.blocked.open)
+    if (entry.blocked.refs.length > 0) {
+      blockedBy.set(entry.ref, remoteBlockerRefs(entry.blocked.refs))
+    }
   }
+  return { open: counts, blockedBy }
 }
 
 async function readDependencies(
@@ -331,6 +344,26 @@ async function readDependencies(
 
 /** 依赖功能未启用。只用于在读取阶段区分 404，不向外暴露。 */
 class DependenciesUnavailable extends Error {}
+
+/** 一张开放票的原生依赖查询结果：成功（含空依赖）、功能关闭（404）或单票失败。 */
+type SettledDependency =
+  | { readonly ref: string; readonly outcome: 'ok'; readonly blocked: NativeBlockers }
+  | { readonly ref: string; readonly outcome: 'unavailable' }
+  | { readonly ref: string; readonly outcome: 'failed' }
+
+/** 空的原生阻塞结果：后端不支持或功能关闭时用，宿主保留正文回退值。 */
+function emptyResolution(): BlockerResolution {
+  return { open: new Map(), blockedBy: new Map() }
+}
+
+/** 已加载工单的编号 → 状态表，供正文 `Blocked by:` 行判定未关闭数。 */
+function statesOf(issues: readonly ParsedIssue[]): ReadonlyMap<number, TicketState> {
+  const states = new Map<number, TicketState>()
+  for (const issue of issues) {
+    if (issue.ticket.number !== null) states.set(issue.ticket.number, issue.ticket.state)
+  }
+  return states
+}
 
 /**
  * 工单列表接口。

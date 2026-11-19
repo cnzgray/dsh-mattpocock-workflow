@@ -8,12 +8,14 @@ import * as React from 'react'
 
 import type {
   RpcErrorBody,
+  RpcResult,
   TicketDetail,
   TicketOptions,
   TicketPatch,
   WorkspaceSnapshot,
 } from '../protocol/tracker.ts'
 import { copyText } from './clipboard.ts'
+import { detailCacheDecision, readDetailCache, writeDetailCache } from './detail-cache.ts'
 import { errorText } from './error-text.ts'
 import { useI18n } from './i18n.tsx'
 import type { Translate } from './i18n-runtime.ts'
@@ -36,11 +38,22 @@ export interface DetailRequest {
   readonly refreshError: RpcErrorBody | null
 }
 
+/**
+ * 读取一张工单的详情；本地优先，命中且没变时秒开。
+ * 缓存以列表快照里的 `updatedAt` 为有效性键；拉取失败保留已显示的内容。
+ * @param client - 面板客户端。
+ * @param workspaceRoot - 工作区根目录。
+ * @param ref - 工单引用。
+ * @param number - 数字编号；本地 Markdown 为 null。
+ * @param currentUpdatedAt - 列表快照里这张票的更新时间；拿不到时每次都要拉。
+ * @returns 详情、阶段与手动入口。
+ */
 export function useDetailRequest(
   client: PanelClient,
   workspaceRoot: string,
   ref: string,
   number: number | null,
+  currentUpdatedAt: string | undefined,
 ): DetailRequest {
   const [detail, setDetail] = React.useState<TicketDetail | null>(null)
   const [error, setError] = React.useState<RpcErrorBody | null>(null)
@@ -54,32 +67,22 @@ export function useDetailRequest(
   const readRunning = React.useRef(false)
 
   React.useEffect(() => {
-    let active = true
-    // 换一张票时先清空，避免显示上一张票的残留内容；在路上的重读也一并作废。
-    readId.current += 1
-    readRunning.current = false
-    setDetail(null)
-    setError(null)
-    setPhase('loading')
-    setRefreshing(false)
-    setRefreshError(null)
-
-    void client.getDetail(workspaceRoot, ref, number).then((result) => {
-      if (!active) return
-      if (result.ok) {
-        setDetail(result.result)
-        setPhase('ready')
-        return
-      }
-      setError(result.error)
-      setPhase('error')
+    return startDetailLoad({
+      client,
+      workspaceRoot,
+      ref,
+      number,
+      currentUpdatedAt,
+      attempt,
+      readId,
+      readRunning,
+      setDetail,
+      setError,
+      setPhase,
+      setRefreshing,
+      setRefreshError,
     })
-
-    return () => {
-      active = false
-      readId.current += 1
-    }
-  }, [client, workspaceRoot, ref, number, attempt])
+  }, [client, workspaceRoot, ref, number, attempt, currentUpdatedAt])
 
   const refresh = (): void => {
     if (readRunning.current) return
@@ -92,13 +95,16 @@ export function useDetailRequest(
       if (readId.current !== current) return
       readRunning.current = false
       setRefreshing(false)
-      if (result.ok) {
-        setDetail(result.result)
-        // 失败提示留到下一次真正读成功：重试在途时旧原因仍在，失败会刷新成新原因。
-        setRefreshError(null)
-        return
-      }
-      setRefreshError(result.error)
+      applyDetailRead({
+        workspaceRoot,
+        result,
+        cached: true,
+        setDetail,
+        setPhase,
+        setError,
+        setRefreshError,
+      })
+      if (result.ok) setRefreshError(null)
     })
   }
 
@@ -109,11 +115,123 @@ export function useDetailRequest(
     reload: () => {
       setAttempt((value) => value + 1)
     },
-    replace: setDetail,
+    replace: (next) => {
+      // 写操作落地的新详情同时成为缓存基准：再进入时按新更新时间上票。
+      writeDetailCache(workspaceRoot, next)
+      setDetail(next)
+    },
     refresh,
     refreshing,
     refreshError,
   }
+}
+
+/** startDetailLoad 依赖的状态落地口：加载与重读共用同一套判定。 */
+interface DetailLoadTarget {
+  readonly client: PanelClient
+  readonly workspaceRoot: string
+  readonly ref: string
+  readonly number: number | null
+  readonly currentUpdatedAt: string | undefined
+  readonly readId: React.RefObject<number>
+  readonly readRunning: React.RefObject<boolean>
+  readonly setDetail: (detail: TicketDetail | null) => void
+  readonly setError: (error: RpcErrorBody | null) => void
+  readonly setPhase: (phase: 'loading' | 'ready' | 'error') => void
+  readonly setRefreshing: (refreshing: boolean) => void
+  readonly setRefreshError: (error: RpcErrorBody | null) => void
+}
+
+/**
+ * 首读与换票：本地优先，命中且列表时间未变时秒开（不发请求）；
+ * 有缓存但票已变更时先显示缓存、后台静默拉新。返回 effect 清理函数。
+ */
+function startDetailLoad(target: DetailLoadTarget & { readonly attempt: number }): () => void {
+  const {
+    client,
+    workspaceRoot,
+    ref,
+    number,
+    currentUpdatedAt,
+    readId,
+    readRunning,
+    setDetail,
+    setError,
+    setPhase,
+    setRefreshing,
+    setRefreshError,
+  } = target
+  let active = true
+  // 换一张票时先作废在路上的读取；内容是否清空看缓存里有没有可立刻显示的。
+  readId.current += 1
+  readRunning.current = false
+  setError(null)
+  setRefreshing(false)
+  setRefreshError(null)
+
+  const hit = readDetailCache(workspaceRoot, ref)
+  const decision = detailCacheDecision(hit, currentUpdatedAt)
+  if (decision === 'hit') {
+    // 缓存命中且列表显示这张票没变更：秒开，不进入加载阶段、不发请求。
+    if (hit !== null) setDetail(hit.detail)
+    setPhase('ready')
+    return () => {
+      active = false
+      readId.current += 1
+    }
+  }
+  if (decision === 'stale') {
+    // 有缓存但票已变更（或拿不到列表时间）：先显示缓存，后台静默拉新。
+    if (hit !== null) setDetail(hit.detail)
+    setPhase('ready')
+  } else {
+    setDetail(null)
+    setPhase('loading')
+  }
+
+  void client.getDetail(workspaceRoot, ref, number).then((result) => {
+    if (!active) return
+    applyDetailRead({
+      workspaceRoot,
+      result,
+      cached: decision !== 'miss',
+      setDetail,
+      setPhase,
+      setError,
+      setRefreshError,
+    })
+  })
+
+  return () => {
+    active = false
+    readId.current += 1
+  }
+}
+
+/** 落地一次详情读取：成功写缓存并显示；有缓存时失败只记原因，没有才进错误页。 */
+function applyDetailRead(options: {
+  readonly workspaceRoot: string
+  readonly result: RpcResult<TicketDetail>
+  /** 失败时是否有已显示的内容可以保留。 */
+  readonly cached: boolean
+  readonly setDetail: (detail: TicketDetail) => void
+  readonly setPhase: (phase: 'loading' | 'ready' | 'error') => void
+  readonly setError: (error: RpcErrorBody | null) => void
+  readonly setRefreshError: (error: RpcErrorBody) => void
+}): void {
+  const { result } = options
+  if (result.ok) {
+    writeDetailCache(options.workspaceRoot, result.result)
+    options.setDetail(result.result)
+    options.setPhase('ready')
+    return
+  }
+  if (options.cached) {
+    options.setRefreshError(result.error)
+    return
+  }
+  options.setError(result.error)
+  options.setPhase('error')
 }
 
 export interface TicketMutation {
@@ -158,11 +276,14 @@ export function useTicketMutation(
 
         // 写已落地：详情复查与列表刷新同时进行，任一失败都不影响另一项。
         // 列表徽标要同步；详情复查成功才替换显示值（不做乐观更新）。
+        // 没带 ifVersion 的刷新回整份快照；变化行/未变回包由面板自己的刷新周期收敛。
         const [fresh, snapshot] = await Promise.all([
           client.getDetail(options.workspaceRoot, options.ref, options.number),
           client.refresh(options.workspaceRoot),
         ])
-        if (snapshot.ok) options.onSnapshot(snapshot.result)
+        if (snapshot.ok && snapshot.result.kind === 'full') {
+          options.onSnapshot(snapshot.result.snapshot)
+        }
         if (!fresh.ok) {
           setError(fresh.error)
           return

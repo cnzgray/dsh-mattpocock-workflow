@@ -16,7 +16,7 @@ import type { WorkspaceFiles } from '../adapters/markdown/files.ts'
 import type { CommandRunner } from '../core/ticket.ts'
 import { CommandError } from '../core/tracker-error.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
-import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { RpcResult, SnapshotRefreshResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { createBackendResolver } from './backend-resolver.ts'
 import { createSnapshotService, type SnapshotService } from './snapshot-service.ts'
 
@@ -115,18 +115,21 @@ function serviceWith(run: CommandRunner, files: WorkspaceFiles = EMPTY_FILES): S
   })
 }
 
-function ok(result: RpcResult<WorkspaceSnapshot>): {
+function ok(result: RpcResult<WorkspaceSnapshot | SnapshotRefreshResult>): {
   readonly backend: string
   readonly repository: string
   readonly host: string | null
   readonly refs: readonly string[]
 } {
   if (!result.ok) throw new Error(result.error.message)
+  const value = result.result
+  const snapshot = 'kind' in value ? (value.kind === 'full' ? value.snapshot : undefined) : value
+  if (snapshot === undefined) throw new Error('预期整份快照')
   return {
-    backend: result.result.backend,
-    repository: result.result.repository,
-    host: result.result.repositoryHost,
-    refs: result.result.tickets.map((ticket) => ticket.ref),
+    backend: snapshot.backend,
+    repository: snapshot.repository,
+    host: snapshot.repositoryHost,
+    refs: snapshot.tickets.map((ticket) => ticket.ref),
   }
 }
 
@@ -350,7 +353,7 @@ describe('宿主后端选择', () => {
 
     await service.handle('snapshot.get', { workspaceRoot: '/repo' })
     await service.handle('snapshot.get', { workspaceRoot: '/repo' })
-    await service.handle('snapshot.refresh', { workspaceRoot: '/repo' })
+    await service.refresh({ workspaceRoot: '/repo' })
 
     const authCalls = calls.filter((call) => call[0] === 'glab' && call[1] === 'auth')
     expect(authCalls).toHaveLength(1)
@@ -386,7 +389,7 @@ describe('宿主后端选择', () => {
     expect(first).toMatchObject({ ok: false, error: { code: 'glab-missing' } })
 
     installed = true
-    const second = await service.handle('snapshot.refresh', { workspaceRoot: '/repo' })
+    const second = await service.refresh({ workspaceRoot: '/repo' })
 
     expect(ok(second).backend).toBe('gitlab')
   })
@@ -417,12 +420,15 @@ describe('宿主后端选择', () => {
     const service = serviceWith(run)
 
     const first = await service.handle('snapshot.get', { workspaceRoot: '/repo' })
-    const failed = await service.handle('snapshot.refresh', { workspaceRoot: '/repo' })
+    const failed = await service.refresh({ workspaceRoot: '/repo' })
     const again = await service.handle('snapshot.get', { workspaceRoot: '/repo' })
 
     expect(failed).toMatchObject({
       ok: true,
-      result: { stale: true, refreshError: { code: 'fetch-failed' } },
+      result: {
+        kind: 'full',
+        snapshot: { stale: true, refreshError: { code: 'fetch-failed' } },
+      },
     })
     const firstTickets = first.ok ? first.result.tickets : []
     const againTickets = again.ok ? again.result.tickets : []

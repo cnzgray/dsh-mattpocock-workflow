@@ -20,6 +20,10 @@ function fakeService(result: RpcResult<WorkspaceSnapshot>): {
       calls.push({ method, params })
       return Promise.resolve(result)
     },
+    refresh(params) {
+      calls.push({ method: 'snapshot.refresh', params })
+      return Promise.resolve({ ok: false, error: { code: 'internal', message: '测试未实现' } })
+    },
     cache(params) {
       calls.push({ method: 'snapshot.cache', params })
       return Promise.resolve({
@@ -48,6 +52,7 @@ const OK: RpcResult<WorkspaceSnapshot> = {
     total: 0,
     windowLimit: 100,
     hierarchy: 'native',
+    libraryVersion: null,
     tickets: [],
     metrics: emptyMetrics(),
     blockersFinalized: true,

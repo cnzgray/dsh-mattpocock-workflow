@@ -6,6 +6,7 @@ import { describeTrackerContract } from '../contract.test-suite.ts'
 import {
   GITEA_ASSIGNEES_OUTPUT,
   GITEA_COMMENTS,
+  GITEA_DEPENDENCIES,
   GITEA_ISSUES,
   GITEA_LABEL_PAGES,
   GITEA_REMOTES_OUTPUT,
@@ -99,17 +100,8 @@ describe('Gitea 工单后端', () => {
     expect(snapshot.total).toBe(3)
   })
 
-  it('依赖列表只统计未关闭的票，且只查询开放工单', async () => {
-    const { tracker, dependencyCalls } = trackerWith()
-
-    const snapshot = await tracker.fetchSnapshot('/workspace')
-
-    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 1, 0])
-    expect(new Set(dependencyCalls)).toEqual(new Set([15, 16]))
-  })
-
-  it('依赖接口返回 404 时退回正文顶部的 Blocked by 行', async () => {
-    const { tracker } = trackerWith({
+  it('列表阶段不发依赖查询，阻塞数先按正文 Blocked by 行回退', async () => {
+    const { tracker, dependencyCalls } = trackerWith({
       issues: () =>
         apiCall(
           [
@@ -129,35 +121,58 @@ describe('Gitea 工单后端', () => {
           ],
           3,
         ),
-      dependencies: () => failedApiCall(404, 'Not Found'),
     })
 
     const snapshot = await tracker.fetchSnapshot('/workspace')
 
+    // 首屏只等列表：零依赖查询，正文回退先给出未关闭数（#15 开放、#9 已关闭、#99 不在列表按未关闭）。
+    expect(dependencyCalls).toEqual([])
     expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 2, 0])
   })
 
-  it('依赖列表为空时仍读正文顶部的 Blocked by 行', async () => {
+  it('补齐阶段只查询给定的开放工单，未关闭数来自原生依赖', async () => {
+    const { tracker, dependencyCalls } = trackerWith()
+
+    const native = await tracker.resolveBlockers?.('/workspace', [
+      { ref: '#15', number: 15 },
+      { ref: '#16', number: 16 },
+    ])
+
+    // #15 的依赖 #7 已关闭：未关闭数为 0；#16 的依赖 #15 开放、#7 已关闭：未关闭数为 1。
+    expect(native?.open.get('#15')).toBe(0)
+    expect(native?.open.get('#16')).toBe(1)
+    expect(new Set(dependencyCalls)).toEqual(new Set([15, 16]))
+  })
+
+  it('补齐阶段依赖接口返回 404 时回退正文解析：返回空的原生结果', async () => {
     const { tracker } = trackerWith({
-      issues: () =>
-        apiCall(
-          [
-            giteaIssue({ number: 15, title: '前置任务', labels: ['ready-for-agent'] }),
-            giteaIssue({
-              number: 16,
-              title: '被阻塞的任务',
-              labels: ['ready-for-agent'],
-              body: 'Blocked by: #15\n',
-            }),
-          ],
-          2,
-        ),
-      dependencies: () => apiCall([]),
+      dependencies: () => failedApiCall(404, 'Not Found'),
     })
 
-    const snapshot = await tracker.fetchSnapshot('/workspace')
+    const native = await tracker.resolveBlockers?.('/workspace', [{ ref: '#16', number: 16 }])
 
-    expect(snapshot.tickets.map((ticket) => ticket.openBlockers)).toEqual([0, 1])
+    // 实例关闭了依赖功能：宿主保留正文回退值，本轮按正文解析定稿。
+    expect(native?.open.size).toBe(0)
+    expect(native?.blockedBy.size).toBe(0)
+  })
+
+  it('补齐阶段单票依赖查询失败时保留该票正文回退，其余票照常补齐', async () => {
+    const { tracker, dependencyCalls } = trackerWith({
+      dependencies: (index) =>
+        index === 16
+          ? failedApiCall(500, 'Internal Server Error')
+          : (GITEA_DEPENDENCIES.get(15) ?? apiCall([])),
+    })
+
+    const native = await tracker.resolveBlockers?.('/workspace', [
+      { ref: '#15', number: 15 },
+      { ref: '#16', number: 16 },
+    ])
+
+    // 失败的票不出现在结果里：宿主对它保留正文回退，不拖垮整轮补齐。
+    expect(native?.open.has('#16')).toBe(false)
+    expect(native?.open.get('#15')).toBe(0)
+    expect(new Set(dependencyCalls)).toEqual(new Set([15, 16]))
   })
 
   it('带 pull_request 的条目不会混进工单列表', async () => {
@@ -210,16 +225,6 @@ describe('Gitea 工单后端', () => {
   it('令牌失效时返回 tea-unauthenticated', async () => {
     const { tracker } = trackerWith({
       issues: () => failedApiCall(401, 'token is expired'),
-    })
-
-    await expect(tracker.fetchSnapshot('/workspace')).rejects.toMatchObject({
-      code: 'tea-unauthenticated',
-    })
-  })
-
-  it('依赖接口返回 401 时返回 tea-unauthenticated', async () => {
-    const { tracker } = trackerWith({
-      dependencies: () => failedApiCall(401, 'token is expired'),
     })
 
     await expect(tracker.fetchSnapshot('/workspace')).rejects.toMatchObject({
@@ -295,16 +300,17 @@ describe('Gitea 工单增量', () => {
     expect(Object.hasOwn(changes ?? {}, 'viewer')).toBe(false)
   })
 
-  it('返回窗口内变更过的票，并给出它的阻塞数', async () => {
-    const { tracker } = trackerWith()
+  it('返回窗口内变更过的票，阻塞先按正文回退、在补齐阶段收敛', async () => {
+    const { tracker, dependencyCalls } = trackerWith()
 
     const changes = await tracker.fetchChanges?.('/workspace', SINCE)
 
     expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
     expect(changes?.truncated).toBe(false)
-    // Gitea 没有单独的阻塞补齐能力，增量里要自己补齐，
-    // 否则合并后这张票会显示成没有阻塞。
-    expect(changes?.tickets[0]?.openBlockers).toBe(1)
+    // #16 正文没有 Blocked by 行：增量只给正文回退（0），零依赖查询；
+    // 原生阻塞数在首屏后的补齐阶段统一读取，与全量同一套语义。
+    expect(changes?.tickets[0]?.openBlockers).toBe(0)
+    expect(dependencyCalls).toEqual([])
   })
 
   it('权威总数不取窗口内的计数', async () => {
@@ -669,7 +675,23 @@ describeTrackerContract('Gitea', {
     repository: 'cnzgray/dsh-workflow',
     fetchedAt: NOW,
   },
-  nativeBlockers: { kind: 'snapshot', expected: [0, 1, 0] },
+  nativeBlockers: {
+    kind: 'deferred',
+    request: [
+      { ref: '#15', number: 15 },
+      { ref: '#16', number: 16 },
+    ],
+    expected: {
+      open: new Map([
+        ['#15', 0],
+        ['#16', 1],
+      ]),
+      blockedBy: new Map([
+        ['#15', ['#7']],
+        ['#16', ['#15', '#7']],
+      ]),
+    },
+  },
   hierarchy: { kind: 'convention', parents: { '#16': '#15' } },
   changes: {
     createTracker: () => createGiteaTracker({ run: recordedRunner().runner, now: () => NOW }),
@@ -717,6 +739,8 @@ describeTrackerContract('Gitea', {
   },
   fields: {
     closedAt: { '#9': '2026-11-11T10:00:00Z' },
-    blockedBy: { '#15': ['#7'], '#16': ['#15', '#7'], '#9': [] },
+    // 列表阶段只按正文 `Blocked by:` 行回退；这几张票正文都没有该行，引用为空。
+    // 原生依赖引用在补齐阶段（resolveBlockers）给出，见 nativeBlockers 声明。
+    blockedBy: { '#15': [], '#16': [], '#9': [] },
   },
 })

@@ -53,6 +53,23 @@ export function parseIssueGraphql(output: string, repository?: string): ParsedIs
 }
 
 /**
+ * 只读权威总数：增量对账用的无时间窗计数查询不带 nodes，
+ * 走这个轻量入口，不碰整页工单的字段校验。
+ * @param output - `gh api graphql` 的标准输出。
+ * @returns 仓库的工单总数。
+ * @throws {TrackerError} 输出不是 JSON、仓库不存在或总数不合法。
+ */
+export function parseIssuesTotal(output: string): number {
+  const payload = parseJson(output, 'gh 返回的不是有效 JSON')
+  const issues = readIssues(readRepository(payload))
+  const total = issues.totalCount
+  if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
+    throw invalid('仓库的 issues.totalCount 不是非负整数')
+  }
+  return total
+}
+
+/**
  * 当前登录用户：GraphQL 根字段 `viewer.login`。
  * 缺失或类型不对时按识别不出处理，不让一次身份字段异常打挂列表。
  * @param payload - `gh` 返回的完整 JSON。

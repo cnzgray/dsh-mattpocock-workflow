@@ -107,6 +107,15 @@ export function mapGhError(error: unknown): TrackerError {
         cause: error,
       })
     }
+    const rateLimit = rateLimitOf(error.stderr)
+    if (rateLimit !== null) {
+      return new TrackerError(
+        'rate-limited',
+        `GitHub 限流中，稍后会自动恢复：${rateLimit}`,
+        { cause: error },
+        retryAfterMsOf(error.stderr),
+      )
+    }
     return new TrackerError('fetch-failed', `读取工单失败：${commandFailureDetail(error)}`, {
       cause: error,
     })
@@ -118,4 +127,25 @@ function isAuthenticationFailure(stderr: string): boolean {
   return /gh auth login|not logged in|authentication failed|bad credentials|HTTP 401|requires authentication/i.test(
     stderr,
   )
+}
+
+/** gh 限流报错特征：主限流（exceeded / still exceeded）与次级限流都带 rate limit 字样。 */
+const RATE_LIMITED = /rate limit|too many requests|HTTP 429/i
+
+/** gh 限流输出里的一行诊断，去掉空行后取首行。 */
+function rateLimitOf(stderr: string): string | null {
+  if (!RATE_LIMITED.test(stderr)) return null
+  const firstLine = stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  return firstLine ?? '已触发限流。'
+}
+
+/** gh 限流输出里的重试等待（`retry after 27s`），缺省 undefined。 */
+function retryAfterMsOf(stderr: string): number | undefined {
+  const match = /retry[ -]?after[^0-9]*(\d{1,4})\s*s?\b/i.exec(stderr)
+  if (match === null) return undefined
+  const seconds = Number(match[1])
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined
 }

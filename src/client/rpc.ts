@@ -21,6 +21,7 @@ import {
   type SnapshotCacheInfo,
   type SnapshotCacheParams,
   type SnapshotRefreshParams,
+  type SnapshotRefreshResult,
   TICKET_DELETE_CONFIRMATION,
   type TicketAttachment,
   type TicketDeleteResult,
@@ -58,11 +59,13 @@ export interface PanelClient {
   more(workspaceRoot: string): Promise<RpcResult<WorkspaceSnapshot>>
   /**
    * 刷新快照。默认走增量；`full` 为 true 时忽略本地快照库，全量重拉一次。
+   * `ifVersion` 是界面持有的库版本：带上后数据没变回 not-modified，
+   * 变了只回变化的行与墓碑（必要时回退整份）。
    */
   refresh(
     workspaceRoot: string,
-    options?: { readonly full?: boolean },
-  ): Promise<RpcResult<WorkspaceSnapshot>>
+    options?: { readonly full?: boolean; readonly ifVersion?: number },
+  ): Promise<RpcResult<SnapshotRefreshResult>>
   /**
    * 读取本地快照库的信息；`clear` 为 true 时按确认词清空它。
    */
@@ -113,9 +116,13 @@ export function createPanelClient(t: Translate, fetchImpl: FetchLike = defaultFe
       call(fetchImpl, t, RPC_METHODS.snapshotMore, { workspaceRoot }, isSnapshotResult),
     refresh: (workspaceRoot, options) => {
       // 只有明确要求全量时才带上 full：缺省时宿主能用增量就用增量。
-      const params: SnapshotRefreshParams =
-        options?.full === true ? { workspaceRoot, full: true } : { workspaceRoot }
-      return call(fetchImpl, t, RPC_METHODS.snapshotRefresh, params, isSnapshotResult)
+      // 有库版本才带 ifVersion：没有数据时宿主按整份回。
+      const params: SnapshotRefreshParams = {
+        workspaceRoot,
+        ...(options?.full === true ? { full: true } : {}),
+        ...(options?.ifVersion === undefined ? {} : { ifVersion: options.ifVersion }),
+      }
+      return call(fetchImpl, t, RPC_METHODS.snapshotRefresh, params, isSnapshotRefreshResult)
     },
     cache: (workspaceRoot, options) => {
       const params: SnapshotCacheParams =
@@ -232,6 +239,39 @@ function isSnapshotResult(value: unknown): value is RpcResult<WorkspaceSnapshot>
   return isRpcResult(value, isWorkspaceSnapshot)
 }
 
+function isSnapshotRefreshResult(value: unknown): value is RpcResult<SnapshotRefreshResult> {
+  return isRpcResult(value, isSnapshotRefreshResultPayload)
+}
+
+/** 刷新回包守卫：三分支各自校验，缺字段按格式不对拒绝。 */
+function isSnapshotRefreshResultPayload(value: unknown): value is SnapshotRefreshResult {
+  if (!isObject(value)) return false
+  if (typeof value.kind !== 'string') return false
+  if (value.kind === 'full') {
+    return 'snapshot' in value && isWorkspaceSnapshot(value.snapshot)
+  }
+  if (value.kind === 'not-modified') {
+    return typeof value.version === 'number' && typeof value.checkedAt === 'number'
+  }
+  if (value.kind === 'changes') {
+    return (
+      typeof value.version === 'number' &&
+      typeof value.fetchedAt === 'number' &&
+      Array.isArray(value.tickets) &&
+      value.tickets.every(hasTicketFilterFields) &&
+      isStringArray(value.removed) &&
+      typeof value.metrics === 'object' &&
+      value.metrics !== null &&
+      (value.viewer === null || typeof value.viewer === 'string') &&
+      typeof value.total === 'number' &&
+      typeof value.loaded === 'number' &&
+      typeof value.windowLimit === 'number' &&
+      typeof value.blockersFinalized === 'boolean'
+    )
+  }
+  return false
+}
+
 function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
   if (typeof value !== 'object' || value === null) return false
   if (!('backend' in value) || typeof value.backend !== 'string') return false
@@ -252,6 +292,12 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
       value.hierarchy === 'convention' ||
       value.hierarchy === 'none'
     )
+  ) {
+    return false
+  }
+  if (
+    !('libraryVersion' in value) ||
+    !(value.libraryVersion === null || typeof value.libraryVersion === 'number')
   ) {
     return false
   }

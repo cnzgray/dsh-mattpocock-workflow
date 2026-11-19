@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, TicketDetail, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import { clearDetailCache } from './detail-cache.ts'
 import type { InjectionOutcome, InjectionTarget } from './injection.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import { gestures } from './prompt-test-support.ts'
@@ -29,6 +30,7 @@ import { TaskPanel } from './task-panel.tsx'
 
 afterEach(() => {
   cleanup()
+  clearDetailCache()
   localStorage.clear()
 })
 
@@ -152,6 +154,7 @@ describe('任务面板', () => {
       total: 1,
       windowLimit: 1,
       hierarchy: 'convention',
+      libraryVersion: null,
       metrics: emptyMetrics(),
       blockersFinalized: true,
       source: 'live',

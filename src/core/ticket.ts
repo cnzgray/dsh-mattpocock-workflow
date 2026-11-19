@@ -211,7 +211,8 @@ export interface Tracker {
    *
    * 增量看不见远端删除，宿主只能拿 {@link TrackerChanges.total} 对账，
    * 因此实现者必须同时给出一份权威总数；给不出总数的后端不要实现这个能力。
-   * 列表有 `windowLimit` 的后端也不能实现：窗口外的删除无法靠总数发现。
+   * 列表带 `windowLimit` 的后端（如 GitHub）只在「上次拉取已覆盖全仓」时才会被
+   * 宿主调用：覆盖全仓的基准里窗口外没有票，删除总能被总数对账发现。
    * @param workspaceRoot - 工作区根目录。
    * @param since - 毫秒时间戳；后端按「更新时间在此刻之后」过滤。
    * @returns 变更过的工单、是否被上限截断与权威总数。

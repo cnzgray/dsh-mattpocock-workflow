@@ -27,6 +27,12 @@ export const SNAPSHOT_PAGE_SIZE = 100
  */
 export const SNAPSHOT_MAX_WINDOW = 2000
 
+/**
+ * 增量刷新回包最多携带的变化行数（变更 + 墓碑）。超出后回退整份快照：
+ * 巨型变更集的增量组装不再划算，正确性也不因日志截断受损。
+ */
+export const SNAPSHOT_DELTA_MAX_ROWS = 1000
+
 /** 当前版本提供的方法：读缓存、强制刷新、补齐阻塞信息、加载更多、环境检查与工单详情。 */
 export const RPC_METHODS = {
   /** 读缓存；没有缓存时拉取一次。阻塞信息可能尚未定稿。 */
@@ -272,6 +278,12 @@ export interface WorkspaceSnapshot {
   readonly windowLimit: number
   /** 父子关系来源；为 `none` 时界面禁用父子布局并说明原因。 */
   readonly hierarchy: HierarchyKind
+  /**
+   * 本地快照库版本：单调递增整数，刷新的新鲜度判据。
+   * 刷新请求带 `ifVersion`，版本没变时宿主回极小响应、界面零重绘；
+   * 没有本地快照库（或尚未写入）时为 null，刷新按整份回。
+   */
+  readonly libraryVersion: number | null
   readonly tickets: readonly TicketSnapshot[]
   /**
    * 项目指标与压力判档。宿主在列表返回时算一次，阻塞补齐完成后重算；
@@ -308,6 +320,54 @@ export interface SnapshotRefreshParams extends SnapshotParams {
    * 缺省时能用增量就增量，缓存不可信时由界面显式要求全量。
    */
   readonly full?: boolean
+  /**
+   * 界面当前持有的本地快照库版本。带上时宿主按版本差回包：
+   * 版本没变回 not-modified 极小响应，变了只回变化的行与墓碑；
+   * 省略时按整份快照回。界面没有数据（版本 null）时不要带。
+   */
+  readonly ifVersion?: number
+}
+
+/** 快照刷新的回包：库版本没变、只有变化的行、或整份快照。 */
+export type SnapshotRefreshResult =
+  | SnapshotNotModified
+  | SnapshotChanges
+  | { readonly kind: 'full'; readonly snapshot: WorkspaceSnapshot }
+
+/** 库版本没有变化：极小响应，界面保留当前数据、零重绘。 */
+export interface SnapshotNotModified {
+  readonly kind: 'not-modified'
+  /** 当前库版本。 */
+  readonly version: number
+  /** 这次刷新的检查时刻。 */
+  readonly checkedAt: number
+}
+
+/**
+ * 库版本变化：只回变化的行与墓碑，大仓库下刷新回包仍是 KB 级。
+ * 界面把行按引用并入当前快照、剔除墓碑引用，统计随包给出（与列表同源）。
+ */
+export interface SnapshotChanges {
+  readonly kind: 'changes'
+  /** 新的库版本。 */
+  readonly version: number
+  /** 这次刷新的完成时刻，界面据此更新数据时间。 */
+  readonly fetchedAt: number
+  /** 新增或变更过的票（完整判定行）。 */
+  readonly tickets: readonly TicketSnapshot[]
+  /** 远端删除的票引用（墓碑），界面从列表剔除。 */
+  readonly removed: readonly string[]
+  /** 与列表同源的概览统计（写入事务内算好）。 */
+  readonly metrics: SnapshotMetrics
+  /** 当前登录用户；与上一次不一致时带上新值。 */
+  readonly viewer: string | null
+  /** 合并后的权威总数与已加载数。 */
+  readonly total: number
+  readonly loaded: number
+  /** 列表覆盖的窗口；与 `loaded` 一起决定还能不能扩窗。 */
+  readonly windowLimit: number
+  /** 阻塞信息是否已定稿；为 false 时界面随后请求一次补齐。 */
+  readonly blockersFinalized: boolean
 }
 
 /**
@@ -523,6 +583,8 @@ export const ERROR_CODES = {
   fetchFailed: 'fetch-failed',
   /** 编号不存在或工单已被删除。 */
   ticketNotFound: 'ticket-not-found',
+  /** 后端拒绝了请求（限流）；携带服务端要求的重试等待时按它退避。 */
+  rateLimited: 'rate-limited',
   /** 当前后端不提供所请求的详情或写能力。 */
   capabilityUnsupported: 'capability-unsupported',
   invalidParams: 'invalid-params',

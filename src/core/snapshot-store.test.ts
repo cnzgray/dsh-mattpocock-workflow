@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import {
   SNAPSHOT_STORE_VERSION,
   parseSnapshotStoreEntry,
@@ -10,6 +11,7 @@ import {
 function entry(overrides: Partial<SnapshotStoreEntry> = {}): SnapshotStoreEntry {
   return {
     version: SNAPSHOT_STORE_VERSION,
+    libraryVersion: 1,
     workspaceRoot: '/workspace',
     backend: 'github',
     repository: 'cnzgray/repo',
@@ -20,6 +22,7 @@ function entry(overrides: Partial<SnapshotStoreEntry> = {}): SnapshotStoreEntry 
     loaded: 1,
     total: 1,
     hierarchy: 'native',
+    metrics: emptyMetrics(),
     tickets: [
       {
         ref: '#1',
@@ -163,6 +166,29 @@ describe('本地快照库条目', () => {
 
   it('缺少仓库身份时按没有缓存处理', () => {
     const raw = JSON.stringify({ ...entry(), repositoryKey: undefined })
+
+    expect(parseSnapshotStoreEntry(raw)).toBeUndefined()
+  })
+
+  it('库版本与概览统计随条目一起存取', () => {
+    const original = entry({ libraryVersion: 7, metrics: emptyMetrics({ openBacklog: 3 }) })
+
+    expect(parseSnapshotStoreEntry(serializeSnapshotStoreEntry(original))).toEqual(original)
+  })
+
+  it('库版本不是非负整数时整份作废', () => {
+    expect(
+      parseSnapshotStoreEntry(JSON.stringify({ ...entry(), libraryVersion: -1 })),
+    ).toBeUndefined()
+    expect(
+      parseSnapshotStoreEntry(JSON.stringify({ ...entry(), libraryVersion: '1' })),
+    ).toBeUndefined()
+  })
+
+  it('概览统计结构不对时整份作废', () => {
+    const broken = { ...entry().metrics } as Record<string, unknown>
+    delete broken.openBacklog
+    const raw = JSON.stringify({ ...entry(), metrics: broken })
 
     expect(parseSnapshotStoreEntry(raw)).toBeUndefined()
   })

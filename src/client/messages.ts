@@ -39,6 +39,7 @@ export const zh = {
   'refresh.action': '刷新',
   'refresh.busy': '刷新中…',
   'refresh.full': '全量刷新',
+  'refresh.title': '刷新（Shift+点击：忽略本地缓存全量重拉）',
 
   'tickets.loaded': '已加载 {loaded} / 共 {total}',
   'tickets.loadedCapped': '，已达上限',
@@ -174,6 +175,7 @@ export const zh = {
   'error.rpcBadResponse': '宿主返回的响应格式不正确。',
   'error.rpcNetworkFailed': '网络请求失败：{detail}',
   'error.snapshotNoWorkspace': '当前会话没有工作区目录，无法读取工单。',
+  'error.deltaWithoutBase': '刷新回包缺少基准快照，已保留当前数据。',
   'error.openEnvCheck': '查看环境检查',
 
   'env.summary': '环境检查 {pass}/{total}',
@@ -564,6 +566,7 @@ export const en: Record<MessageKey, string> = {
   'refresh.action': 'Refresh',
   'refresh.busy': 'Refreshing…',
   'refresh.full': 'Full refresh',
+  'refresh.title': 'Refresh (Shift+click: refetch all, ignoring the local store)',
 
   'tickets.loaded': 'Loaded {loaded} of {total}',
   'tickets.loadedCapped': ' (limit reached)',
@@ -709,6 +712,7 @@ export const en: Record<MessageKey, string> = {
   'error.rpcBadResponse': 'The host returned a malformed response.',
   'error.rpcNetworkFailed': 'Network request failed: {detail}',
   'error.snapshotNoWorkspace': 'This session has no workspace directory; cannot read tickets.',
+  'error.deltaWithoutBase': 'The refresh payload has no base snapshot; kept the current data.',
   'error.openEnvCheck': 'Check environment',
 
   'env.summary': 'Environment check {pass}/{total}',

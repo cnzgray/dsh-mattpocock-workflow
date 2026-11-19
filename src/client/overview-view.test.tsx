@@ -15,6 +15,7 @@ import type {
 import { OverviewView } from './overview-view.tsx'
 import type { PanelClient } from './rpc.ts'
 import { useSnapshotRequest } from './snapshot-request.ts'
+import { wrapRefresh } from './task-panel-test-support.ts'
 
 afterEach(() => {
   cleanup()
@@ -162,6 +163,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   total: 10,
   windowLimit: 100,
   hierarchy: 'none',
+  libraryVersion: 1,
   tickets: TICKETS,
   metrics: METRICS,
   blockersFinalized: true,
@@ -211,8 +213,10 @@ function fakeClient(
     },
     refresh(root) {
       refreshCalls.push(root)
-      return Promise.resolve(
-        options.refreshResult ?? (typeof getResult === 'function' ? getResult(root) : getResult),
+      return wrapRefresh(
+        Promise.resolve(
+          options.refreshResult ?? (typeof getResult === 'function' ? getResult(root) : getResult),
+        ),
       )
     },
     resolveBlockers(root) {

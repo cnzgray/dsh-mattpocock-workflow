@@ -12,6 +12,7 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import type { InjectionOutcome, InjectionTarget, PromptInjection } from './injection.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
+import { wrapRefresh } from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
@@ -131,6 +132,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   total: TICKETS.length,
   windowLimit: TICKETS.length,
   hierarchy: 'native',
+  libraryVersion: 1,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -149,7 +151,7 @@ function fakeClient(): PanelClient {
   return {
     get: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     more: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
-    refresh: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+    refresh: () => wrapRefresh(Promise.resolve({ ok: true, result: SNAPSHOT })),
     resolveBlockers: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
     cache: () =>
       Promise.resolve({

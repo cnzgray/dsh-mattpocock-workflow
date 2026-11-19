@@ -18,6 +18,7 @@ import type {
 } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
+import { wrapRefresh } from './task-panel-test-support.ts'
 import {
   TicketDetailView,
   type DetailTarget,
@@ -102,6 +103,7 @@ export const EMPTY_SNAPSHOT: WorkspaceSnapshot = {
   total: 0,
   windowLimit: 100,
   hierarchy: 'native',
+  libraryVersion: null,
   tickets: [],
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -159,7 +161,7 @@ export function fakeBackend(
     more: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
     refresh(root) {
       refreshCalls.push(root)
-      return Promise.resolve({ ok: true, result: refreshed })
+      return wrapRefresh(Promise.resolve({ ok: true, result: refreshed }))
     },
     resolveBlockers: () => Promise.resolve({ ok: true, result: EMPTY_SNAPSHOT }),
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),

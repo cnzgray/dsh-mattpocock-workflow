@@ -208,14 +208,15 @@ function useDetailViewState(props: TicketDetailViewProps): {
 } {
   const { client, workspaceRoot } = props
   const { ref, number, ticket } = props.target
-  const request = useDetailRequest(client, workspaceRoot, ref, number)
+  // 技能徽标与阻塞项跟着宿主刷新后的快照走：关单/改标签后动作可能变成“已关闭”或换一个技能。
+  // 排在取数钩子前面：列表里这张票的更新时间是详情缓存的有效性键。
+  const { current: currentTicket, updateFromSnapshot } = useCurrentTicket(ref, ticket)
+  const request = useDetailRequest(client, workspaceRoot, ref, number, currentTicket?.updatedAt)
   // 换工作区才换缓存；同一份详情的重渲染、刷新都复用已取回的图片。
   const loadAttachment = React.useMemo(
     () => createAttachmentLoader(client, workspaceRoot),
     [client, workspaceRoot],
   )
-  // 技能徽标与阻塞项跟着宿主刷新后的快照走：关单/改标签后动作可能变成“已关闭”或换一个技能。
-  const { current: currentTicket, updateFromSnapshot } = useCurrentTicket(ref, ticket)
   const blockers = blockerItems(currentTicket, props.snapshotTickets)
   const canExpandBlockers =
     currentTicket !== null && currentTicket.skillActionReason === 'blocked' && blockers.length > 0

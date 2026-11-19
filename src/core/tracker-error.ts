@@ -14,20 +14,33 @@ export type TrackerErrorCode =
   | 'markdown-read-failed'
   | 'fetch-failed'
   | 'ticket-not-found'
+  | 'rate-limited'
 
 /** 带稳定错误码的工单读取失败。 */
 export class TrackerError extends Error {
   readonly code: TrackerErrorCode
+  /**
+   * 服务端要求的重试等待（毫秒）；限流类错误才有，
+   * 调用方据此决定冷却时长，缺省时按失败次数指数退避。
+   */
+  readonly retryAfterMs: number | undefined
 
   /**
    * @param code - 客户端可据以给出操作提示的错误码。
    * @param message - 面向用户的失败原因。
    * @param options - 原始错误，保留调用链。
+   * @param retryAfterMs - 服务端要求的重试等待（毫秒）。
    */
-  constructor(code: TrackerErrorCode, message: string, options?: ErrorOptions) {
+  constructor(
+    code: TrackerErrorCode,
+    message: string,
+    options?: ErrorOptions,
+    retryAfterMs?: number,
+  ) {
     super(message, options)
     this.name = 'TrackerError'
     this.code = code
+    this.retryAfterMs = retryAfterMs
   }
 }
 

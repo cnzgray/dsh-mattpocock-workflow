@@ -19,7 +19,7 @@ import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/t
 import { fakeInjection } from './injection-test-support.ts'
 import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { chooseSort, flipSortDirection, sortState } from './task-panel-test-support.ts'
+import { chooseSort, flipSortDirection, sortState, wrapRefresh } from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
@@ -90,6 +90,7 @@ const FINAL: WorkspaceSnapshot = {
   repository: 'cyit/cyit-harness',
   repositoryHost: 'gitlab.com',
   viewer: VIEWER,
+  libraryVersion: 2,
   fetchedAt: NOW - 15_000,
   loaded: TICKETS.length,
   total: 3,
@@ -155,7 +156,7 @@ function fakeClient(
     refresh(root, options) {
       refreshCalls.push(root)
       if (options?.full === true) fullRefreshCalls.push(root)
-      return refreshResult === undefined ? Promise.resolve(getResult) : refreshResult()
+      return wrapRefresh(Promise.resolve(refreshResult === undefined ? getResult : refreshResult()))
     },
     resolveBlockers(root) {
       resolveCalls.push(root)
@@ -351,7 +352,7 @@ describe('工单列表的阻塞补齐', () => {
     const client: PanelClient = {
       get: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
       more: () => Promise.resolve({ ok: true, result: phaseOne({ repository: 'old/repo' }) }),
-      refresh: () => refreshPending.promise,
+      refresh: () => wrapRefresh(refreshPending.promise),
       resolveBlockers: () => stale.promise,
       cache: () =>
         Promise.resolve({
@@ -723,7 +724,7 @@ describe('数据来源与刷新', () => {
       refresh: (root, options) => {
         fake.refreshCalls.push(root)
         if (options?.full === true) fake.fullRefreshCalls.push(root)
-        return refreshPending.promise
+        return wrapRefresh(refreshPending.promise)
       },
     }
     renderView(client)
@@ -768,7 +769,7 @@ describe('数据来源与刷新', () => {
     )
     const client: PanelClient = {
       ...fake.client,
-      refresh: () => refreshPending.promise,
+      refresh: () => wrapRefresh(refreshPending.promise),
     }
     renderView(client)
     await screen.findAllByTestId('ticket-row')
@@ -785,7 +786,7 @@ describe('数据来源与刷新', () => {
     )
     const client: PanelClient = {
       ...fake.client,
-      refresh: () => refreshPending.promise,
+      refresh: () => wrapRefresh(refreshPending.promise),
     }
     renderView(client)
     await screen.findAllByTestId('ticket-row')
@@ -794,18 +795,33 @@ describe('数据来源与刷新', () => {
     expect(screen.getByTestId('refresh-error').textContent).toContain('数据可能不是最新的')
   })
 
-  it('点击全量刷新时让宿主忽略本地快照库重拉一次', async () => {
+  it('Shift+点击刷新按钮让宿主忽略本地快照库全量重拉一次', async () => {
     const fake = fakeClient({ ok: true, result: FINAL }, () =>
       Promise.resolve({ ok: true, result: FINAL }),
     )
     renderView(fake.client)
     await screen.findAllByTestId('ticket-row')
 
-    fireEvent.click(screen.getByTestId('refresh-full'))
+    fireEvent.click(screen.getByTestId('refresh'), { shiftKey: true })
 
     await waitFor(() => {
       expect(fake.fullRefreshCalls).toEqual(['/repo'])
     })
     expect(fake.refreshCalls).toEqual(['/repo'])
+  })
+
+  it('普通点击刷新按钮走增量，不带全量标记', async () => {
+    const fake = fakeClient({ ok: true, result: FINAL }, () =>
+      Promise.resolve({ ok: true, result: FINAL }),
+    )
+    renderView(fake.client)
+    await screen.findAllByTestId('ticket-row')
+
+    fireEvent.click(screen.getByTestId('refresh'))
+
+    await waitFor(() => {
+      expect(fake.refreshCalls).toEqual(['/repo'])
+    })
+    expect(fake.fullRefreshCalls).toEqual([])
   })
 })

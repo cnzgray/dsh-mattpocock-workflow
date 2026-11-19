@@ -5,9 +5,12 @@ import { CommandError, TrackerError } from '../../core/tracker-error.ts'
 import { describeTrackerContract } from '../contract.test-suite.ts'
 import {
   GH_ASSIGNEES_OUTPUT,
+  GH_CHANGES_OUTPUT,
   GH_ISSUE_DETAIL,
   GH_ISSUES_OUTPUT,
   GH_LABELS_OUTPUT,
+  GH_TOTAL_BROKEN_OUTPUT,
+  GH_TOTAL_OUTPUT,
   GH_VIEWER_PERMISSION_OUTPUT,
   GIT_REMOTES_OUTPUT,
 } from './fixtures.ts'
@@ -256,6 +259,58 @@ describe('GitHub 列表窗口', () => {
     expect(seen[0]?.some((arg) => arg.startsWith('after='))).toBe(false)
     expect(seen[1]).toContain('after=cursor-2')
     expect(seen[1]).toContain('limit=1')
+  })
+})
+
+describe('GitHub 工单增量', () => {
+  it('按 since 窗口取回变更票，另发无时间窗查询取权威总数', async () => {
+    const seen: (readonly string[])[] = []
+    const { runner } = recordedRunner({
+      gh: (args) => {
+        seen.push(args)
+        return args.join(' ').includes('since=') ? GH_CHANGES_OUTPUT : GH_TOTAL_OUTPUT
+      },
+    })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+    const since = Date.parse('2026-11-13T00:00:00Z')
+
+    const changes = await tracker.fetchChanges?.('/workspace', since)
+
+    expect(changes?.tickets.map((ticket) => ticket.ref)).toEqual(['#16'])
+    expect(changes?.hierarchy).toBe('native')
+    expect(changes?.truncated).toBe(false)
+    // 权威总数来自无时间窗的查询，不是窗口内响应自己的计数。
+    expect(changes?.total).toBe(30)
+    expect(changes?.viewer).toBe('cnzgray')
+
+    const changesCall = seen.find((args) => args.join(' ').includes('since='))
+    expect(changesCall?.some((arg) => arg === `since=${new Date(since).toISOString()}`)).toBe(true)
+    expect(seen.some((args) => !args.join(' ').includes('since='))).toBe(true)
+  })
+
+  it('翻到页数上限还没拿完时标记截断', async () => {
+    const { runner } = recordedRunner({
+      gh: (args) =>
+        args.join(' ').includes('since=')
+          ? issuesPage([1], { hasNextPage: true, endCursor: 'cursor' })
+          : GH_TOTAL_OUTPUT,
+    })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    const changes = await tracker.fetchChanges?.('/workspace', Date.parse('2026-11-13T00:00:00Z'))
+
+    expect(changes?.truncated).toBe(true)
+    // 5 页上限内的变更票仍带回（每页一张的夹具），截断标记交给宿主退回全量。
+    expect(changes?.tickets.length).toBe(5)
+  })
+
+  it('权威总数不可用时抛错，由宿主退回全量', async () => {
+    const { runner } = recordedRunner({ gh: () => GH_TOTAL_BROKEN_OUTPUT })
+    const tracker = createGithubTracker({ run: runner, now: () => NOW })
+
+    await expect(
+      tracker.fetchChanges?.('/workspace', Date.parse('2026-11-13T00:00:00Z')),
+    ).rejects.toMatchObject({ code: 'fetch-failed' })
   })
 })
 
@@ -638,7 +693,17 @@ describeTrackerContract('GitHub', {
     kind: 'native',
     parents: { '#16': '#15', '#12': 'other/repo#99' },
   },
-  changes: { unsupported: true },
+  changes: {
+    createTracker: () =>
+      createGithubTracker({
+        run: recordedRunner({
+          gh: (args) => (args.join(' ').includes('since=') ? GH_CHANGES_OUTPUT : GH_TOTAL_OUTPUT),
+        }).runner,
+        now: () => NOW,
+      }),
+    since: Date.parse('2026-11-13T00:00:00Z'),
+    expected: { refs: ['#16'], total: 30, viewer: 'cnzgray' },
+  },
   detail: {
     createTracker: () =>
       mutableTracker({

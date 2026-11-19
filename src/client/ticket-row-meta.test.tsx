@@ -16,6 +16,7 @@ import type {
 } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
+import { wrapRefresh } from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 
 afterEach(() => {
@@ -91,6 +92,7 @@ const SNAPSHOT: WorkspaceSnapshot = {
   total: TICKETS.length,
   windowLimit: TICKETS.length,
   hierarchy: 'native',
+  libraryVersion: 1,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -109,7 +111,7 @@ function fakeClient(snapshot: WorkspaceSnapshot = SNAPSHOT): PanelClient {
   return {
     get: () => Promise.resolve({ ok: true, result: snapshot }),
     more: () => Promise.resolve({ ok: true, result: snapshot }),
-    refresh: () => Promise.resolve({ ok: true, result: snapshot }),
+    refresh: () => wrapRefresh(Promise.resolve({ ok: true, result: snapshot })),
     resolveBlockers: () => Promise.resolve({ ok: true, result: snapshot }),
     cache: () =>
       Promise.resolve({

@@ -47,6 +47,31 @@ import type { ProbeDeadline } from './probe-deadline.ts'
 /** 工作区初始化后的工单操作说明；存在即视为已初始化。 */
 const TRACKER_DOC = 'docs/agents/issue-tracker.md'
 
+/** 成功报告缓存时长：10 分钟内重复检查按仓库身份直接命中。 */
+const ENV_CHECK_CACHE_TTL_MS = 10 * 60 * 1000
+
+/** 连续失败的退避首档：第一次失败后 8 秒内不重复探测。 */
+const ENV_CHECK_BACKOFF_START_MS = 8_000
+
+/** 连续失败的退避上限。 */
+const ENV_CHECK_BACKOFF_MAX_MS = 5 * 60 * 1000
+
+/** 按工作区的缓存状态：成功报告、连续失败计数与上一次失败报告。 */
+interface WorkspaceCache {
+  /** 全通过的成功报告与它的仓库身份；身份判定失败或未全通过时为空。 */
+  readonly success: {
+    readonly report: EnvCheckReport
+    readonly identity: string
+    readonly expiresAt: number
+  } | null
+  /** 连续失败次数（全通过的报告把它清零）。 */
+  readonly failures: number
+  /** 最近一次探测完成的时刻，退避窗口从它起算。 */
+  readonly lastRunAt: number
+  /** 最近一次失败报告：退避窗口内原样返回，不重新探测。 */
+  readonly lastFailure: EnvCheckReport | null
+}
+
 /**
  * 磁盘上可能存放技能的目录，按顺序查找；工作区优先，其次用户主目录。
  *
@@ -99,6 +124,7 @@ export interface EnvCheckService {
  */
 export function createEnvCheckService(deps: EnvCheckServiceDeps): EnvCheckService {
   const pending = new Map<string, Promise<RpcResult<EnvCheckReport>>>()
+  const cache = new Map<string, WorkspaceCache>()
 
   return {
     handle(method, params) {
@@ -117,7 +143,43 @@ export function createEnvCheckService(deps: EnvCheckServiceDeps): EnvCheckServic
       const running = pending.get(workspaceRoot)
       if (running !== undefined) return running
 
-      const task = runCheck(deps, workspaceRoot)
+      const now = deps.now()
+      const state = cache.get(workspaceRoot)
+      const cached = state?.success
+      if (cached !== undefined && cached !== null && now < cached.expiresAt) {
+        // 缓存按工作区 + 仓库身份键控：先解析当前身份，对不上（换远端/换后端）就重跑，
+        // 重跑结果照常回写缓存，让新身份重新武装。
+        const task = serveCached(deps, workspaceRoot, cached).then((outcome) => {
+          cache.set(workspaceRoot, nextCacheState(state, outcome, deps.now()))
+          return outcome.result
+        })
+        pending.set(workspaceRoot, task)
+        void task.then(
+          () => {
+            pending.delete(workspaceRoot)
+          },
+          () => {
+            pending.delete(workspaceRoot)
+          },
+        )
+        return task
+      }
+
+      if (state !== undefined && state.failures > 0 && state.lastFailure !== null) {
+        // 连续失败按递增间隔退避：窗口内原样返回上一次失败报告，不重复探测。
+        const backoff = Math.min(
+          ENV_CHECK_BACKOFF_START_MS * 2 ** (state.failures - 1),
+          ENV_CHECK_BACKOFF_MAX_MS,
+        )
+        if (now - state.lastRunAt < backoff) {
+          return Promise.resolve({ ok: true, result: state.lastFailure })
+        }
+      }
+
+      const task = runCheck(deps, workspaceRoot).then((outcome) => {
+        cache.set(workspaceRoot, nextCacheState(state, outcome, deps.now()))
+        return outcome.result
+      })
       pending.set(workspaceRoot, task)
       void task.then(
         () => {
@@ -132,10 +194,67 @@ export function createEnvCheckService(deps: EnvCheckServiceDeps): EnvCheckServic
   }
 }
 
-async function runCheck(
+/** 缓存命中后的身份核对：身份一致原样返回，不一致重跑一次完整检查。 */
+async function serveCached(
   deps: EnvCheckServiceDeps,
   workspaceRoot: string,
-): Promise<RpcResult<EnvCheckReport>> {
+  cached: { readonly report: EnvCheckReport; readonly identity: string },
+): Promise<CheckOutcome> {
+  const probe = await probeBackend(deps, workspaceRoot)
+  const identity = identityOf(probe)
+  if (identity !== null && identity === cached.identity) {
+    return { result: { ok: true, result: cached.report }, identity: cached.identity }
+  }
+  return runCheck(deps, workspaceRoot)
+}
+
+/** 一次完整检查的结果与随之确定的仓库身份。 */
+interface CheckOutcome {
+  readonly result: RpcResult<EnvCheckReport>
+  readonly identity: string | null
+}
+
+/** 由旧状态与本次检查结果推出新缓存状态。 */
+function nextCacheState(
+  previous: WorkspaceCache | undefined,
+  outcome: CheckOutcome,
+  now: number,
+): WorkspaceCache {
+  const report = outcome.result.ok ? outcome.result.result : null
+  if (report === null) return previous ?? emptyCache(now)
+  const failed = report.items.some((item) => item.status === 'fail')
+  if (!failed) {
+    // 全通过才缓存：任何失败都允许下一次立刻重试，验证修复。
+    return {
+      success:
+        outcome.identity === null
+          ? null
+          : { report, identity: outcome.identity, expiresAt: now + ENV_CHECK_CACHE_TTL_MS },
+      failures: 0,
+      lastRunAt: now,
+      lastFailure: null,
+    }
+  }
+  return {
+    success: previous?.success ?? null,
+    failures: (previous?.failures ?? 0) + 1,
+    lastRunAt: now,
+    lastFailure: report,
+  }
+}
+
+function emptyCache(now: number): WorkspaceCache {
+  return { success: null, failures: 0, lastRunAt: now, lastFailure: null }
+}
+
+/** 仓库身份：后端类型 + 仓库路径；判定失败时为空（不拿来当缓存键）。 */
+function identityOf(probe: BackendProbeResult): string | null {
+  if (probe.outcome.status !== 'pass') return null
+  const kind = probe.outcome.choice.kind
+  return `${kind}@${kind === 'markdown' ? '' : (probe.remote?.path ?? '')}`
+}
+
+async function runCheck(deps: EnvCheckServiceDeps, workspaceRoot: string): Promise<CheckOutcome> {
   const startedAt = deps.now()
 
   try {
@@ -150,13 +269,16 @@ async function runCheck(
       capabilities: deps.capabilities(),
     }
     logSummary(deps, report, startedAt)
-    return { ok: true, result: report }
+    return { result: { ok: true, result: report }, identity: collected.identity }
   } catch {
     deps.log('warn', LOG_EVENTS.envCheck, {
       result: 'error',
       durationMs: Math.max(0, deps.now() - startedAt),
     })
-    return failure(ERROR_CODES.internal, '环境检查时发生未预期的错误。')
+    return {
+      result: failure(ERROR_CODES.internal, '环境检查时发生未预期的错误。'),
+      identity: null,
+    }
   }
 }
 
@@ -164,6 +286,8 @@ interface CollectedFacts {
   readonly facts: EnvCheckFacts
   /** 后端判定出的仓库路径；本地 Markdown 或判定失败时为 null。 */
   readonly repository: string | null
+  /** 本次判定出的仓库身份；判定失败时为空。 */
+  readonly identity: string | null
 }
 
 async function collectFacts(
@@ -204,6 +328,7 @@ async function collectFacts(
       setupSkill: PANEL_SKILLS.setup,
     },
     repository: decided === null || decided === 'markdown' ? null : (backend.remote?.path ?? null),
+    identity: identityOf(backend),
   }
 }
 

@@ -9,6 +9,7 @@ import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   RpcResult,
   SnapshotCacheInfo,
+  SnapshotRefreshResult,
   TicketDetail,
   TicketSnapshot,
   WorkspaceSnapshot,
@@ -167,6 +168,7 @@ export const SNAPSHOT: WorkspaceSnapshot = {
   total: 30,
   windowLimit: 100,
   hierarchy: 'native',
+  libraryVersion: 1,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -200,6 +202,8 @@ export interface FakeClient {
   readonly client: PanelClient
   readonly getCalls: string[]
   readonly refreshCalls: string[]
+  /** 每次刷新请求携带的库版本；没带是 undefined。 */
+  readonly refreshVersions: (number | undefined)[]
   /** 全量刷新的调用记录：工作区根目录。 */
   readonly fullRefreshCalls: string[]
   /** 详情请求的参数：工作区、引用、编号。 */
@@ -214,13 +218,36 @@ export const EMPTY_CACHE: SnapshotCacheInfo = {
   cleared: 0,
 }
 
+/** 把整份快照包成刷新回包：测试里少写一层 kind/full。 */
+export function fullRefresh(snapshot: WorkspaceSnapshot): RpcResult<SnapshotRefreshResult> {
+  return { ok: true, result: { kind: 'full', snapshot } }
+}
+
+/**
+ * 刷新假实现允许的返回形状：整份快照（自动包成 full 回包）或三分支回包。
+ * 旧测试大多只关心「刷新拿回来一份完整快照」，包一层由这里代劳。
+ */
+export type RefreshOutcome = RpcResult<WorkspaceSnapshot> | RpcResult<SnapshotRefreshResult>
+
+/** 把刷新假结果收成协议形状：整份快照包进 full 分支。 */
+export async function wrapRefresh(
+  result: Promise<RefreshOutcome>,
+): Promise<RpcResult<SnapshotRefreshResult>> {
+  const settled = await result
+  if (!settled.ok) return settled
+  const payload = settled.result
+  if ('kind' in payload) return { ok: true, result: payload }
+  return { ok: true, result: { kind: 'full', snapshot: payload } }
+}
+
 export function fakeClient(
   getResult: RpcResult<WorkspaceSnapshot> | ((root: string) => RpcResult<WorkspaceSnapshot>),
-  refreshResult?: RpcResult<WorkspaceSnapshot>,
+  refreshResult?: RpcResult<WorkspaceSnapshot> | RpcResult<SnapshotRefreshResult>,
   resolveResult: () => Promise<RpcResult<WorkspaceSnapshot>> = UNUSED_RESOLVE,
 ): FakeClient {
   const getCalls: string[] = []
   const refreshCalls: string[] = []
+  const refreshVersions: (number | undefined)[] = []
   const fullRefreshCalls: string[] = []
   const detailCalls: (readonly [string, string, number | null])[] = []
   const get = (root: string): RpcResult<WorkspaceSnapshot> =>
@@ -236,8 +263,9 @@ export function fakeClient(
     },
     refresh(root, options) {
       refreshCalls.push(root)
+      refreshVersions.push(options?.ifVersion)
       if (options?.full === true) fullRefreshCalls.push(root)
-      return Promise.resolve(refreshResult ?? get(root))
+      return wrapRefresh(Promise.resolve(refreshResult ?? get(root)))
     },
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => resolveResult(),
@@ -252,15 +280,22 @@ export function fakeClient(
     getAttachment: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.resolve({ ok: false, error: { code: 'internal', message: '未使用' } }),
   }
-  return { client, getCalls, refreshCalls, fullRefreshCalls, detailCalls }
+  return { client, getCalls, refreshCalls, refreshVersions, fullRefreshCalls, detailCalls }
 }
 
-/** 只覆盖用得到的方法；其余方法被调用即视为测试写错。 */
-export function clientWith(overrides: Partial<PanelClient>): PanelClient {
+/** 只覆盖用得到的方法；其余方法被调用即视为测试写错。refresh 覆盖允许直接返回整份快照。 */
+export function clientWith(
+  overrides: Partial<Omit<PanelClient, 'refresh'>> & {
+    readonly refresh?: (
+      workspaceRoot: string,
+      options?: { readonly full?: boolean; readonly ifVersion?: number },
+    ) => Promise<RefreshOutcome>
+  },
+): PanelClient {
+  const { refresh, ...rest } = overrides
   return {
     get: () => Promise.reject(new Error('未使用')),
     more: () => Promise.reject(new Error('未使用')),
-    refresh: () => Promise.reject(new Error('未使用')),
     cache: () => Promise.resolve({ ok: true, result: EMPTY_CACHE }),
     resolveBlockers: () => Promise.reject(new Error('未使用')),
     getDetail: () => Promise.reject(new Error('未使用')),
@@ -270,7 +305,10 @@ export function clientWith(overrides: Partial<PanelClient>): PanelClient {
     deleteTicket: () => Promise.reject(new Error('未使用')),
     getAttachment: () => Promise.reject(new Error('未使用')),
     envCheck: () => Promise.reject(new Error('未使用')),
-    ...overrides,
+    ...rest,
+    ...(refresh === undefined
+      ? { refresh: () => Promise.reject(new Error('未使用')) }
+      : { refresh: (root, options) => wrapRefresh(Promise.resolve(refresh(root, options))) }),
   }
 }
 

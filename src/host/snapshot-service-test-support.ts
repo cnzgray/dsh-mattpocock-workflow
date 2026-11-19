@@ -4,19 +4,22 @@
  */
 import { expect } from 'vitest'
 
-import type { SnapshotStore } from '../adapters/fs/snapshot-store.ts'
+import type { SnapshotChanges, SnapshotStore } from '../adapters/fs/snapshot-store.ts'
+import { SNAPSHOT_CHANGELOG_LIMIT } from '../adapters/fs/snapshot-store.ts'
 import { SNAPSHOT_STORE_VERSION, type SnapshotStoreEntry } from '../core/snapshot-store.ts'
+import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type {
   BlockerResolution,
   Ticket,
   TicketReference,
+  TicketState,
   Tracker,
   TrackerChanges,
   TrackerSnapshot,
 } from '../core/ticket.ts'
 import { TRACKER_LABELS } from '../protocol/labels.ts'
 import type { BackendKind } from '../protocol/backend.ts'
-import type { RpcResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { RpcResult, SnapshotRefreshResult, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import type { BackendResolver } from './backend-resolver.ts'
 import type { LogSink } from './log.ts'
 import { createSnapshotService, type SnapshotService } from './snapshot-service.ts'
@@ -176,6 +179,8 @@ export function serviceWith(
     readonly changes?: (workspaceRoot: string, since: number) => Promise<TrackerChanges>
     /** 注入的本地快照库。 */
     readonly store?: SnapshotStore
+    /** 覆盖假时钟；省略时每次调用向前推 25 毫秒。 */
+    readonly now?: () => number
   },
 ): {
   readonly service: SnapshotService
@@ -195,10 +200,12 @@ export function serviceWith(
   let clock = 1_000
   const service = createSnapshotService({
     resolve,
-    now: () => {
-      clock += 25
-      return clock
-    },
+    now:
+      extras?.now ??
+      (() => {
+        clock += 25
+        return clock
+      }),
     labels: TRACKER_LABELS,
     log,
     ...(extras?.store === undefined ? {} : { store: extras.store }),
@@ -206,12 +213,118 @@ export function serviceWith(
   return { service, calls, blockerCalls, changeCalls, snapshotCalls, snapshotWindows, logs }
 }
 
-/** 内存里的本地快照库：记录写入与清空，行为与文件实现一致。 */
+/** 内存里的本地快照库：记录写入与清空，行为（版本、变化日志）与文件实现一致。 */
 export interface MemoryStore extends SnapshotStore {
   readonly entries: Map<string, SnapshotStoreEntry>
   readonly writes: SnapshotStoreEntry[]
   readonly removed: string[]
   readonly cleared: number
+}
+
+/** 内存变化日志条目。 */
+interface MemoryLogEntry {
+  readonly version: number
+  readonly upserted: readonly string[]
+  readonly removed: readonly string[]
+}
+
+/** 与文件实现同一口径的写入 diff：内容变过的票为 upsert，消失的引用为墓碑。 */
+function diffTickets(
+  previous: SnapshotStoreEntry | undefined,
+  entry: SnapshotStoreEntry,
+): { readonly upserted: readonly string[]; readonly removed: readonly string[] } {
+  const previousByRef = new Map((previous?.tickets ?? []).map((t) => [t.ref, t]))
+  const nextRefs = new Set(entry.tickets.map((t) => t.ref))
+  const upserted = entry.tickets
+    .filter((t) => JSON.stringify(previousByRef.get(t.ref)) !== JSON.stringify(t))
+    .map((t) => t.ref)
+  const removed = (previous?.tickets ?? []).filter((t) => !nextRefs.has(t.ref)).map((t) => t.ref)
+  return { upserted, removed }
+}
+
+/** 折叠日志区间：同一引用多次事件时以最后一次为准。 */
+function foldLog(
+  log: readonly MemoryLogEntry[],
+  afterVersion: number,
+  entry: SnapshotStoreEntry,
+): SnapshotChanges | undefined {
+  const upserted = new Set<string>()
+  const removedRefs = new Set<string>()
+  for (const item of log) {
+    if (item.version <= afterVersion) continue
+    for (const ref of item.upserted) {
+      upserted.add(ref)
+      removedRefs.delete(ref)
+    }
+    for (const ref of item.removed) {
+      removedRefs.add(ref)
+      upserted.delete(ref)
+    }
+  }
+  const byRef = new Map(entry.tickets.map((t) => [t.ref, t]))
+  const tickets: (typeof entry.tickets)[number][] = []
+  for (const ref of upserted) {
+    const ticket = byRef.get(ref)
+    if (ticket === undefined) return undefined
+    tickets.push(ticket)
+  }
+  return { version: entry.libraryVersion, tickets, removed: [...removedRefs] }
+}
+
+/** 内存库按补丁更新一张票：改条目、记日志、推进版本。 */
+function patchMemoryTicket(
+  entries: Map<string, SnapshotStoreEntry>,
+  logs: Map<string, MemoryLogEntry[]>,
+  workspaceRoot: string,
+  ref: string,
+  patch: { readonly labels?: readonly string[]; readonly state?: TicketState },
+): boolean {
+  const entry = entries.get(workspaceRoot)
+  if (entry === undefined) return false
+  const index = entry.tickets.findIndex((ticket) => ticket.ref === ref)
+  const current = index < 0 ? undefined : entry.tickets[index]
+  if (current === undefined) return false
+  const tickets = [...entry.tickets]
+  tickets[index] = {
+    ...current,
+    ...(patch.labels === undefined ? {} : { labels: patch.labels }),
+    ...(patch.state === undefined ? {} : { state: patch.state }),
+  }
+  const newVersion = entry.libraryVersion + 1
+  entries.set(workspaceRoot, { ...entry, tickets, libraryVersion: newVersion })
+  appendMemoryLog(logs, workspaceRoot, newVersion, [ref], [])
+  return true
+}
+
+/** 内存库移除一张票：记墓碑与日志、推进版本。 */
+function removeMemoryTicket(
+  entries: Map<string, SnapshotStoreEntry>,
+  logs: Map<string, MemoryLogEntry[]>,
+  workspaceRoot: string,
+  ref: string,
+): boolean {
+  const entry = entries.get(workspaceRoot)
+  if (entry === undefined) return false
+  const tickets = entry.tickets.filter((ticket) => ticket.ref !== ref)
+  if (tickets.length === entry.tickets.length) return false
+  const newVersion = entry.libraryVersion + 1
+  entries.set(workspaceRoot, { ...entry, tickets, libraryVersion: newVersion })
+  appendMemoryLog(logs, workspaceRoot, newVersion, [], [ref])
+  return true
+}
+
+/** 内存库追加一条变化日志；与文件实现同一轮转上限。 */
+function appendMemoryLog(
+  logs: Map<string, MemoryLogEntry[]>,
+  workspaceRoot: string,
+  version: number,
+  upserted: readonly string[],
+  removed: readonly string[],
+): void {
+  const log = logs.get(workspaceRoot) ?? []
+  log.push({ version, upserted, removed })
+  while (log.length > SNAPSHOT_CHANGELOG_LIMIT) log.shift()
+  logs.set(workspaceRoot, log)
 }
 
 /**
@@ -221,6 +334,7 @@ export interface MemoryStore extends SnapshotStore {
  */
 export function memoryStore(seed: readonly SnapshotStoreEntry[] = []): MemoryStore {
   const entries = new Map(seed.map((entry) => [entry.workspaceRoot, entry]))
+  const logs = new Map<string, MemoryLogEntry[]>()
   const writes: SnapshotStoreEntry[] = []
   const removed: string[] = []
   let cleared = 0
@@ -236,12 +350,20 @@ export function memoryStore(seed: readonly SnapshotStoreEntry[] = []): MemorySto
       return Promise.resolve(entries.get(workspaceRoot))
     },
     write(entry) {
-      entries.set(entry.workspaceRoot, entry)
-      writes.push(entry)
-      return Promise.resolve()
+      const previous = entries.get(entry.workspaceRoot)
+      const newVersion = (previous?.libraryVersion ?? 0) + 1
+      const diff = diffTickets(previous, entry)
+      const stored: SnapshotStoreEntry = { ...entry, libraryVersion: newVersion }
+      entries.set(entry.workspaceRoot, stored)
+      writes.push(stored)
+      if (diff.upserted.length > 0 || diff.removed.length > 0) {
+        appendMemoryLog(logs, entry.workspaceRoot, newVersion, diff.upserted, diff.removed)
+      }
+      return Promise.resolve(newVersion)
     },
     remove(workspaceRoot) {
       entries.delete(workspaceRoot)
+      logs.delete(workspaceRoot)
       removed.push(workspaceRoot)
       return Promise.resolve()
     },
@@ -251,35 +373,34 @@ export function memoryStore(seed: readonly SnapshotStoreEntry[] = []): MemorySto
     clear() {
       const count = entries.size
       entries.clear()
+      logs.clear()
       cleared += count
       return Promise.resolve(count)
     },
     prune() {
       return Promise.resolve(0)
     },
-    patchTicket(workspaceRoot, ref, patch) {
-      const entry = entries.get(workspaceRoot)
-      if (entry === undefined) return Promise.resolve(false)
-      const index = entry.tickets.findIndex((ticket) => ticket.ref === ref)
-      if (index < 0) return Promise.resolve(false)
-      const current = entry.tickets[index]
-      if (current === undefined) return Promise.resolve(false)
-      const tickets = [...entry.tickets]
-      tickets[index] = {
-        ...current,
-        ...(patch.labels === undefined ? {} : { labels: patch.labels }),
-        ...(patch.state === undefined ? {} : { state: patch.state }),
-      }
-      entries.set(workspaceRoot, { ...entry, tickets })
-      return Promise.resolve(true)
+    patchTicket: (workspaceRoot, ref, patch) =>
+      Promise.resolve(patchMemoryTicket(entries, logs, workspaceRoot, ref, patch)),
+
+    removeTicket: (workspaceRoot, ref) =>
+      Promise.resolve(removeMemoryTicket(entries, logs, workspaceRoot, ref)),
+    version(workspaceRoot) {
+      return Promise.resolve(entries.get(workspaceRoot)?.libraryVersion ?? null)
     },
-    removeTicket(workspaceRoot, ref) {
+    changesSince(workspaceRoot, afterVersion) {
       const entry = entries.get(workspaceRoot)
-      if (entry === undefined) return Promise.resolve(false)
-      const tickets = entry.tickets.filter((ticket) => ticket.ref !== ref)
-      if (tickets.length === entry.tickets.length) return Promise.resolve(false)
-      entries.set(workspaceRoot, { ...entry, tickets })
-      return Promise.resolve(true)
+      if (entry === undefined) return Promise.resolve(undefined)
+      if (!Number.isInteger(afterVersion) || afterVersion < 0) return Promise.resolve(undefined)
+      const current = entry.libraryVersion
+      if (afterVersion > current) return Promise.resolve(undefined)
+      if (afterVersion === current)
+        return Promise.resolve({ version: current, tickets: [], removed: [] })
+      const log = logs.get(workspaceRoot) ?? []
+      const oldest = log.length === 0 ? current : (log[0]?.version ?? current)
+      // 起点比日志覆盖还旧：净变化算不全，交给调用方回退整份。
+      if (afterVersion < oldest - 1) return Promise.resolve(undefined)
+      return Promise.resolve(foldLog(log, afterVersion, entry))
     },
     location() {
       return '~/.dsh/cache/dsh-mattpocock-workflow'
@@ -295,6 +416,7 @@ export function memoryStore(seed: readonly SnapshotStoreEntry[] = []): MemorySto
 export function storedEntry(overrides: Partial<SnapshotStoreEntry> = {}): SnapshotStoreEntry {
   return {
     version: SNAPSHOT_STORE_VERSION,
+    libraryVersion: 1,
     workspaceRoot: ROOT,
     backend: 'github',
     repository: 'cnzgray/dsh-mattpocock-workflow',
@@ -305,15 +427,23 @@ export function storedEntry(overrides: Partial<SnapshotStoreEntry> = {}): Snapsh
     loaded: TICKETS.length,
     total: 30,
     hierarchy: 'native',
+    metrics: emptyMetrics(),
     tickets: TICKETS,
     ...overrides,
   }
 }
 
-export function expectOk(result: RpcResult<WorkspaceSnapshot>): WorkspaceSnapshot {
+export function expectOk<T>(result: RpcResult<T>): T {
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(result.error.message)
   return result.result
+}
+
+/** 刷新的回包断言：必须是整份快照（不是 not-modified / 变化行）时取出快照。 */
+export function expectFull(result: RpcResult<SnapshotRefreshResult>): WorkspaceSnapshot {
+  const value = expectOk(result)
+  if (value.kind !== 'full') throw new Error(`预期整份快照，得到 ${value.kind}`)
+  return value.snapshot
 }
 
 export function resolution(

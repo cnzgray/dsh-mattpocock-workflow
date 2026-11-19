@@ -47,6 +47,7 @@ const SNAPSHOT = {
   total: TICKETS.length,
   windowLimit: TICKETS.length,
   hierarchy: 'native',
+  libraryVersion: 1,
   tickets: TICKETS,
   metrics: emptyMetrics(),
   blockersFinalized: true,
@@ -190,11 +191,16 @@ function setup(
 
   const requests: RequestRecord[] = []
   vi.stubGlobal('fetch', (_input: string, init: { readonly body: string }) => {
-    requests.push(JSON.parse(init.body) as RequestRecord)
+    const request = JSON.parse(init.body) as RequestRecord
+    requests.push(request)
+    const body =
+      request.method === 'snapshot.refresh'
+        ? { ok: true, result: { kind: 'full' as const, snapshot: SNAPSHOT } }
+        : { ok: true, result: SNAPSHOT }
     return Promise.resolve({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ ok: true, result: SNAPSHOT }),
+      json: () => Promise.resolve(body),
     })
   })
 
@@ -381,7 +387,8 @@ describe('客户端入口', () => {
 
     const refreshes = harness.requests.filter((request) => request.method === 'snapshot.refresh')
     expect(refreshes).toHaveLength(1)
-    expect(refreshes[0]?.params).toEqual({ workspaceRoot: '/repo' })
+    // 首屏拿到的快照带库版本，刷新按版本回变化；增量刷新不重拉整表。
+    expect(refreshes[0]?.params).toEqual({ workspaceRoot: '/repo', ifVersion: 1 })
     expect(harness.requests.filter((request) => request.method === 'snapshot.get')).toHaveLength(1)
   })
 

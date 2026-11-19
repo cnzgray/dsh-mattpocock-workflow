@@ -101,21 +101,29 @@ export async function removeStored(
 
 /**
  * 把一次成功拉取写进本地快照库。
+ * 统计在调用方（发布流程）从同一份已判定的票算出，这里随条目一起落库，
+ * 读侧原样使用、不再计算。返回写入后的库版本；没有库时是 null。
  * @param deps - 宿主依赖。
  * @param workspaceRoot - 工作区根目录。
  * @param resolved - 解析出的后端。
  * @param raw - 后端返回的原始列表。
+ * @param metrics - 与列表同源的概览统计。
  */
 export async function writeStored(
   deps: SnapshotLibraryDeps,
   workspaceRoot: string,
   resolved: ResolvedBackend,
   raw: TrackerSnapshot,
-): Promise<void> {
+  metrics: SnapshotMetrics,
+): Promise<number | null> {
   const store = deps.store
-  if (store === undefined) return
+  if (store === undefined) return null
+  // 全量覆盖识别：这次拉取已覆盖全仓（已取数 ≥ 权威总数）时，条目以「无窗口」身份落库，
+  // 刷新从此可以走增量对账；窗口截断时维持带窗口身份，保住「窗口外删除不可见」的安全前提。
+  const coversAll = raw.tickets.length >= raw.total
   const entry: SnapshotStoreEntry = {
     version: SNAPSHOT_STORE_VERSION,
+    libraryVersion: 0,
     workspaceRoot,
     backend: resolved.kind,
     repository: raw.repository,
@@ -125,12 +133,13 @@ export async function writeStored(
     fetchedAt: raw.fetchedAt,
     loaded: raw.tickets.length,
     total: raw.total,
-    ...(raw.windowLimit === undefined ? {} : { windowLimit: raw.windowLimit }),
+    ...(coversAll || raw.windowLimit === undefined ? {} : { windowLimit: raw.windowLimit }),
     hierarchy: raw.hierarchy,
+    metrics,
     tickets: raw.tickets,
   }
   try {
-    await store.write(entry)
+    return await store.write(entry)
   } catch (error) {
     // 缓存写不进去不影响本次读取：面板照常有数据，只是下次没有缓存可用。
     deps.log('warn', LOG_EVENTS.snapshot, {
@@ -140,6 +149,7 @@ export async function writeStored(
       code: ERROR_CODES.internal,
       ...(error instanceof Error ? { reason: error.message } : {}),
     })
+    return null
   }
 }
 
@@ -154,6 +164,7 @@ export async function writeStored(
  * @param source - 实时或缓存。
  * @param stale - 数据是否陈旧。
  * @param refreshError - 最近一次刷新失败原因。
+ * @param libraryVersion - 本地快照库版本；没有库时是 null。
  * @returns 界面快照。
  */
 export function buildSnapshot(
@@ -166,6 +177,7 @@ export function buildSnapshot(
   source: SnapshotSource,
   stale: boolean,
   refreshError: { readonly code: ErrorCode; readonly message: string } | null,
+  libraryVersion: number | null,
 ): WorkspaceSnapshot {
   return {
     backend: kind,
@@ -177,36 +189,45 @@ export function buildSnapshot(
     total: raw.total,
     windowLimit: raw.windowLimit ?? tickets.length,
     hierarchy: raw.hierarchy,
+    libraryVersion,
     blockersFinalized,
     metrics,
     source,
     stale,
     refreshError,
-    tickets: tickets.map((ticket) => ({
-      ref: ticket.ref,
-      number: ticket.number,
-      title: ticket.title,
-      state: ticket.state,
-      category: ticket.category,
-      status: ticket.status,
-      labels: ticket.labels,
-      author: ticket.author,
-      assignees: ticket.assignees,
-      skillAction: ticket.skillAction,
-      skillActionReason: ticket.skillActionReason,
-      createdAt: ticket.createdAt,
-      updatedAt: ticket.updatedAt,
-      openBlockers: ticket.openBlockers,
-      ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
-      ...(ticket.url === undefined ? {} : { url: ticket.url }),
-      ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
-      ...(ticket.parent === undefined ? {} : { parent: ticket.parent }),
-    })),
+    tickets: tickets.map(toTicketSnapshot),
+  }
+}
+
+/** 把一张判定后的票映射成快照行；列表、缓存与增量回包共用同一份形状。 */
+export function toTicketSnapshot(
+  ticket: ClassifiedTicket & SkillActionDecision,
+): WorkspaceSnapshot['tickets'][number] {
+  return {
+    ref: ticket.ref,
+    number: ticket.number,
+    title: ticket.title,
+    state: ticket.state,
+    category: ticket.category,
+    status: ticket.status,
+    labels: ticket.labels,
+    author: ticket.author,
+    assignees: ticket.assignees,
+    skillAction: ticket.skillAction,
+    skillActionReason: ticket.skillActionReason,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt,
+    openBlockers: ticket.openBlockers,
+    ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
+    ...(ticket.url === undefined ? {} : { url: ticket.url }),
+    ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
+    ...(ticket.parent === undefined ? {} : { parent: ticket.parent }),
   }
 }
 
 /**
- * 用库里的数据组装一份快照。
+ * 用库里的数据组装一份快照。统计随条目存好，这里原样使用、不再计算；
+ * 与列表天然同源，两个视图不会各说各话。
  * @param deps - 宿主依赖。
  * @param stored - 库里的条目。
  * @param state - 陈旧标记与失败原因。
@@ -222,7 +243,6 @@ export function buildStoredSnapshot(
 ): WorkspaceSnapshot {
   const raw = rawOf(stored)
   const tickets = withSkillActions(classifyTickets(raw.tickets, deps.labels), deps.labels)
-  const metrics = metricsOf(deps, stored.backend, raw, tickets, false)
   return {
     backend: stored.backend,
     repository: raw.repository,
@@ -233,31 +253,13 @@ export function buildStoredSnapshot(
     total: raw.total,
     windowLimit: raw.windowLimit ?? SNAPSHOT_PAGE_SIZE,
     hierarchy: stored.hierarchy,
+    libraryVersion: stored.libraryVersion,
     blockersFinalized: false,
-    metrics,
+    metrics: stored.metrics,
     source: 'cache',
     stale: state.stale,
     refreshError: state.refreshError,
-    tickets: tickets.map((ticket) => ({
-      ref: ticket.ref,
-      number: ticket.number,
-      title: ticket.title,
-      state: ticket.state,
-      category: ticket.category,
-      status: ticket.status,
-      labels: ticket.labels,
-      author: ticket.author,
-      assignees: ticket.assignees,
-      skillAction: ticket.skillAction,
-      skillActionReason: ticket.skillActionReason,
-      createdAt: ticket.createdAt,
-      updatedAt: ticket.updatedAt,
-      openBlockers: ticket.openBlockers,
-      ...(ticket.closedAt === undefined ? {} : { closedAt: ticket.closedAt }),
-      ...(ticket.url === undefined ? {} : { url: ticket.url }),
-      ...(ticket.blockedBy === undefined ? {} : { blockedBy: ticket.blockedBy }),
-      ...(ticket.parent === undefined ? {} : { parent: ticket.parent }),
-    })),
+    tickets: tickets.map(toTicketSnapshot),
   }
 }
 

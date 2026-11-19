@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { RpcResult, TicketDetail } from '../protocol/tracker.ts'
+import { clearDetailCache } from './detail-cache.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import {
@@ -19,6 +20,7 @@ import {
 
 afterEach(() => {
   cleanup()
+  clearDetailCache()
   Reflect.deleteProperty(navigator, 'clipboard')
 })
 
@@ -711,6 +713,69 @@ describe('删除工单', () => {
 
     expect(screen.queryByTestId('delete-confirm')).toBeNull()
     expect(onBack).not.toHaveBeenCalled()
+  })
+})
+
+describe('详情缓存', () => {
+  it('再次打开同一张票且列表时间未变时秒开：不重复请求、不闪加载', async () => {
+    const backend = fakeBackend()
+    renderView(backend.client)
+    await waitFor(() => {
+      expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    })
+    expect(backend.detailCalls).toHaveLength(1)
+
+    cleanup()
+    renderView(backend.client)
+
+    // 缓存命中：内容立刻在，没有第二次请求，也没有加载态。
+    expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    expect(backend.detailCalls).toHaveLength(1)
+    expect(screen.queryByTestId('detail-loading')).toBeNull()
+  })
+
+  it('列表时间变了先显示缓存，后台静默拉新并替换内容', async () => {
+    const backend = fakeBackend()
+    renderView(backend.client)
+    await waitFor(() => {
+      expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    })
+    cleanup()
+
+    backend.changeDetail({ ...DETAIL, updatedAt: '2026-11-15T00:00:00Z', body: '远端改过的正文' })
+    renderView(backend.client, {
+      target: target(snapshotTicket({ updatedAt: '2026-11-15T00:00:00Z' })),
+      snapshotTickets: [snapshotTicket({ updatedAt: '2026-11-15T00:00:00Z' })],
+    })
+
+    // 缓存内容立即显示，不等请求；随后被新内容静默替换。
+    expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    await waitFor(() => {
+      expect(element('detail-body').textContent).toContain('远端改过的正文')
+    })
+    expect(backend.detailCalls).toHaveLength(2)
+  })
+
+  it('有缓存时拉新失败保留内容，并在头部给出失败原因', async () => {
+    const backend = fakeBackend()
+    renderView(backend.client)
+    await waitFor(() => {
+      expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    })
+    cleanup()
+
+    backend.changeDetail({ ...DETAIL, updatedAt: '2026-11-15T00:00:00Z' })
+    backend.failDetail({ code: 'fetch-failed', message: '网络断了' })
+    renderView(backend.client, {
+      target: target(snapshotTicket({ updatedAt: '2026-11-15T00:00:00Z' })),
+      snapshotTickets: [snapshotTicket({ updatedAt: '2026-11-15T00:00:00Z' })],
+    })
+
+    await waitFor(() => {
+      expect(element('detail-refresh-error').textContent).toContain('网络断了')
+    })
+    expect(element('detail-body').textContent).toContain('正文保留了原始 Markdown。')
+    expect(screen.queryByTestId('detail-load-error')).toBeNull()
   })
 })
 

@@ -11,7 +11,7 @@
  */
 import * as React from 'react'
 
-import type { RpcErrorBody, WorkspaceSnapshot } from '../protocol/tracker.ts'
+import type { RpcErrorBody, SnapshotChanges, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { useI18n } from './i18n.tsx'
 import type { Translate } from './i18n-runtime.ts'
 import type { PanelClient } from './rpc.ts'
@@ -330,17 +330,43 @@ async function loadSnapshot(
   const quiet = mode === 'auto' && target.hasData.current
   if (!quiet) target.setPhase(mode === 'get' ? 'loading' : 'refreshing')
   target.setError(null)
-  const result =
-    mode === 'get'
-      ? await target.client.get(target.workspaceRoot)
-      : await target.client.refresh(target.workspaceRoot, { full: mode === 'refresh-full' })
-  if (current !== target.sequence.current) return null
 
+  if (mode === 'get') {
+    const result = await target.client.get(target.workspaceRoot)
+    if (current !== target.sequence.current) return null
+    if (!result.ok) return applyFailure(target, mode, quiet, result.error)
+    const root = target.workspaceRoot
+    return quiet
+      ? applyQuiet(target, root, current, result.result)
+      : applyLoaded(target, root, current, result.result)
+  }
+
+  // 带上界面持有的库版本：数据没变回极小响应，变了只回变化的行与墓碑。
+  const held = target.latest.current?.libraryVersion
+  const result = await target.client.refresh(target.workspaceRoot, {
+    ...(mode === 'refresh-full' ? { full: true } : {}),
+    ...(held === null || held === undefined ? {} : { ifVersion: held }),
+  })
+  if (current !== target.sequence.current) return null
   if (!result.ok) return applyFailure(target, mode, quiet, result.error)
+
   const root = target.workspaceRoot
+  const payload = result.result
+  if (payload.kind === 'not-modified') {
+    // 数据没变：保留当前显示；阻塞没定稿时仍走一遍补齐（原生阻塞可能在这一轮收敛）。
+    return applyNotModified(target, root, current, quiet, payload.checkedAt)
+  }
+  const snapshot = payload.kind === 'full' ? payload.snapshot : mergeChanges(target, payload)
+  if (snapshot === null) {
+    // 变化行回包却没有可并入的基准（理论上不会发生：刷新前必先拿到数据）：按失败保留现状。
+    return applyFailure(target, mode, quiet, {
+      code: 'fetch-failed',
+      message: target.t('error.deltaWithoutBase'),
+    })
+  }
   return quiet
-    ? applyQuiet(target, root, current, result.result)
-    : applyLoaded(target, root, current, result.result)
+    ? applyQuiet(target, root, current, snapshot)
+    : applyLoaded(target, root, current, snapshot)
 }
 
 /**
@@ -407,6 +433,62 @@ function applyFailure(
   target.setRefreshError(error)
   if (!quiet) target.setPhase('ready')
   return null
+}
+
+/**
+ * 刷新回来数据没变（not-modified）：保留当前显示、清掉失败原因。
+ * 这次刷新成功核对了数据没变：把当前显示标成已核验的最新
+ * （清掉「数据可能不是最新」的提示与本地缓存徽标），数据时间推进到核对时刻。
+ * 阻塞没定稿时仍走一遍补齐：原生阻塞数可能在这一轮收敛。
+ * @returns 当前显示的数据（补齐后）。
+ */
+async function applyNotModified(
+  target: LoadTarget,
+  root: string,
+  current: number,
+  quiet: boolean,
+  checkedAt: number,
+): Promise<WorkspaceSnapshot | null> {
+  const base = target.latest.current
+  target.setRefreshError(null)
+  if (!quiet) target.setPhase('ready')
+  if (base === null) return null
+  const verified: WorkspaceSnapshot = {
+    ...base,
+    source: 'live',
+    stale: false,
+    refreshError: null,
+    fetchedAt: checkedAt,
+  }
+  return applyQuiet(target, root, current, verified)
+}
+
+/**
+ * 把变化行与墓碑并入当前显示的快照，得到新版完整快照。
+ * 变更行按引用覆盖或追加，墓碑引用从列表剔除；统计、计数与数据时间随行更新。
+ * @returns 合并后的快照；当前没有可并入的基准时是 null。
+ */
+function mergeChanges(target: LoadTarget, changes: SnapshotChanges): WorkspaceSnapshot | null {
+  const base = target.latest.current
+  if (base === null) return null
+  const byRef = new Map(base.tickets.map((ticket) => [ticket.ref, ticket]))
+  for (const ref of changes.removed) byRef.delete(ref)
+  for (const row of changes.tickets) byRef.set(row.ref, row)
+  return {
+    ...base,
+    tickets: [...byRef.values()],
+    metrics: changes.metrics,
+    viewer: changes.viewer,
+    total: changes.total,
+    loaded: changes.loaded,
+    windowLimit: changes.windowLimit,
+    fetchedAt: changes.fetchedAt,
+    libraryVersion: changes.version,
+    source: 'live',
+    stale: false,
+    refreshError: null,
+    blockersFinalized: changes.blockersFinalized,
+  }
 }
 
 /**

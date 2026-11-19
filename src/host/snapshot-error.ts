@@ -12,8 +12,15 @@ import { ERROR_CODES, type ErrorCode, type RpcResult } from '../protocol/tracker
 export function mapSnapshotError(error: unknown): {
   readonly code: ErrorCode
   readonly message: string
+  readonly retryAfterMs?: number
 } {
-  if (error instanceof TrackerError) return { code: error.code, message: error.message }
+  if (error instanceof TrackerError) {
+    return {
+      code: error.code,
+      message: error.message,
+      ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    }
+  }
   return { code: ERROR_CODES.internal, message: '读取工单时发生未预期的错误。' }
 }
 

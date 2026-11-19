@@ -6,6 +6,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { RpcResult, TicketDetail } from '../protocol/tracker.ts'
+import { clearDetailCache } from './detail-cache.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
 import {
@@ -19,6 +20,7 @@ import {
 
 afterEach(() => {
   cleanup()
+  clearDetailCache()
 })
 
 describe('刷新工单', () => {

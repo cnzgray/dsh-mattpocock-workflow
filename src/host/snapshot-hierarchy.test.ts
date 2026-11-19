@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { LOG_EVENTS } from '../protocol/log-events.ts'
 import {
   ROOT,
+  expectFull,
   expectOk,
   memoryStore,
   resolution,
@@ -62,7 +63,7 @@ describe('快照里的父子关系', () => {
         }),
     })
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(snapshotCalls).toHaveLength(1)
     expect(result.hierarchy).toBe('native')
@@ -94,7 +95,7 @@ describe('快照里的父子关系', () => {
         }),
     })
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.tickets.find((item) => item.ref === '#1')?.parent).toBe('#9')
     expect(result.tickets.find((item) => item.ref === '#2')?.parent).toBe('#1')

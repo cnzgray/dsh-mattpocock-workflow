@@ -5,6 +5,7 @@ import { TrackerError } from '../core/tracker-error.ts'
 import { SNAPSHOT_MAX_WINDOW, SNAPSHOT_PAGE_SIZE } from '../protocol/tracker.ts'
 import {
   ROOT,
+  expectFull,
   expectOk,
   memoryStore,
   serviceWith,
@@ -113,7 +114,7 @@ describe('加载更多', () => {
 
     expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
     expectOk(await service.handle('snapshot.more', { workspaceRoot: ROOT }))
-    expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT, full: true }))
+    expectFull(await service.refresh({ workspaceRoot: ROOT, full: true }))
 
     expect(snapshotWindows).toEqual([100, 200, 200])
   })

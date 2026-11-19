@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ROOT,
+  expectFull,
   expectOk,
   memoryStore,
   serviceWith,
@@ -33,9 +34,22 @@ describe('快照身份', () => {
 
   it('全量刷新返回 null 身份时沿用同一仓库上一次已知身份', async () => {
     const store = memoryStore([storedEntry({ viewer: 'cnzgray' })])
-    const { service } = serviceWith([snapshot({ viewer: null })], 'github', undefined, { store })
+    // 列表多一张票：发布真正写库，沿用后的身份随条目落库。
+    const { service } = serviceWith(
+      [
+        snapshot({
+          viewer: null,
+          tickets: [...storedEntry().tickets, ticket({ number: 5, title: '新票' })],
+          loaded: 5,
+          total: 31,
+        }),
+      ],
+      'github',
+      undefined,
+      { store },
+    )
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.viewer).toBe('cnzgray')
     expect(store.writes.at(-1)?.viewer).toBe('cnzgray')
@@ -47,7 +61,7 @@ describe('快照身份', () => {
       store,
     })
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.viewer).toBe('new-user')
   })
@@ -82,7 +96,7 @@ describe('快照身份', () => {
         }),
     })
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.viewer).toBe('new-user')
     expect(store.writes.at(-1)?.viewer).toBe('new-user')
@@ -102,7 +116,7 @@ describe('快照身份', () => {
         Promise.resolve({ tickets: [], hierarchy: 'none', truncated: false, total: 30 }),
     })
 
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.viewer).toBe('cnzgray')
   })
@@ -130,7 +144,7 @@ describe('快照身份', () => {
 
     // 先把缓存身份显示出来，确认增量显式返回 null 时不会被旧身份覆盖。
     expectOk(await service.handle('snapshot.get', { workspaceRoot: ROOT }))
-    const result = expectOk(await service.handle('snapshot.refresh', { workspaceRoot: ROOT }))
+    const result = expectFull(await service.refresh({ workspaceRoot: ROOT }))
 
     expect(result.viewer).toBeNull()
     expect(store.writes.at(-1)?.viewer).toBeNull()

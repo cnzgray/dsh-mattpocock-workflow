@@ -18,7 +18,7 @@ import { emptyMetrics } from '../protocol/snapshot-test-support.ts'
 import type { RpcResult, TicketSnapshot, WorkspaceSnapshot } from '../protocol/tracker.ts'
 import { fakeInjection } from './injection-test-support.ts'
 import type { PanelClient } from './rpc.ts'
-import { chooseSort, flipSortDirection } from './task-panel-test-support.ts'
+import { chooseSort, flipSortDirection, wrapRefresh } from './task-panel-test-support.ts'
 import { TicketsViewWithRequest } from './tickets-view-test-support.tsx'
 import { DEFAULT_VIEW, writeViewPreference } from './view-preference.ts'
 
@@ -79,6 +79,7 @@ function snapshot(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
     total: 10,
     windowLimit: 100,
     hierarchy: 'native',
+    libraryVersion: 1,
     tickets: TICKETS,
     metrics: emptyMetrics(),
     blockersFinalized: true,
@@ -100,7 +101,7 @@ function fakeClient(result: WorkspaceSnapshot): PanelClient {
   return {
     get: () => Promise.resolve(ok),
     more: () => Promise.resolve(ok),
-    refresh: () => Promise.resolve(ok),
+    refresh: () => wrapRefresh(Promise.resolve(ok)),
     resolveBlockers: () => Promise.resolve(ok),
     cache: () =>
       Promise.resolve({

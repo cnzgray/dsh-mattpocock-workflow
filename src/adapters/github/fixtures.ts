@@ -94,6 +94,62 @@ const RECORDED_ISSUES = {
 
 export const GH_ISSUES_OUTPUT = JSON.stringify(RECORDED_ISSUES, null, 2)
 
+/**
+ * 增量查询的录制输出：`filterBy.since` 只回窗口内变更过的票，
+ * 这里的 totalCount（1）是窗口内计数，不能拿去做权威对账。
+ */
+export const GH_CHANGES_OUTPUT = JSON.stringify(
+  {
+    data: {
+      viewer: AUTHOR,
+      repository: {
+        nameWithOwner: 'cnzgray/dsh-mattpocock-workflow',
+        issues: {
+          totalCount: 1,
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              number: 16,
+              title: '工单后端新增 Gitea 支持',
+              state: 'OPEN',
+              createdAt: '2026-11-12T14:14:07Z',
+              updatedAt: '2026-11-14T09:00:00Z',
+              labels: { nodes: [{ name: 'enhancement' }, { name: 'ready-for-agent' }] },
+              author: AUTHOR,
+              assignees: { nodes: [{ login: 'cnzgray' }] },
+              issueDependenciesSummary: { blockedBy: 1 },
+              parent: {
+                number: 15,
+                repository: { nameWithOwner: 'cnzgray/dsh-mattpocock-workflow' },
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
+  null,
+  2,
+)
+
+/** 权威总数查询的录制输出：无时间窗的 totalCount。 */
+export const GH_TOTAL_OUTPUT = JSON.stringify({
+  data: {
+    repository: {
+      issues: { totalCount: 30 },
+    },
+  },
+})
+
+/** 总数查询损坏时的输出。 */
+export const GH_TOTAL_BROKEN_OUTPUT = JSON.stringify({
+  data: {
+    repository: {
+      issues: { totalCount: 'many' },
+    },
+  },
+})
+
 /** 构造 `gh issue view --json` 的详情对象。 */
 export function ghIssueDetail(overrides: {
   readonly number: number

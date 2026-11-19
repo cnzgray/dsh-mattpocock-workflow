@@ -147,6 +147,7 @@ function createRpcHandler(
     handle: (method, params) => {
       if (method === RPC_METHODS.envCheck) return envCheck.handle(method, params)
       if (method === RPC_METHODS.snapshotCache) return snapshot.cache(params)
+      if (method === RPC_METHODS.snapshotRefresh) return snapshot.refresh(params)
       if (
         method === RPC_METHODS.ticketGet ||
         method === RPC_METHODS.ticketUpdate ||

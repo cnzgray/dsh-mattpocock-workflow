@@ -6,6 +6,7 @@
  */
 import type { BackendKind } from '../protocol/backend.ts'
 import { isRecord } from './json.ts'
+import type { SnapshotMetrics } from '../protocol/tracker.ts'
 import type { HierarchyKind, Ticket, TicketAuthor, TicketState } from './ticket.ts'
 
 /**
@@ -14,8 +15,10 @@ import type { HierarchyKind, Ticket, TicketAuthor, TicketState } from './ticket.
  * 3：条目带当前登录用户，工单带分配人；旧缓存作废后重拉一次补齐人员筛选所需的数据。
  * 4：快照带上父子能力、工单带上父级引用；旧缓存没有父子字段，
  *    留着会画出一棵缺边却看似完整的树，作废后重拉一次补齐。
+ * 5：条目带库版本与概览统计；存储按目录落库（meta + 每票一文件 + 墓碑 + 变化日志），
+ *    读侧零计算，旧缓存作废后重拉一次补齐。
  */
-export const SNAPSHOT_STORE_VERSION = 4
+export const SNAPSHOT_STORE_VERSION = 5
 
 /** 缓存文件里存的后端类型。 */
 const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown']
@@ -24,6 +27,11 @@ const BACKENDS: readonly BackendKind[] = ['github', 'gitlab', 'gitea', 'markdown
 export interface SnapshotStoreEntry {
   /** 格式版本；当前只认 {@link SNAPSHOT_STORE_VERSION}。 */
   readonly version: number
+  /**
+   * 库版本：单调递增整数，每次写入 +1，是刷新的新鲜度判据。
+   * 宿主写入时由存储赋值；构造条目时填 0，写完以存储返回的版本为准。
+   */
+  readonly libraryVersion: number
   /** 工作区根路径；用来确认这份缓存属于哪个工作区。 */
   readonly workspaceRoot: string
   /** 拉取时的后端类型。 */
@@ -49,6 +57,11 @@ export interface SnapshotStoreEntry {
   readonly windowLimit?: number
   /** 拉取时的父子关系来源；与工单上的父级引用一起决定列表能不能画树。 */
   readonly hierarchy: HierarchyKind
+  /**
+   * 概览统计：写入事务内从同一份工单数据算出，读侧原样使用、不再计算。
+   * 判定结果（可接/阻塞等）仍不进库，判定规则升级不需要清库。
+   */
+  readonly metrics: SnapshotMetrics
   /** 当时拿到的工单原始数据，不含判定结果。 */
   readonly tickets: readonly Ticket[]
 }
@@ -61,6 +74,7 @@ export interface SnapshotStoreEntry {
 export function serializeSnapshotStoreEntry(entry: SnapshotStoreEntry): string {
   return JSON.stringify({
     version: entry.version,
+    libraryVersion: entry.libraryVersion,
     workspaceRoot: entry.workspaceRoot,
     backend: entry.backend,
     repository: entry.repository,
@@ -72,6 +86,7 @@ export function serializeSnapshotStoreEntry(entry: SnapshotStoreEntry): string {
     total: entry.total,
     ...(entry.windowLimit === undefined ? {} : { windowLimit: entry.windowLimit }),
     hierarchy: entry.hierarchy,
+    metrics: entry.metrics,
     tickets: entry.tickets,
   })
 }
@@ -88,7 +103,31 @@ export function parseSnapshotStoreEntry(raw: string): SnapshotStoreEntry | undef
   } catch {
     return undefined
   }
-  return readEntry(payload)
+  return readSnapshotStoreEntry(payload)
+}
+
+/**
+ * 解析单个工单文件的内容。
+ * @param raw - 文件里的 JSON 文本。
+ * @returns 可用的工单；内容损坏时返回 undefined。
+ */
+export function parseSnapshotTicket(raw: string): Ticket | undefined {
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  return readTicket(payload)
+}
+
+/**
+ * 校验一份已解析的条目 JSON。
+ * @param value - 解析后的内容。
+ * @returns 可用的条目；任何一项不合要求都返回 undefined。
+ */
+export function readSnapshotStoreEntry(value: unknown): SnapshotStoreEntry | undefined {
+  return readEntry(value)
 }
 
 /**
@@ -137,11 +176,24 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
   const hierarchy = readHierarchy(value.hierarchy)
   if (hierarchy === undefined) return undefined
 
+  const libraryVersion = value.libraryVersion
+  if (
+    typeof libraryVersion !== 'number' ||
+    !Number.isInteger(libraryVersion) ||
+    libraryVersion < 0
+  ) {
+    return undefined
+  }
+
+  const metrics = readMetrics(value.metrics)
+  if (metrics === undefined) return undefined
+
   const tickets = readTickets(value.tickets)
   if (tickets === undefined) return undefined
 
   return {
     version: SNAPSHOT_STORE_VERSION,
+    libraryVersion,
     workspaceRoot,
     backend: backend as BackendKind,
     repository,
@@ -153,6 +205,7 @@ function readEntry(value: unknown): SnapshotStoreEntry | undefined {
     total,
     ...(windowLimit === undefined ? {} : { windowLimit }),
     hierarchy,
+    metrics,
     tickets,
   }
 }
@@ -241,6 +294,45 @@ function readTicket(value: unknown): Ticket | undefined {
 function readHierarchy(value: unknown): HierarchyKind | undefined {
   if (value === 'native' || value === 'convention' || value === 'none') return value
   return undefined
+}
+
+/**
+ * 校验概览统计。统计在写入时算好，读侧不再计算；
+ * 结构不对就整份条目作废，按没有缓存处理，不让坏统计流进界面。
+ */
+function readMetrics(value: unknown): SnapshotMetrics | undefined {
+  if (!isRecord(value)) return undefined
+  for (const key of ['openBacklog', 'readyCapacity', 'blockedRatio', 'needsTriage', 'stalled']) {
+    if (typeof value[key] !== 'number' || !Number.isFinite(value[key])) return undefined
+  }
+  for (const key of [
+    'staleCount',
+    'staleRatio',
+    'oldestUpdateDays',
+    'longestBlockerChain',
+    'openedLast30Days',
+    'closedLast30Days',
+    'netFlow',
+  ]) {
+    if (readMetricValue(value[key]) === undefined) return undefined
+  }
+  const coverage = value.coverage
+  if (!isRecord(coverage) || typeof coverage.truncated !== 'boolean') return undefined
+  const pressure = value.pressure
+  if (!isRecord(pressure) || typeof pressure.tier !== 'string') return undefined
+  if (!Array.isArray(pressure.dimensions)) return undefined
+  if (!Array.isArray(value.attention)) return undefined
+  return value as unknown as SnapshotMetrics
+}
+
+/** 校验一个可缺口的指标值。 */
+function readMetricValue(value: unknown): unknown {
+  if (!isRecord(value)) return undefined
+  if (value.value !== null && (typeof value.value !== 'number' || !Number.isFinite(value.value))) {
+    return undefined
+  }
+  if (value.gap !== null && typeof value.gap !== 'string') return undefined
+  return value
 }
 
 /** 校验创建人；本地 Markdown 没有创建人，整体为 null。 */
