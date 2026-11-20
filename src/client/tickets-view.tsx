@@ -45,7 +45,7 @@ import {
   type TicketFilter,
   type TicketSortKey,
 } from './ticket-view.ts'
-import type { TicketLayout, ViewPreference } from './view-preference.ts'
+import type { RowField, RowFields, TicketLayout, ViewPreference } from './view-preference.ts'
 import { useViewPreference } from './use-view-preference.ts'
 
 /** 工单列表视图依赖。 */
@@ -82,12 +82,15 @@ interface TicketsViewState {
   readonly moreError: SnapshotRequestState['moreError']
   readonly moreLoading: SnapshotRequestState['moreLoading']
   readonly preference: ViewPreference
+  /** 行内显示的字段开关，从偏好里取出给工具栏与列表。 */
+  readonly rowFields: RowFields
   readonly setFilter: (filter: TicketFilter) => void
   readonly toggleSort: (key: TicketSortKey) => void
   readonly setLayout: (layout: TicketLayout) => void
   readonly toggleAssignedToMe: () => void
   readonly toggleCreatedByMe: () => void
   readonly clearMyTickets: () => void
+  readonly toggleRowField: (field: RowField) => void
   readonly tickets: readonly TicketSnapshot[]
   readonly counts: TicketCounts
   readonly myCounts: MyTicketCounts
@@ -119,6 +122,7 @@ function useTicketsViewState(props: TicketsViewProps): TicketsViewState {
     toggleAssignedToMe,
     toggleCreatedByMe,
     clearMyTickets,
+    toggleRowField,
   } = useViewPreference(props.workspaceRoot)
   const now = useNow(props.now ?? Date.now)
   const ownActions = useTicketActions(props.workspaceRoot, props.injection)
@@ -154,12 +158,19 @@ function useTicketsViewState(props: TicketsViewProps): TicketsViewState {
     moreError,
     moreLoading,
     preference,
+    rowFields: {
+      showAuthor: preference.showAuthor,
+      showCreatedAt: preference.showCreatedAt,
+      showUpdatedAt: preference.showUpdatedAt,
+      showAssignees: preference.showAssignees,
+    },
     setFilter,
     toggleSort,
     setLayout,
     toggleAssignedToMe,
     toggleCreatedByMe,
     clearMyTickets,
+    toggleRowField,
     tickets,
     counts,
     myCounts,
@@ -221,6 +232,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
           myCounts={state.myCounts}
           assignedToMe={state.preference.assignedToMe}
           createdByMe={state.preference.createdByMe}
+          rowFields={state.rowFields}
           ticketCount={state.tickets.length}
           injected={state.injected}
           injection={props.injection}
@@ -237,6 +249,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
           onLayout={state.setLayout}
           onToggleAssigned={state.toggleAssignedToMe}
           onToggleCreated={state.toggleCreatedByMe}
+          onToggleRowField={state.toggleRowField}
           onClearMyTickets={state.clearMyTickets}
           onToggleTree={state.toggleTree}
           onPick={props.onOpenTicket}
@@ -253,7 +266,7 @@ export function TicketsView(props: TicketsViewProps): React.ReactElement {
 }
 
 /** 有快照时的列表主体：工具栏、父子说明与工单行。 */
-function SnapshotContent(props: {
+interface SnapshotContentProps {
   readonly snapshot: WorkspaceSnapshot
   readonly visible: readonly TicketSnapshot[]
   readonly rows: readonly TreeRow[] | undefined
@@ -267,6 +280,7 @@ function SnapshotContent(props: {
   readonly myCounts: MyTicketCounts
   readonly assignedToMe: boolean
   readonly createdByMe: boolean
+  readonly rowFields: RowFields
   readonly ticketCount: number
   readonly injected: string | null
   readonly injection: PromptInjection
@@ -278,11 +292,14 @@ function SnapshotContent(props: {
   readonly onLayout: (layout: TicketLayout) => void
   readonly onToggleAssigned: () => void
   readonly onToggleCreated: () => void
+  readonly onToggleRowField: (field: RowField) => void
   readonly onClearMyTickets: () => void
   readonly onToggleTree: (ref: string) => void
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
-}): React.ReactElement {
+}
+
+function SnapshotContent(props: SnapshotContentProps): React.ReactElement {
   const { t } = useI18n()
   return (
     <>
@@ -291,8 +308,11 @@ function SnapshotContent(props: {
         sortKey={props.sortKey}
         direction={props.direction}
         counts={props.counts}
+        fields={props.rowFields}
+        assigneesAvailable={props.snapshot.backend !== 'markdown'}
         onFilter={props.onFilter}
         onSort={props.onSort}
+        onToggleField={props.onToggleRowField}
       />
       {props.snapshot.viewer === null ? null : (
         <MyTicketsBar
@@ -324,6 +344,7 @@ function SnapshotContent(props: {
         injection={props.injection}
         focused={props.focused}
         now={props.now}
+        fields={props.rowFields}
         more={props.more}
         onPick={props.onPick}
         onSkillAction={props.onSkillAction}
@@ -406,6 +427,7 @@ function TicketRows(props: {
   readonly injection: PromptInjection
   readonly focused: string | null
   readonly now: number
+  readonly fields: RowFields
   readonly more: MoreState
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
@@ -437,6 +459,7 @@ function TicketRows(props: {
         injection={props.injection}
         focused={props.focused}
         now={props.now}
+        fields={props.fields}
         onPick={props.onPick}
         onSkillAction={props.onSkillAction}
         footer={more.available ? <MoreFooter state={more} sentinel={sentinel} /> : null}

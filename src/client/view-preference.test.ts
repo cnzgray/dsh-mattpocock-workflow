@@ -18,6 +18,10 @@ const SAVED: ViewPreference = {
   assignedToMe: true,
   createdByMe: false,
   layout: 'tree',
+  showAuthor: false,
+  showCreatedAt: false,
+  showUpdatedAt: true,
+  showAssignees: true,
 }
 
 class MemoryStorage implements PreferenceStorage {
@@ -206,6 +210,49 @@ describe('视图偏好', () => {
   it('默认视图不按人员筛选', () => {
     expect(DEFAULT_VIEW.assignedToMe).toBe(false)
     expect(DEFAULT_VIEW.createdByMe).toBe(false)
+  })
+
+  it('默认视图显示创建人与创建时间，不显示更新时间与分配人', () => {
+    expect(DEFAULT_VIEW.showAuthor).toBe(true)
+    expect(DEFAULT_VIEW.showCreatedAt).toBe(true)
+    expect(DEFAULT_VIEW.showUpdatedAt).toBe(false)
+    expect(DEFAULT_VIEW.showAssignees).toBe(false)
+  })
+
+  it('旧记录没有行内显示开关时按默认读取，其余字段保留', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      delete record.showAuthor
+      delete record.showCreatedAt
+      delete record.showUpdatedAt
+      delete record.showAssignees
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      showAuthor: DEFAULT_VIEW.showAuthor,
+      showCreatedAt: DEFAULT_VIEW.showCreatedAt,
+      showUpdatedAt: false,
+      showAssignees: false,
+    })
+  })
+
+  it('非法行内显示开关只回退该字段，其余开关与偏好保留', () => {
+    const storage = new MemoryStorage()
+    writeViewPreference(storage, '/repo', SAVED)
+    storage.rewriteOnly((record) => {
+      record.showAuthor = 'yes'
+      record.showCreatedAt = 1
+      record.showUpdatedAt = false
+    })
+
+    expect(readViewPreference(storage, '/repo')).toEqual({
+      ...SAVED,
+      showAuthor: DEFAULT_VIEW.showAuthor,
+      showCreatedAt: DEFAULT_VIEW.showCreatedAt,
+      showUpdatedAt: false,
+    })
   })
 
   it('JSON 损坏时整体回退默认视图', () => {

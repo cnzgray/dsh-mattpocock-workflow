@@ -3,7 +3,7 @@
  * 直接渲染列表视图，只断言可见文本、alt / aria-label 与 data-* 标记。
  */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 
 import type { EnvCheckReport } from '../protocol/env-check.ts'
@@ -133,21 +133,29 @@ function fakeClient(snapshot: WorkspaceSnapshot = SNAPSHOT): PanelClient {
   }
 }
 
-async function renderRows(tickets: readonly TicketSnapshot[] = TICKETS): Promise<void> {
+async function renderRows(
+  tickets: readonly TicketSnapshot[] = TICKETS,
+  options: {
+    readonly backend?: WorkspaceSnapshot['backend']
+    readonly onOpenTicket?: (ticket: TicketSnapshot) => void
+    readonly client?: PanelClient
+  } = {},
+): Promise<void> {
   const snapshot: WorkspaceSnapshot = {
     ...SNAPSHOT,
     tickets,
     loaded: tickets.length,
     total: tickets.length,
+    backend: options.backend ?? SNAPSHOT.backend,
   }
   render(
     <TicketsViewWithRequest
-      client={fakeClient(snapshot)}
+      client={options.client ?? fakeClient(snapshot)}
       workspaceRoot="/repo"
       injection={fakeInjection()}
       now={() => NOW}
       onOpenEnvCheck={() => undefined}
-      onOpenTicket={() => undefined}
+      onOpenTicket={options.onOpenTicket ?? (() => undefined)}
     />,
   )
   await screen.findAllByTestId('ticket-row')
@@ -159,6 +167,12 @@ function rowFor(ref: string): HTMLElement {
     .find((item) => item.getAttribute('data-ref') === ref)
   if (row === undefined) throw new Error(`缺少 ${ref} 的工单行`)
   return row
+}
+
+/** 行内显示开关收在图标浮层里：断言或点击前先展开，已展开时不再点。 */
+function openDisplayMenu(): void {
+  if (screen.queryByTestId('display-updated') !== null) return
+  fireEvent.click(screen.getByTestId('display-settings'))
 }
 
 describe('工单行的创建人', () => {
@@ -219,13 +233,14 @@ describe('工单行的创建人', () => {
     expect(within(row).getByText('Mallory')).toBeTruthy()
   })
 
-  it('没有创建人的票不渲染创建人区，只保留状态与标签', async () => {
+  it('没有创建人的票不渲染创建人区，创建时间单独带前缀显示', async () => {
     await renderRows()
 
     const row = rowFor('#5')
     expect(within(row).queryByTestId('ticket-author')).toBeNull()
     expect(within(row).queryByTestId('ticket-avatar')).toBeNull()
-    expect(within(row).queryByTestId('ticket-age')).toBeNull()
+    // 创建时间不再依附创建人：没有创建人时仍显示，并加「创建」前缀说明来源。
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('创建 2 小时前')
     expect(row.textContent).toContain('开放')
     expect(within(row).getByTestId('ticket-label').textContent).toBe('ready-for-agent')
   })
@@ -290,5 +305,234 @@ describe('工单行的标签', () => {
     const row = rowFor('#10')
     expect(within(row).queryAllByTestId('ticket-label')).toHaveLength(0)
     expect(within(row).queryByTestId('ticket-label-more')).toBeNull()
+  })
+})
+
+describe('工单行的可选字段', () => {
+  it('默认不显示更新时间与分配人，与加入开关前一致', async () => {
+    await renderRows([ticket({ ref: '#20', title: '默认显示', author: ALICE, assignees: ['bob'] })])
+
+    const row = rowFor('#20')
+    openDisplayMenu()
+    expect(screen.getByTestId('display-author').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('display-created').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('display-updated').getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('display-assignees').getAttribute('aria-pressed')).toBe('false')
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('2 小时前')
+    expect(within(row).queryByTestId('ticket-assignees')).toBeNull()
+  })
+
+  it('打开更新时间后，有创建人的行显示创建与更新两段', async () => {
+    await renderRows([ticket({ ref: '#21', title: '两段时间', author: ALICE })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+
+    const row = rowFor('#21')
+    expect(screen.getByTestId('display-updated').getAttribute('aria-pressed')).toBe('true')
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('创建 2 小时前 · 更新 1 小时前')
+  })
+
+  it('关闭创建人后只留创建时间，并带上「创建」前缀', async () => {
+    await renderRows([ticket({ ref: '#2a', title: '只看时间', author: ALICE })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-author'))
+
+    const row = rowFor('#2a')
+    expect(within(row).queryByTestId('ticket-author')).toBeNull()
+    expect(within(row).queryByTestId('ticket-avatar')).toBeNull()
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('创建 2 小时前')
+  })
+
+  it('关闭创建时间后保留创建人，时间区整段消失', async () => {
+    await renderRows([ticket({ ref: '#2b', title: '只看人', author: ALICE })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-created'))
+
+    const row = rowFor('#2b')
+    expect(within(row).getByTestId('ticket-author').textContent).toBe('Alice Zhang')
+    expect(within(row).queryByTestId('ticket-age')).toBeNull()
+  })
+
+  it('没有创建人的行打开更新时间后同时显示创建与更新两段', async () => {
+    await renderRows([ticket({ ref: '#22', title: '本地票', author: null, assignees: [] })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+
+    const row = rowFor('#22')
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('创建 2 小时前 · 更新 1 小时前')
+    expect(within(row).queryByTestId('ticket-author')).toBeNull()
+  })
+
+  it('更新时间无法解析时省略更新段，创建时间照常显示', async () => {
+    await renderRows([
+      ticket({ ref: '#23', title: '更新时间坏了', author: ALICE, updatedAt: 'not-a-date' }),
+    ])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+
+    const age = within(rowFor('#23')).getByTestId('ticket-age')
+    expect(age.textContent).toBe('创建 2 小时前')
+    expect(age.textContent).not.toContain('更新')
+  })
+
+  it('创建与更新时间都无法解析且没有创建人时，整个时间区不渲染', async () => {
+    await renderRows([
+      ticket({
+        ref: '#24',
+        title: '两段时间都坏了',
+        author: null,
+        createdAt: 'not-a-date',
+        updatedAt: 'also-bad',
+      }),
+    ])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+
+    expect(within(rowFor('#24')).queryByTestId('ticket-age')).toBeNull()
+  })
+
+  it('打开分配人后显示裸登录名，两个以内不折叠', async () => {
+    await renderRows([ticket({ ref: '#25', title: '两个分配人', assignees: ['alice', 'bob'] })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    const group = within(rowFor('#25')).getByTestId('ticket-assignees')
+    expect(within(group).getByTestId('ticket-assignee').textContent).toBe('alice, bob')
+    expect(within(group).queryByTestId('ticket-assignee-more')).toBeNull()
+    expect(group.getAttribute('title')).toContain('alice, bob')
+  })
+
+  it('分配人超过两个时折成 +N，悬停说明列出全部登录名', async () => {
+    await renderRows([
+      ticket({ ref: '#26', title: '三个分配人', assignees: ['alice', 'bob', 'carol'] }),
+    ])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    const group = within(rowFor('#26')).getByTestId('ticket-assignees')
+    expect(within(group).getByTestId('ticket-assignee').textContent).toBe('alice, bob')
+    const more = within(group).getByTestId('ticket-assignee-more')
+    expect(more.textContent).toBe('+1')
+    expect(more.getAttribute('title')).toContain('alice, bob, carol')
+  })
+
+  it('没有分配人的行打开开关后不渲染图标或占位', async () => {
+    await renderRows([ticket({ ref: '#27', title: '无人分配', assignees: [] })])
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    expect(within(rowFor('#27')).queryByTestId('ticket-assignees')).toBeNull()
+  })
+
+  it('本地 Markdown 后端不出现分配人开关，更新时间开关仍在', async () => {
+    await renderRows([ticket({ ref: '#28', title: '本地票', author: null })], {
+      backend: 'markdown',
+    })
+
+    openDisplayMenu()
+    expect(screen.queryByTestId('display-assignees')).toBeNull()
+    expect(screen.getByTestId('display-updated')).toBeTruthy()
+  })
+
+  it('平铺与父子布局下都显示可选字段', async () => {
+    await renderRows([ticket({ ref: '#29', title: '两种布局', author: ALICE })])
+
+    fireEvent.click(screen.getByTestId('layout-tree'))
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+
+    const row = rowFor('#29')
+    expect(within(row).getByTestId('ticket-age').textContent).toBe('创建 2 小时前 · 更新 1 小时前')
+  })
+
+  it('点开关不会打开详情', async () => {
+    const opened: string[] = []
+    await renderRows([ticket({ ref: '#30', title: '别开详情', author: ALICE })], {
+      onOpenTicket: (picked) => {
+        opened.push(picked.ref)
+      },
+    })
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    expect(opened).toEqual([])
+  })
+
+  it('切换显示开关不改变筛选与排序，也不发起快照请求', async () => {
+    const snapshot: WorkspaceSnapshot = {
+      ...SNAPSHOT,
+      tickets: TICKETS,
+      loaded: TICKETS.length,
+      total: TICKETS.length,
+    }
+    const client = fakeClient(snapshot)
+    const get = vi.fn((workspaceRoot: string) => client.get(workspaceRoot))
+    await renderRows(TICKETS, { client: { ...client, get } })
+    const before = screen.queryAllByTestId('ticket-row').map((row) => row.getAttribute('data-ref'))
+    get.mockClear()
+
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    expect(get).not.toHaveBeenCalled()
+    expect(screen.getByTestId('filter-open').getAttribute('aria-pressed')).toBe('true')
+    expect(
+      screen.queryAllByTestId('ticket-row').map((row) => row.getAttribute('data-ref')),
+    ).toEqual(before)
+  })
+
+  it('开关按工作区持久化，重新挂载后恢复', async () => {
+    await renderRows()
+    openDisplayMenu()
+    fireEvent.click(screen.getByTestId('display-updated'))
+    fireEvent.click(screen.getByTestId('display-assignees'))
+
+    cleanup()
+    await renderRows()
+
+    openDisplayMenu()
+    expect(screen.getByTestId('display-updated').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('display-assignees').getAttribute('aria-pressed')).toBe('true')
+    expect(within(rowFor('#1')).getByTestId('ticket-age').textContent).toContain('更新')
+  })
+
+  it('显示配置收在图标入口里，展开后可连续切换，Esc 收起并归还焦点', async () => {
+    await renderRows()
+
+    expect(screen.queryByTestId('display-updated')).toBeNull()
+    expect(screen.getByTestId('display-settings').getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(screen.getByTestId('display-settings'))
+    expect(screen.getByTestId('display-settings').getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.click(screen.getByTestId('display-updated'))
+    // 切换一项后浮层仍开着，方便继续勾另一项。
+    expect(screen.getByTestId('display-assignees')).toBeTruthy()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByTestId('display-updated')).toBeNull()
+    expect(screen.getByTestId('display-settings').getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(screen.getByTestId('display-settings'))
+  })
+
+  it('点浮层外部收起', async () => {
+    await renderRows()
+
+    fireEvent.click(screen.getByTestId('display-settings'))
+    fireEvent.pointerDown(document.body)
+
+    expect(screen.queryByTestId('display-updated')).toBeNull()
   })
 })

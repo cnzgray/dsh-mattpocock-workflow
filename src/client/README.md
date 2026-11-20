@@ -13,6 +13,12 @@
   折叠由面板级会话状态持有（`ticket-tree-session.tsx` + `use-collapsed-tickets.ts`）：刷新、加载更多、切换筛选与排序、
   打开详情或切到概览再回来都保留，换工作区清空；从概览定位被折叠的票时自动展开祖先链。只有快照的 `hierarchy` 不是 `none` 时父子布局才生效；
   偏好是父子但当前后端无能力时按平铺渲染并说明，偏好本身保留；切换布局不发请求；
+- 行内显示开关：`view-preference.ts` 的 `showAuthor`、`showCreatedAt`、`showUpdatedAt` 与 `showAssignees`
+  控制列表行显示哪些字段，前两个默认打开、后两个默认关闭，全部按工作区保存；
+  工具栏 `tickets-toolbar.tsx` 把入口交给 `row-display-control.tsx` 的图标按钮，浮层里是这四个开关，
+  点外部或按 Esc 收起；本地 Markdown 不渲染分配人开关；
+  时间区在 `ticket-list.tsx` 内由创建、更新两段组合，两段各自受开关控制，创建时间不再依附创建人；
+  分配人只显示远端登录名，不读头像；
 - 列表窗口：首屏只取 `SNAPSHOT_PAGE_SIZE` 张，列表底部哨兵进入视口时调用 `snapshot.more` 再取一页，
   宿主合并、排序、去重并返回完整快照；界面只替换数据。加载失败保留列表并给重试入口，
   到 `SNAPSHOT_MAX_WINDOW` 后显示「已达上限」，筛选变化不触发扩窗；

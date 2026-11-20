@@ -9,6 +9,7 @@ import { TRIAGE_LABELS } from '../protocol/labels.ts'
 import type { TicketAuthor, TicketSnapshot, TicketStatus } from '../protocol/tracker.ts'
 import { authorName, authorTitle } from './author-text.ts'
 import { useI18n } from './i18n.tsx'
+import { PersonIcon } from './icons.tsx'
 import type { InjectionTarget, PromptInjection } from './injection.ts'
 import type { MessageKey } from './messages.ts'
 import { formatRelativeTime } from './relative-time.ts'
@@ -27,6 +28,10 @@ import {
 import { TicketAvatar } from './ticket-avatar.tsx'
 import { TicketNumber } from './ticket-number.tsx'
 import {
+  ASSIGNEE_GROUP_STYLE,
+  ASSIGNEE_ICON_STYLE,
+  ASSIGNEE_MORE_STYLE,
+  ASSIGNEE_NAME_STYLE,
   AUTHOR_NAME_STYLE,
   CARD_CONTENT_STYLE,
   CARD_META_STYLE,
@@ -39,6 +44,7 @@ import {
   TREE_TOGGLE_STYLE,
 } from './ticket-row-styles.ts'
 import type { TreeRow } from './ticket-tree.ts'
+import type { RowFields } from './view-preference.ts'
 
 /** 工单列表依赖。 */
 export interface TicketListProps {
@@ -59,6 +65,8 @@ export interface TicketListProps {
   readonly focused?: string | null | undefined
   /** 当前时间（毫秒），用于行内的相对创建时间。 */
   readonly now: number
+  /** 行内显示哪些字段：创建人、创建时间、更新时间与分配人。 */
+  readonly fields: RowFields
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
   /** 列表底部的附加内容（加载更多哨兵）；跟着列表一起滚动。 */
@@ -67,6 +75,9 @@ export interface TicketListProps {
 
 /** 分类之外最多显示几个标签；超出的折成 `+N`，窄面板不被撑破。 */
 const MAX_EXTRA_LABELS = 3
+
+/** 行内最多显示几个分配人登录名；超出的折成 `+N`，完整名单放悬停说明。 */
+const MAX_ROW_ASSIGNEES = 2
 
 /** 工单状态到词典键。 */
 const STATUS_KEYS: Readonly<Record<TicketStatus, MessageKey>> = {
@@ -109,6 +120,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
                 injection={props.injection}
                 focused={ticket.ref === props.focused}
                 now={props.now}
+                fields={props.fields}
                 onPick={props.onPick}
                 onSkillAction={props.onSkillAction}
               />
@@ -122,6 +134,7 @@ export function TicketList(props: TicketListProps): React.ReactElement {
                 injection={props.injection}
                 focused={row.ticket.ref === props.focused}
                 now={props.now}
+                fields={props.fields}
                 onPick={props.onPick}
                 onSkillAction={props.onSkillAction}
                 {...(props.onToggleTree === undefined ? {} : { onToggleTree: props.onToggleTree })}
@@ -133,17 +146,20 @@ export function TicketList(props: TicketListProps): React.ReactElement {
   )
 }
 
-function TicketRow(props: {
+interface TicketRowProps {
   readonly ticket: TicketSnapshot
   readonly row?: TreeRow | undefined
   readonly injected: boolean
   readonly injection: PromptInjection
   readonly focused: boolean
   readonly now: number
+  readonly fields: RowFields
   readonly onPick: (ticket: TicketSnapshot) => void
   readonly onSkillAction: (ticket: TicketSnapshot, target: InjectionTarget) => void
   readonly onToggleTree?: ((ref: string) => void) | undefined
-}): React.ReactElement {
+}
+
+function TicketRow(props: TicketRowProps): React.ReactElement {
   const { t } = useI18n()
   const { ticket } = props
 
@@ -198,7 +214,7 @@ function TicketRow(props: {
           <TicketNumber ticket={ticket} />
           {ticket.title}
         </span>
-        <MetaRow ticket={ticket} row={props.row} now={props.now} />
+        <MetaRow ticket={ticket} row={props.row} now={props.now} fields={props.fields} />
       </div>
       <SkillActionBadge
         ticket={ticket}
@@ -215,6 +231,7 @@ function MetaRow(props: {
   readonly ticket: TicketSnapshot
   readonly row?: TreeRow | undefined
   readonly now: number
+  readonly fields: RowFields
 }): React.ReactElement {
   const { t } = useI18n()
   const { ticket, row } = props
@@ -254,30 +271,64 @@ function MetaRow(props: {
           +{String(hidden)}
         </span>
       ) : null}
-      {ticket.author === null ? null : (
-        <AuthorMeta
-          author={ticket.author}
-          createdAt={ticket.createdAt}
-          updatedAt={ticket.updatedAt}
-          now={props.now}
-        />
-      )}
+      {props.fields.showAssignees && ticket.assignees.length > 0 ? (
+        <AssigneeMeta assignees={ticket.assignees} />
+      ) : null}
+      {props.fields.showAuthor && ticket.author !== null ? (
+        <AuthorMeta author={ticket.author} />
+      ) : null}
+      <TimeMeta
+        createdAt={ticket.createdAt}
+        updatedAt={ticket.updatedAt}
+        now={props.now}
+        fields={props.fields}
+        authorShown={props.fields.showAuthor && ticket.author !== null}
+      />
     </span>
   )
 }
 
-/** 创建人区：头像、用户名与相对创建时间；时间沿用面板头部的说法。 */
-function AuthorMeta(props: {
-  readonly author: TicketAuthor
-  readonly createdAt: string
-  readonly updatedAt: string
-  readonly now: number
-}): React.ReactElement {
+/** 分配人区：小人图标后接裸远端登录名，最多两个，其余折成 `+N`；不读头像。 */
+function AssigneeMeta(props: { readonly assignees: readonly string[] }): React.ReactElement {
+  const { t } = useI18n()
+  const separator = t('row.assigneesSeparator')
+  const all = props.assignees.join(separator)
+  const shown = props.assignees.slice(0, MAX_ROW_ASSIGNEES)
+  const hidden = props.assignees.length - shown.length
+
+  return (
+    <span
+      role="group"
+      data-testid="ticket-assignees"
+      aria-label={t('row.assigneesA11y', { names: all })}
+      title={t('row.assigneesTitle', { names: all })}
+      style={ASSIGNEE_GROUP_STYLE}
+    >
+      <span aria-hidden="true" style={ASSIGNEE_ICON_STYLE}>
+        <PersonIcon />
+      </span>
+      <span data-testid="ticket-assignee" style={ASSIGNEE_NAME_STYLE}>
+        {shown.join(separator)}
+      </span>
+      {hidden > 0 ? (
+        <span
+          data-testid="ticket-assignee-more"
+          title={t('row.assigneesMoreTitle', { count: hidden, names: all })}
+          style={ASSIGNEE_MORE_STYLE}
+        >
+          +{String(hidden)}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+/** 创建人：头像与用户名；时间区独立，没有创建人的行也能显示更新时间。 */
+function AuthorMeta(props: { readonly author: TicketAuthor }): React.ReactElement {
   const { t } = useI18n()
   const { author } = props
   const name = authorName(author)
   const full = authorTitle(author, t)
-  const age = formatRelativeTime(props.createdAt, props.now, t)
 
   return (
     <>
@@ -285,16 +336,48 @@ function AuthorMeta(props: {
       <span data-testid="ticket-author" title={full} style={AUTHOR_NAME_STYLE}>
         {name}
       </span>
-      {age.length === 0 ? null : (
-        <span
-          data-testid="ticket-age"
-          title={t('tickets.age.title', { created: props.createdAt, updated: props.updatedAt })}
-          style={ROW_AGE_STYLE}
-        >
-          {age}
-        </span>
-      )}
     </>
+  )
+}
+
+/**
+ * 行内时间区：创建与更新两段各自受开关控制，都关掉时不渲染。
+ * 创建人就在同一行且只显示创建时间时，保持加入开关前的裸相对时间；
+ * 与更新时间同排、创建人被藏起来或这一行没有创建人时，加「创建」前缀点明含义。
+ * 任一时间无法解析时省略对应段。
+ */
+function TimeMeta(props: {
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly now: number
+  readonly fields: RowFields
+  /** 这一行当前是否真的渲染了创建人。 */
+  readonly authorShown: boolean
+}): React.ReactElement | null {
+  const { t } = useI18n()
+  const createdAge = props.fields.showCreatedAt
+    ? formatRelativeTime(props.createdAt, props.now, t)
+    : ''
+  const updatedAge = props.fields.showUpdatedAt
+    ? formatRelativeTime(props.updatedAt, props.now, t)
+    : ''
+  const segments: string[] = []
+
+  if (createdAge.length > 0) {
+    const bare = !props.fields.showUpdatedAt && props.authorShown
+    segments.push(bare ? createdAge : t('row.time.created', { age: createdAge }))
+  }
+  if (updatedAge.length > 0) segments.push(t('row.time.updated', { age: updatedAge }))
+  if (segments.length === 0) return null
+
+  return (
+    <span
+      data-testid="ticket-age"
+      title={t('tickets.age.title', { created: props.createdAt, updated: props.updatedAt })}
+      style={ROW_AGE_STYLE}
+    >
+      {segments.join(t('row.time.separator'))}
+    </span>
   )
 }
 

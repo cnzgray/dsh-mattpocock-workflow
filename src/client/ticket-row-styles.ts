@@ -1,10 +1,11 @@
 /**
- * 工单行的样式：内容区与打开按钮、编号，以及元信息里的标签徽标、创建人头像与用户名、相对创建时间。
+ * 工单行的样式：内容区与打开按钮、编号，以及元信息里的标签徽标、创建人头像与用户名、相对创建时间，
+ * 还有工具栏上的行内显示配置入口与浮层。
  * 从 task-panel-styles 拆出来，避免面板样式文件越过 max-lines；颜色都走 DSH 主题变量。
  */
 import type { CSSProperties } from 'react'
 
-import { COLORS } from './task-panel-styles.ts'
+import { CHIP_STYLE, COLORS } from './task-panel-styles.ts'
 
 /** 标题下的一行小字：状态在前、分类在后，都是次要信息。 */
 export const CARD_META_STYLE: CSSProperties = {
@@ -134,6 +135,40 @@ export const ROW_AGE_STYLE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
+/** 分配人区：小人图标与登录名排成一组，随元信息行换行。 */
+export const ASSIGNEE_GROUP_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  minWidth: 0,
+}
+
+/** 分配人区的前导图标：字段标识，不带文字语义。 */
+export const ASSIGNEE_ICON_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  flex: 'none',
+  color: COLORS.tertiary,
+  lineHeight: '18px',
+}
+
+/** 分配人登录名：和详情一样是裸远端用户名，窄侧栏下不截断。 */
+export const ASSIGNEE_NAME_STYLE: CSSProperties = {
+  color: COLORS.secondary,
+  fontSize: 11,
+  lineHeight: '18px',
+  whiteSpace: 'nowrap',
+}
+
+/** 分配人超过显示上限时的 `+N`，完整名单在悬停说明里。 */
+export const ASSIGNEE_MORE_STYLE: CSSProperties = {
+  color: COLORS.tertiary,
+  fontSize: 11,
+  lineHeight: '18px',
+  whiteSpace: 'nowrap',
+  cursor: 'default',
+}
+
 /** 卡片内容：编号与标题一段，元信息一行；打开详情的按钮铺在下面。 */
 export const CARD_CONTENT_STYLE: CSSProperties = {
   position: 'relative',
@@ -202,4 +237,56 @@ export const NUMBER_MARK_STYLE: CSSProperties = {
   justifyContent: 'center',
   width: '0.6em',
   verticalAlign: '-1px',
+}
+
+/** 行内显示配置的容器：图标按钮与浮层共用定位上下文。 */
+export const DISPLAY_MENU_WRAP_STYLE: CSSProperties = {
+  position: 'relative',
+  display: 'inline-flex',
+}
+
+/** 图标按钮：与排序下拉同高，打开时加深底色表示浮层已展开。 */
+export const DISPLAY_MENU_TRIGGER_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 6,
+  padding: '1px 6px',
+  color: COLORS.secondary,
+  background: COLORS.surfaceRaised,
+  cursor: 'pointer',
+  font: 'inherit',
+  lineHeight: '20px',
+}
+
+/** 浮层：贴着按钮向右下展开，盖住列表。 */
+export const DISPLAY_MENU_PANEL_STYLE: CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 4px)',
+  right: 0,
+  zIndex: 20,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 132,
+  padding: 4,
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 8,
+  background: COLORS.surfaceRaised,
+  boxShadow: '0 6px 18px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.08)',
+}
+
+/** 浮层里的一项：整行可点，开启时右侧打勾。 */
+export const DISPLAY_MENU_ITEM_STYLE: CSSProperties = {
+  ...CHIP_STYLE,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  width: '100%',
+  borderRadius: 5,
+  // 浏览器默认按钮底色会在浮层里显成灰块；开启项才用抬起来的底色。
+  background: 'transparent',
+  textAlign: 'left',
 }

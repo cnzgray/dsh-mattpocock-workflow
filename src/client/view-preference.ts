@@ -9,6 +9,12 @@ import type { SortDirection, TicketFilter, TicketSortKey } from './ticket-view.t
 /** 列表布局：平铺或父子。 */
 export type TicketLayout = 'flat' | 'tree'
 
+/** 列表行可配置显示的字段；键名与偏好字段一致。 */
+export type RowField = 'showAuthor' | 'showCreatedAt' | 'showUpdatedAt' | 'showAssignees'
+
+/** 行内显示的当前开关：配置入口与行渲染共用同一份形状。 */
+export type RowFields = Readonly<Record<RowField, boolean>>
+
 /** 面板的一份视图偏好。 */
 export interface ViewPreference {
   readonly filter: TicketFilter
@@ -20,6 +26,14 @@ export interface ViewPreference {
   readonly createdByMe: boolean
   /** 列表布局；旧存档没有这个字段时回退平铺。 */
   readonly layout: TicketLayout
+  /** 行内是否显示创建人；默认显示，与加入开关前的显示一致。 */
+  readonly showAuthor: boolean
+  /** 行内是否显示相对创建时间；默认显示，与加入开关前的显示一致。 */
+  readonly showCreatedAt: boolean
+  /** 行内是否显示更新时间；默认关闭，与加入开关前的显示一致。 */
+  readonly showUpdatedAt: boolean
+  /** 行内是否显示分配人；默认关闭，与加入开关前的显示一致。 */
+  readonly showAssignees: boolean
 }
 
 /** 没有存档时使用的视图：只看未关闭工单，可接的排在前面，平铺显示且不按人员筛选。 */
@@ -30,6 +44,10 @@ export const DEFAULT_VIEW: ViewPreference = {
   assignedToMe: false,
   createdByMe: false,
   layout: 'flat',
+  showAuthor: true,
+  showCreatedAt: true,
+  showUpdatedAt: false,
+  showAssignees: false,
 }
 
 /** Web Storage 里用到的部分；测试可以注入内存实现。 */
@@ -97,6 +115,16 @@ export function readViewPreference(
     assignedToMe: isBoolean(stored.assignedToMe) ? stored.assignedToMe : DEFAULT_VIEW.assignedToMe,
     createdByMe: isBoolean(stored.createdByMe) ? stored.createdByMe : DEFAULT_VIEW.createdByMe,
     layout: isLayout(stored.layout) ? stored.layout : DEFAULT_VIEW.layout,
+    showAuthor: isBoolean(stored.showAuthor) ? stored.showAuthor : DEFAULT_VIEW.showAuthor,
+    showCreatedAt: isBoolean(stored.showCreatedAt)
+      ? stored.showCreatedAt
+      : DEFAULT_VIEW.showCreatedAt,
+    showUpdatedAt: isBoolean(stored.showUpdatedAt)
+      ? stored.showUpdatedAt
+      : DEFAULT_VIEW.showUpdatedAt,
+    showAssignees: isBoolean(stored.showAssignees)
+      ? stored.showAssignees
+      : DEFAULT_VIEW.showAssignees,
   }
 }
 
@@ -125,6 +153,10 @@ export function writeViewPreference(
         assignedToMe: preference.assignedToMe,
         createdByMe: preference.createdByMe,
         layout: preference.layout,
+        showAuthor: preference.showAuthor,
+        showCreatedAt: preference.showCreatedAt,
+        showUpdatedAt: preference.showUpdatedAt,
+        showAssignees: preference.showAssignees,
         savedAt: now(),
         version: STORAGE_VERSION,
       }),

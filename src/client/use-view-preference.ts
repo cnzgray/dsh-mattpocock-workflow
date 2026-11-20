@@ -9,6 +9,7 @@ import {
   readViewPreference,
   writeViewPreference,
   type PreferenceStorage,
+  type RowField,
   type TicketLayout,
   type ViewPreference,
 } from './view-preference.ts'
@@ -22,6 +23,8 @@ export interface ViewPreferenceControls {
   readonly toggleCreatedByMe: () => void
   readonly clearMyTickets: () => void
   readonly setLayout: (layout: TicketLayout) => void
+  /** 切换行内某个可选字段的显示。 */
+  readonly toggleRowField: (field: RowField) => void
 }
 
 interface ViewState {
@@ -82,6 +85,9 @@ export function useViewPreference(workspaceRoot: string | undefined): ViewPrefer
     },
     setLayout: (layout) => {
       apply({ ...preference, layout })
+    },
+    toggleRowField: (field) => {
+      apply({ ...preference, [field]: !preference[field] })
     },
   }
 }

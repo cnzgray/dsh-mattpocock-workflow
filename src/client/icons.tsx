@@ -222,6 +222,22 @@ export function TrashIcon(): React.ReactElement {
   )
 }
 
+/** 行内显示配置：两条带滑块的轨道，表示可调的显示项。 */
+export function DisplaySettingsIcon(): React.ReactElement {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 5h2M7.5 5h6M2.5 11h6M11.5 11h2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <circle cx="6" cy="5" r="1.6" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="10" cy="11" r="1.6" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
 /** 平铺布局：三条等长横线。 */
 export function FlatListIcon(): React.ReactElement {
   return (
